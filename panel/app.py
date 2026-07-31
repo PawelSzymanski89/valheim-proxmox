@@ -422,6 +422,14 @@ def summary():
     lan = _sh("hostname -I").stdout.split()
     lan_ip = lan[0] if lan else None
     hostname = _sh("hostname").stdout.strip()
+    # the game port only appears once the world has finished loading — on a first start
+    # that is a good minute, and calling that "broken" would be wrong
+    age = _sh('date +%s; date -d "$(systemctl show valheim -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0').stdout.split()
+    starting = False
+    try:
+        starting = int(age[1]) > 0 and int(age[0]) - int(age[1]) < 120
+    except Exception:
+        pass
     listen = _sh("ss -ulnH; ss -tlnH").stdout
 
     a2s = _a2s_info("127.0.0.1", query)
@@ -473,11 +481,13 @@ def summary():
          "state": "ok" if a2s else ("unknown" if not env["public"] else "bad"),
          "detail": (f"replied: {a2s['name']} · {a2s['players']}/{a2s['max']} players" if a2s
                     else "the query responder only runs when the server is listed publicly"
-                    if not env["public"] else
+                    if not env["public"] else "still starting up" if starting else
                     "no reply — normal for the first ~30 s after a start, otherwise the server is not ready")},
         {"key": "bind", "label": "Ports open inside the container",
-         "state": "ok" if (f":{panel_port}" in listen and (game_bound or crossplay)) else "bad",
+         "state": ("ok" if (f":{panel_port}" in listen and (game_bound or crossplay))
+                   else "unknown" if starting else "bad"),
          "detail": (("game " + str(game) + " bound · " if game_bound else
+                     f"game {game} not bound yet — the world is still loading · " if starting else
                      f"game {game} not bound (expected with crossplay on) · ")
                     + " ".join(sorted({ln.split()[3] for ln in listen.splitlines()
                                        if len(ln.split()) > 3 and str(game) in ln.split()[3]
