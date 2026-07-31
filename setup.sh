@@ -23,7 +23,10 @@ trap 'echo -e "\033[1;31mSetup failed at line $LINENO\033[0m" >&2' ERR
 # `set -o pipefail` that aborts the whole script before it prints anything.
 randstr() { local s; s=$(head -c 48 /dev/urandom | base64 | tr -dc "$1"); echo "${s:0:$2}"; }
 
-say "Installing packages (32-bit Steam libs, Python)"
+# libpulse0 is not optional: PlayFab Party (what crossplay runs on) fails to initialise
+# without it and the server then loops on "begin PlayFab create and join network" forever,
+# handing out an empty join code. Measured on a container that did not have it.
+say "Installing packages (32-bit Steam libs, PlayFab dependency, Python)"
 export DEBIAN_FRONTEND=noninteractive
 # ssh/pct hand us the caller's LANG and LC_*, which the fresh container has no locales
 # for — that alone produces a screen of perl and apt-listchanges warnings.
@@ -31,8 +34,9 @@ export LANG=C.UTF-8 LC_ALL=C.UTF-8
 dpkg --add-architecture i386
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
-  ca-certificates curl tar gzip procps \
+  ca-certificates curl tar gzip unzip procps \
   lib32gcc-s1 libsdl2-2.0-0:i386 libatomic1 \
+  libpulse0 \
   python3 python3-venv python3-pip >/dev/null
 info "done"
 
