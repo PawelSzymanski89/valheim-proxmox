@@ -18,12 +18,18 @@
       radial-gradient(700px 400px at 50% 110%, #171a14 0%, transparent 60%),
       repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
       var(--bg)}
-  .wrap{max-width:1080px;margin:0 auto}
+  .wrap{max-width:1400px;margin:0 auto}
   header{text-align:center;margin-bottom:26px}
   h1{margin:0;font:600 30px/1.1 Georgia,"Times New Roman",serif;letter-spacing:.22em;
     text-transform:uppercase;color:var(--gold2);text-shadow:0 2px 18px rgba(201,162,39,.25)}
   .runes{color:var(--gold);opacity:.45;letter-spacing:.5em;margin:10px 0 2px;font-size:12px}
   .cols{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}
+  .mods-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:8px}
+  .mod{background:#10151a;border:1px solid var(--line);border-radius:3px;padding:8px 10px;min-width:0}
+  .mod b{font-weight:500;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mod .v{color:var(--gold);font-size:11px}
+  .mod .fn{color:var(--dim);font-size:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  #mod-filter{max-width:260px;padding:7px 10px;font-size:13px}
   @media(max-width:860px){.cols{grid-template-columns:1fr}}
   .box{background:linear-gradient(180deg,var(--stone2),var(--stone));border:1px solid var(--line);
     border-radius:4px;padding:20px;position:relative;box-shadow:0 0 0 1px rgba(201,162,39,.10),0 18px 40px rgba(0,0,0,.55)}
@@ -31,8 +37,11 @@
   h2{font:600 12px/1 Georgia,serif;text-transform:uppercase;letter-spacing:.16em;color:var(--gold);margin:0 0 14px}
   .big{font-size:24px;font-weight:700}
   .muted{color:var(--dim);font-size:13px}
-  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:14px}
+  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(185px,1fr));margin-bottom:14px}
   .cell{background:#10151a;border:1px solid var(--line);border-radius:3px;padding:10px 12px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .kv{display:flex;gap:8px;align-items:baseline;margin-top:3px}
+  .kv span:first-child{color:var(--dim);font-size:12px;min-width:52px}
   .cell .muted{font-size:12px}
   .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
   .dot.up{background:var(--ok);box-shadow:0 0 10px rgba(93,122,74,.8)}
@@ -64,29 +73,12 @@
   </header>
 
   <div class="cols">
-    <div>
-      <div class="box" id="status-box">
-        <h2 id="h-status">Serwer</h2>
-        <div class="big"><span class="dot" id="dot"></span><span id="state">…</span></div>
-        <div class="muted" id="meta"></div>
-        <div class="grid" style="margin-top:14px" id="cells"></div>
-        <div id="note" class="muted"></div>
-      </div>
-
-      <div class="box" id="mods-box" style="margin-top:16px;display:none">
-        <h2 id="h-mods">Mody</h2>
-        <div class="muted" id="mods-hint"></div>
-        <div id="code-row" style="margin:10px 0"></div>
-        <table><thead><tr><th id="th-mod">Paczka</th><th id="th-ver">Wersja</th></tr></thead>
-        <tbody id="mods"></tbody></table>
-      </div>
-
-      <div class="box" id="chart-box" style="margin-top:16px;display:none">
-        <h2 id="h-charts">Obciążenie, ostatnie 12 h</h2>
-      <div class="muted" style="margin:-6px 0 12px" id="charts-hint">Łącze co 10 minut, obciążenie co minutę.</div>
-        <div id="link-charts"></div>
-      <div id="charts"></div>
-      </div>
+    <div class="box" id="status-box">
+      <h2 id="h-status">Serwer</h2>
+      <div class="big"><span class="dot" id="dot"></span><span id="state">…</span></div>
+      <div class="muted" id="meta"></div>
+      <div class="grid" style="margin-top:14px" id="cells"></div>
+      <div id="note" class="muted"></div>
     </div>
 
     <form class="box" id="f">
@@ -99,6 +91,25 @@
       <button id="b">Wejdź</button>
       <div class="err" id="e"></div>
     </form>
+  </div>
+
+  <div class="box" id="mods-box" style="margin-top:16px;display:none">
+    <div class="row" style="margin-bottom:12px">
+      <h2 id="h-mods" style="margin:0">Mody</h2>
+      <input id="mod-filter" placeholder="szukaj…">
+    </div>
+    <div class="muted" id="mods-hint" style="margin-bottom:10px"></div>
+    <div id="code-row" style="margin-bottom:12px"></div>
+    <div class="mods-grid" id="mods"></div>
+  </div>
+
+  <div class="box" id="chart-box" style="margin-top:16px;display:none">
+    <h2 id="h-charts">Obciążenie, ostatnie 12 h</h2>
+    <div class="muted" style="margin:-6px 0 12px" id="charts-hint">Łącze co 10 minut, obciążenie co minutę.</div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
+      <div id="link-charts"></div>
+      <div id="charts"></div>
+    </div>
   </div>
 
   <div class="foot" id="foot">Brama zamknięta dla nieproszonych</div>
@@ -163,15 +174,20 @@ async function load(){
     if(d.link&&d.link.ping){
       const p=d.link.ping,s=d.link.speed;
       c.push(cell(PL?"Łącze serwera":"Server link",
-        `${p.avg} ms · ${PL?"wahania":"jitter"} ${p.jitter} ms · ${PL?"straty":"loss"} ${p.loss}%`+
-        (s?`<div class="muted" style="margin-top:3px">${s.down_mbit} / ${s.up_mbit} Mbit/s</div>`:"")));
+        `<div class="kv"><span>${PL?"ping":"ping"}</span><span>${p.avg} ms</span></div>
+         <div class="kv"><span>${PL?"wahania":"jitter"}</span><span>${p.jitter} ms</span></div>
+         <div class="kv"><span>${PL?"straty":"loss"}</span><span>${p.loss}%</span></div>`+
+        (s?`<div class="kv"><span>${PL?"pasmo":"speed"}</span><span>${s.down_mbit} / ${s.up_mbit} Mbit/s</span></div>`:"")));
     }
     if(d.specs){
       const gb=b=>b?(b/1073741824).toFixed(b<10*1073741824?1:0)+" GB":"—";
-      c.push(cell(PL?"Maszyna":"Machine",`${d.specs.cores} ${PL?"rdzeni":"cores"} · ${gb(d.specs.ram)} RAM · ${gb(d.specs.disk)}`));
+      c.push(cell(PL?"Maszyna":"Machine",
+        `<div class="kv"><span>${PL?"rdzenie":"cores"}</span><span>${d.specs.cores}</span></div>
+         <div class="kv"><span>RAM</span><span>${gb(d.specs.ram)}</span></div>
+         <div class="kv"><span>${PL?"dysk":"disk"}</span><span>${gb(d.specs.disk)}</span></div>`));
       if(d.load)c.push(cell(PL?"Obciążenie teraz":"Load right now",
-        `<div style="display:flex;gap:8px;align-items:center"><span class="muted" style="width:34px">CPU</span>${bar(d.load.cpu)}<span>${d.load.cpu}%</span></div>
-         <div style="display:flex;gap:8px;align-items:center;margin-top:4px"><span class="muted" style="width:34px">RAM</span>${bar(d.load.mem)}<span>${d.load.mem}%</span></div>`));
+        `<div class="kv"><span>CPU</span>${bar(d.load.cpu)}<span>${d.load.cpu}%</span></div>
+         <div class="kv"><span>RAM</span>${bar(d.load.mem)}<span>${d.load.mem}%</span></div>`));
     }
     document.getElementById("cells").innerHTML=c.join("");
     if(d.note)document.getElementById("note").textContent=d.note;
@@ -179,11 +195,21 @@ async function load(){
     if(d.mods){
       document.getElementById("mods-box").style.display="";
       document.getElementById("mods-hint").textContent=d.mods.length
-        ? (PL?"Do wejścia potrzebujesz tych paczek w tych wersjach.":"You need these packages, in these versions, to join.")
+        ? (PL?`Do wejścia potrzebujesz tych ${d.mods.length} paczek w tych wersjach.`
+             :`You need these ${d.mods.length} packages, in these versions, to join.`)
         : (PL?"Serwer bez modów — nic nie musisz instalować.":"Vanilla server — nothing to install.");
-      document.getElementById("mods").innerHTML=d.mods.map(m=>
-        `<tr><td>${esc(m.name||m.full_name)}<div class="muted" style="font-size:11px">${esc(m.full_name)}</div></td>
-          <td class="muted">${esc(m.version||"?")}</td></tr>`).join("");
+      const draw=q=>{
+        const list=d.mods.filter(m=>!q||((m.name||"")+m.full_name).toLowerCase().includes(q));
+        document.getElementById("mods").innerHTML=list.map(m=>
+          `<div class="mod"><b>${esc(m.name||m.full_name)}</b>
+             <span class="v">${esc(m.version||"?")}</span>
+             <div class="fn">${esc(m.full_name)}</div></div>`).join("")
+          ||`<div class="muted">${PL?"nic nie pasuje":"nothing matches"}</div>`;
+      };
+      draw("");
+      const fi=document.getElementById("mod-filter");
+      fi.oninput=()=>draw(fi.value.trim().toLowerCase());
+      if(!PL)fi.placeholder="search…";
       document.getElementById("code-row").innerHTML=d.profile_code
         ? `<div class="cell"><div class="muted">${PL?"Kod do Thunderstore Mod Managera":"Thunderstore Mod Manager code"}</div>
             <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
