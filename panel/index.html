@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Valheim — server admin</title>
+<style>
+  :root{
+    --bg:#0e1116; --card:#161b22; --card2:#1c2430; --line:#26303d; --tx:#e6edf3; --dim:#8b98a5;
+    --acc:#5b8def; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --field:#0d1117;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 60px}
+  h1{font-size:20px;margin:0 0 2px;font-weight:650}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:22px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+  .card h2{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);margin:0 0 14px;font-weight:600}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .muted{color:var(--dim);font-size:13px}
+  .big{font-size:26px;font-weight:700}
+  .r{text-align:right}
+  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .stat{background:var(--card2);border-radius:9px;padding:10px 12px}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .dot.run{background:var(--ok)}.dot.stop{background:var(--bad)}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;font-weight:600;color:var(--dim);font-size:12px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line)}
+  td{padding:7px 8px;border-bottom:1px solid var(--line)}
+  code{background:var(--field);padding:1px 6px;border-radius:5px;font-size:12px}
+  button{background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px 13px;font:inherit;cursor:pointer}
+  button:hover{border-color:var(--acc)}
+  button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
+  button.danger{color:var(--bad)}
+  button.mini{padding:3px 9px;font-size:12px}
+  button:disabled,button.loading{opacity:.55;pointer-events:none}
+  input,select{background:var(--field);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;width:100%}
+  input[type=checkbox]{width:auto}
+  .add{display:flex;gap:8px;flex-wrap:wrap}
+  .add input{width:auto;flex:1;min-width:120px}
+  .err{color:var(--bad);font-size:13px;margin-top:10px;min-height:18px}
+  .log{background:var(--field);border:1px solid var(--line);border-radius:9px;padding:12px;font-size:12px;
+       max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
+  /* tabs — 6 lines of JS below, no framework */
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:16px 0 0}
+  .tabs a{padding:8px 14px;color:var(--dim);text-decoration:none;font-size:14px;border-bottom:2px solid transparent;cursor:pointer}
+  .tabs a.on{color:var(--tx);border-bottom-color:var(--acc)}
+  .pane{display:none;padding-top:16px}.pane.on{display:block}
+  /* modal + toast */
+  .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50}
+  .modal-bg.open{display:flex}
+  .modal{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;max-width:460px;width:92%}
+  .modal-t{font-weight:650;margin-bottom:8px}
+  .modal-b{color:var(--dim);font-size:14px;margin-bottom:16px}
+  .modal-a{display:flex;gap:8px;justify-content:flex-end}
+  #toast{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:60}
+  .toast{background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:10px 14px;font-size:14px}
+  .toast.ok{border-color:var(--ok)}.toast.bad{border-color:var(--bad)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Valheim — server admin</h1>
+  <div class="sub">Everything a server admin can control. In-game commands (kick, spawn, weather)
+    live in the F5 console — add yourself to <b>Admins</b> below and use it there.</div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <span class="big" id="vh-state">—</span>
+        <div class="muted" id="vh-meta">connecting…</div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button id="vh-a-start">Start</button>
+        <button id="vh-a-stop" class="danger">Stop</button>
+        <button id="vh-a-restart">Restart</button>
+        <button id="vh-a-backup" class="primary">Back up now</button>
+        <button id="vh-a-update">Check update</button>
+      </div>
+    </div>
+
+    <div class="tabs" id="tabs">
+      <a class="on" data-pane="t-players">Players</a>
+      <a data-pane="t-access">Access &amp; bans</a>
+      <a data-pane="t-world">World</a>
+      <a data-pane="t-backups">Backups</a>
+      <a data-pane="t-settings">Settings</a>
+      <a data-pane="t-log">Log</a>
+    </div>
+
+    <div class="pane on" id="t-players">
+      <div class="muted" style="margin-bottom:6px">Online now <span id="vh-on-note"></span></div>
+      <table><thead><tr><th>Player</th><th>Id</th><th>Joined</th><th class="r">Session</th><th class="r">Actions</th></tr></thead>
+      <tbody id="vh-online"><tr><td colspan="5" class="muted">—</td></tr></tbody></table>
+      <div class="muted" style="margin:16px 0 6px">Login history</div>
+      <table><thead><tr><th>Player</th><th>Id</th><th>First seen</th><th>Last seen</th><th class="r">Joins</th><th class="r">Actions</th></tr></thead>
+      <tbody id="vh-history"><tr><td colspan="6" class="muted">—</td></tr></tbody></table>
+    </div>
+
+    <div class="pane" id="t-access">
+      <div class="grid" id="vh-lists"></div>
+      <div class="muted" style="margin-top:10px">The server reloads these files on its own — no restart needed.
+        An admin can use the in-game console (F5): <code>kick</code>, <code>ban</code>, <code>save</code>, weather, god mode.</div>
+    </div>
+
+    <div class="pane" id="t-world">
+      <table><thead><tr><th>World</th><th>Size</th><th>Last save</th><th class="r">Actions</th></tr></thead>
+      <tbody id="vh-worlds"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
+      <div class="add" style="margin-top:12px">
+        <input type="file" id="vh-wup" multiple accept=".db,.fwl">
+        <button id="vh-wup-btn">Upload world</button>
+      </div>
+      <div class="muted" style="margin-top:6px">Upload a matching pair <code>NAME.db</code> + <code>NAME.fwl</code>.
+        New world: just type a name in Settings — the server generates it on the next start.</div>
+    </div>
+
+    <div class="pane" id="t-backups">
+      <div class="row"><div class="muted" id="vh-bk-note">—</div><div id="vh-timers" style="display:flex;gap:14px"></div></div>
+      <table style="margin-top:10px"><thead><tr><th>Backup</th><th>Date</th><th class="r">Size</th><th class="r">Actions</th></tr></thead>
+      <tbody id="vh-backups"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
+    </div>
+
+    <div class="pane" id="t-settings">
+      <div id="vh-set"></div>
+      <div class="stat" style="margin-top:14px">
+        <div class="muted">Panel login — the installer generated a random password, change it here</div>
+        <div class="add" style="margin-top:8px">
+          <input id="vh-au-user" placeholder="user" autocomplete="username">
+          <input id="vh-au-pass" type="password" placeholder="new password (8+ chars)" autocomplete="new-password">
+          <button id="vh-au-save">Change login</button>
+        </div>
+        <div class="muted" id="vh-au-msg" style="margin-top:6px"></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div class="muted" id="vh-set-msg"></div>
+        <div style="display:flex;gap:8px">
+          <button id="vh-set-save">Save</button>
+          <button id="vh-set-save-r" class="primary">Save &amp; restart</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="pane" id="t-log">
+      <div class="row"><div class="muted">Server events (PlayFab keepalive noise filtered out)</div><button id="vh-log-refresh">Refresh</button></div>
+      <pre class="log" id="vh-log" style="margin-top:10px">—</pre>
+    </div>
+
+    <div class="err" id="vh-err"></div>
+  </div>
+</div>
+
+<div id="modal" class="modal-bg"><div class="modal">
+  <div class="modal-t" id="modal-t"></div>
+  <div class="modal-b" id="modal-b"></div>
+  <div class="modal-a"><button id="modal-no">Cancel</button><button id="modal-yes" class="primary">Confirm</button></div>
+</div></div>
+<div id="toast"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+const fmtBytes=b=>{b=+b||0;const u=["B","KB","MB","GB","TB"];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}return b.toFixed(b<10&&i>0?1:0)+u[i]};
+const fmtDur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  return d?`${d}d ${h}h ${m}m`:h?`${h}h ${m}m`:`${m}m ${s%60}s`;};
+const fmtTs=t=>t?new Date(t*1000).toLocaleString(undefined,{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+async function jf(url,opts){
+  const r=await fetch(url,opts);const t=await r.text();let d;try{d=JSON.parse(t)}catch{d={}}
+  if(!r.ok)throw new Error(d.detail||("HTTP "+r.status));
+  return d;
+}
+function toast(msg,type){
+  const el=document.createElement("div");el.className="toast "+(type||"");el.textContent=msg;
+  $("toast").appendChild(el);setTimeout(()=>el.remove(),3200);
+}
+function confirmModal(title,bodyHtml,okText){
+  return new Promise(res=>{
+    $("modal-t").textContent=title;$("modal-b").innerHTML=bodyHtml;$("modal-yes").textContent=okText||"Confirm";
+    $("modal").classList.add("open");
+    const fin=v=>{$("modal").classList.remove("open");res(v);};
+    $("modal-yes").onclick=()=>fin(true);$("modal-no").onclick=()=>fin(false);
+    $("modal").onclick=e=>{if(e.target===$("modal"))fin(false);};
+  });
+}
+$("tabs").querySelectorAll("a").forEach(a=>a.onclick=()=>{
+  $("tabs").querySelectorAll("a").forEach(x=>x.classList.toggle("on",x===a));
+  document.querySelectorAll(".pane").forEach(p=>p.classList.toggle("on",p.id===a.dataset.pane));
+  if(a.dataset.pane==="t-log")vhLog();
+});
+
+const LIST_LABEL={admin:"Admins (in-game console)",banned:"Banned",permitted:"Allowlist"};
+const MOD_PL={combat:"Combat difficulty",deathpenalty:"Death penalty",resources:"Resources",raids:"Base raids",portals:"Portals"};
+const VAL_PL={"":"— default —",veryeasy:"very easy",easy:"easy",hard:"hard",veryhard:"very hard",casual:"casual",
+  hardcore:"hardcore",muchless:"much less",less:"less",more:"more",muchmore:"much more",most:"most",none:"none"};
+const KEY_PL={nobuildcost:"build without resources",playerevents:"raids only near players",passivemobs:"mobs never attack",nomap:"no map"};
+const ASK={start:["Start the server?","Start"],stop:["Stop the server? The world is saved first.","Stop"],
+  restart:["Restart the server? Players get dropped, the world is saved.","Restart"],
+  backup:["Back up the world now?","Back up"],update:["Check for an update? If there is one, the server restarts itself.","Check"]};
+let VH=null;
+
+async function load(){
+  try{
+    const v=await jf("/api/valheim");VH=v;
+    $("vh-state").textContent=v.active?"Running":"Stopped";
+    const b=[];
+    if(v.active){b.push(`${v.online.length} online`);if(v.uptime)b.push("uptime "+fmtDur(v.uptime));}
+    if(v.version)b.push(v.version);
+    if(v.settings)b.push("world: "+v.settings.world,"port "+v.settings.port,v.settings.public?"public":"not listed");
+    if(v.disk)b.push("disk: "+fmtBytes(v.disk.used)+" used / "+fmtBytes(v.disk.avail)+" free");
+    $("vh-meta").textContent=b.join(" · ");
+    vhOnline(v);vhHistory(v);vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);
+    $("vh-err").textContent="";
+  }catch(e){$("vh-err").textContent=e.message;}
+}
+function vhTick(){const now=Date.now()/1000;
+  document.querySelectorAll("[data-since]").forEach(el=>el.textContent=fmtDur(now-(+el.dataset.since)));}
+function vhOnline(v){
+  const c=v.connections||{};
+  $("vh-on-note").textContent=(c.count!=null&&c.count!==v.online.length)
+    ? `(server reported ${c.count} at ${fmtTs(c.ts)} — that counter only prints every ~10 min, the list below is from live connections)`:"";
+  $("vh-online").innerHTML=v.online.length?v.online.map(p=>`<tr>
+    <td>${esc(p.name||"(name not known yet)")}</td><td><code>${esc(p.id)}</code></td>
+    <td class="muted">${fmtTs(p.since)}</td><td class="r" data-since="${p.since}">—</td>
+    <td class="r"><button class="mini danger" data-vhban="${esc(p.id)}">ban</button></td></tr>`).join("")
+    :`<tr><td colspan="5" class="muted">nobody is playing</td></tr>`;
+  $("vh-online").querySelectorAll("[data-vhban]").forEach(b=>b.onclick=()=>vhBan(b.dataset.vhban,true));
+  vhTick();
+}
+function vhHistory(v){
+  const banned=new Set((v.lists&&v.lists.banned)||[]);
+  $("vh-history").innerHTML=(v.history||[]).length?v.history.map(p=>`<tr>
+    <td>${esc(p.name||"—")}</td><td><code>${esc(p.id)}</code></td>
+    <td class="muted">${fmtTs(p.first)}</td><td class="muted">${fmtTs(p.last)}</td><td class="r">${p.sessions||0}</td>
+    <td class="r">${banned.has(p.id)?`<button class="mini" data-vhunban="${esc(p.id)}">unban</button>`
+      :`<button class="mini danger" data-vhban="${esc(p.id)}">ban</button>`}</td></tr>`).join("")
+    :`<tr><td colspan="6" class="muted">nobody has logged in yet</td></tr>`;
+  $("vh-history").querySelectorAll("[data-vhban]").forEach(b=>b.onclick=()=>vhBan(b.dataset.vhban,true));
+  $("vh-history").querySelectorAll("[data-vhunban]").forEach(b=>b.onclick=()=>vhBan(b.dataset.vhunban,false));
+}
+function vhSaveList(kind,ids){return jf("/api/valheim/lists/"+kind,{method:"POST",
+  headers:{"Content-Type":"application/json"},body:JSON.stringify({ids})});}
+async function vhBan(id,on){
+  if(!await confirmModal(on?"Ban this player?":"Unban this player?",`Id <code>${esc(id)}</code>`,on?"Ban":"Unban"))return;
+  const cur=new Set((VH.lists&&VH.lists.banned)||[]);on?cur.add(id):cur.delete(id);
+  try{await vhSaveList("banned",[...cur]);toast(on?"Banned":"Unbanned","ok");load();}
+  catch(e){toast(e.message,"bad");}
+}
+function vhLists(v){
+  $("vh-lists").innerHTML=Object.keys(LIST_LABEL).map(k=>{
+    const ids=(v.lists&&v.lists[k])||[];
+    return `<div class="stat"><div class="muted">${LIST_LABEL[k]}</div>
+      ${ids.length?ids.map(i=>`<div class="row" style="padding:4px 0"><code>${esc(i)}</code>
+        <button class="mini danger" data-vhdel="${k}|${esc(i)}">remove</button></div>`).join(""):'<div class="muted">empty</div>'}
+      <div class="add" style="margin-top:8px"><input placeholder="SteamID64 / PlayFabID" id="vh-add-${k}"><button data-vhadd="${k}">add</button></div></div>`;
+  }).join("");
+  $("vh-lists").querySelectorAll("[data-vhdel]").forEach(b=>b.onclick=()=>{
+    const i=b.dataset.vhdel.indexOf("|"),k=b.dataset.vhdel.slice(0,i),id=b.dataset.vhdel.slice(i+1);
+    vhSaveList(k,(VH.lists[k]||[]).filter(x=>x!==id)).then(()=>{toast("Removed","ok");load();}).catch(e=>toast(e.message,"bad"));});
+  $("vh-lists").querySelectorAll("[data-vhadd]").forEach(b=>b.onclick=()=>{
+    const k=b.dataset.vhadd,id=$("vh-add-"+k).value.trim();if(!id)return;
+    vhSaveList(k,[...(VH.lists[k]||[]),id]).then(()=>{toast("Added","ok");load();}).catch(e=>toast(e.message,"bad"));});
+}
+function vhWorlds(v){
+  const act=(v.settings||{}).world;
+  $("vh-worlds").innerHTML=(v.worlds||[]).length?v.worlds.map(w=>`<tr>
+    <td>${esc(w.name)}${w.name===act?' <span class="dot run"></span><span class="muted">active</span>':""}</td>
+    <td class="muted">${fmtBytes(w.size)}</td><td class="muted">${fmtTs(w.mtime)}</td>
+    <td class="r">${w.name===act?"":`<button class="mini" data-vhact="${esc(w.name)}">activate</button> `}
+      <button class="mini" data-vhwdl="${esc(w.name)}">download</button>
+      ${w.name===act?"":` <button class="mini danger" data-vhwdel="${esc(w.name)}">delete</button>`}</td></tr>`).join("")
+    :`<tr><td colspan="4" class="muted">no worlds yet</td></tr>`;
+  $("vh-worlds").querySelectorAll("[data-vhwdl]").forEach(b=>b.onclick=()=>
+    location.href="/api/valheim/worlds/"+encodeURIComponent(b.dataset.vhwdl)+"/download");
+  $("vh-worlds").querySelectorAll("[data-vhact]").forEach(b=>b.onclick=async()=>{
+    const n=b.dataset.vhact;
+    if(!await confirmModal("Switch world?",`The server restarts on world <b>${esc(n)}</b>.`,"Switch"))return;
+    b.classList.add("loading");
+    try{await jf("/api/valheim/worlds/activate",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({name:n,restart:true})});toast("Switched to "+n,"ok");setTimeout(load,8000);}
+    catch(e){toast(e.message,"bad");b.classList.remove("loading");}});
+  $("vh-worlds").querySelectorAll("[data-vhwdel]").forEach(b=>b.onclick=async()=>{
+    const n=b.dataset.vhwdel;
+    if(!await confirmModal("Delete world?",`<b>${esc(n)}</b> and its automatic in-game copies are gone for good.`,"Delete"))return;
+    try{await jf("/api/valheim/worlds/"+encodeURIComponent(n),{method:"DELETE"});toast("Deleted","ok");load();}
+    catch(e){toast(e.message,"bad");}});
+}
+function vhBackups(v){
+  const rows=v.backups_full||[];
+  $("vh-bk-note").textContent=rows.length?`${rows.length} copies · last ${fmtTs(rows[0].mtime)}`:"no backups yet";
+  $("vh-timers").innerHTML=(v.timers||[]).map(t=>`<label class="muted" style="display:flex;gap:6px;align-items:center">
+    <input type="checkbox" data-vhtimer="${t.name}" ${t.enabled?"checked":""}>
+    ${t.name==="backup"?"auto-backup":"auto-update"}${t.next?" · "+fmtTs(t.next):""}</label>`).join("");
+  $("vh-timers").querySelectorAll("[data-vhtimer]").forEach(c=>c.onchange=()=>
+    jf(`/api/valheim/timers/${c.dataset.vhtimer}/${c.checked?"on":"off"}`,{method:"POST"})
+      .then(()=>toast("Saved","ok")).catch(e=>{toast(e.message,"bad");c.checked=!c.checked;}));
+  $("vh-backups").innerHTML=rows.length?rows.map(b=>`<tr><td><code>${esc(b.name)}</code></td>
+    <td class="muted">${fmtTs(b.mtime)}</td><td class="r">${fmtBytes(b.size)}</td>
+    <td class="r"><button class="mini" data-vhrest="${esc(b.name)}">restore</button>
+      <button class="mini" data-vhbdl="${esc(b.name)}">download</button>
+      <button class="mini danger" data-vhbdel="${esc(b.name)}">delete</button></td></tr>`).join("")
+    :`<tr><td colspan="4" class="muted">none</td></tr>`;
+  $("vh-backups").querySelectorAll("[data-vhbdl]").forEach(b=>b.onclick=()=>
+    location.href="/api/valheim/backups/"+encodeURIComponent(b.dataset.vhbdl)+"/download");
+  $("vh-backups").querySelectorAll("[data-vhrest]").forEach(b=>b.onclick=async()=>{
+    const n=b.dataset.vhrest;
+    if(!await confirmModal("Restore this world?",`The server stops and goes back to <b>${esc(n)}</b>.<br>The current world is backed up first.`,"Restore"))return;
+    b.classList.add("loading");toast("Restoring…");
+    try{await jf("/api/valheim/backups/"+encodeURIComponent(n)+"/restore",{method:"POST"});toast("Restored","ok");}
+    catch(e){toast(e.message,"bad");}
+    b.classList.remove("loading");setTimeout(load,4000);});
+  $("vh-backups").querySelectorAll("[data-vhbdel]").forEach(b=>b.onclick=async()=>{
+    if(!await confirmModal("Delete this backup?",esc(b.dataset.vhbdel),"Delete"))return;
+    try{await jf("/api/valheim/backups/"+encodeURIComponent(b.dataset.vhbdel),{method:"DELETE"});toast("Deleted","ok");load();}
+    catch(e){toast(e.message,"bad");}});
+}
+function vhSettings(v){
+  const s=v.settings||{},o=v.options||{};
+  const sel=(id,val,opts)=>`<select id="${id}">`+opts.map(x=>
+    `<option value="${x}"${x===val?" selected":""}>${VAL_PL[x]||x||"— default —"}</option>`).join("")+"</select>";
+  $("vh-set").innerHTML=`<div class="grid">
+    <div class="stat"><div class="muted">Server name</div><input id="vh-s-name" value="${esc(s.name||"")}"></div>
+    <div class="stat"><div class="muted">World</div><input id="vh-s-world" value="${esc(s.world||"")}"></div>
+    <div class="stat"><div class="muted">Password (5+ chars)</div><input id="vh-s-pass" value="${esc(s.password||"")}"></div>
+    <div class="stat"><div class="muted">Game port (uses port…port+2)</div><input id="vh-s-port" value="${esc(s.port||2456)}"></div>
+    <div class="stat"><div class="muted">Panel port (restarts the panel)</div><input id="vh-s-pport" value="${esc(s.panel_port||2460)}"></div>
+    <div class="stat"><div class="muted">Server list</div><label><input type="checkbox" id="vh-s-public" ${s.public?"checked":""}> public (needs a password)</label></div>
+    <div class="stat"><div class="muted">Crossplay</div><label><input type="checkbox" id="vh-s-cross" ${s.crossplay?"checked":""}> enabled</label></div>
+    <div class="stat"><div class="muted">World preset</div>${sel("vh-s-preset",s.preset||"",o.presets||[])}</div>
+    ${Object.keys(o.modifiers||{}).map(k=>`<div class="stat"><div class="muted">${MOD_PL[k]||k}</div>
+      ${sel("vh-s-m-"+k,(s.modifiers||{})[k]||"",[""].concat(o.modifiers[k]))}</div>`).join("")}
+    <div class="stat"><div class="muted">World toggles</div>${(o.keys||[]).map(k=>
+      `<label style="display:block"><input type="checkbox" data-vhkey="${k}" ${(s.keys||[]).includes(k)?"checked":""}> ${KEY_PL[k]||k}</label>`).join("")}</div>
+  </div>`;
+  if(!$("vh-au-user").value)$("vh-au-user").value=s.panel_user||"admin";
+}
+async function vhSaveSettings(restart){
+  const mods={};Object.keys((VH.options||{}).modifiers||{}).forEach(k=>{const el=$("vh-s-m-"+k);if(el&&el.value)mods[k]=el.value;});
+  const keys=[...document.querySelectorAll("[data-vhkey]")].filter(c=>c.checked).map(c=>c.dataset.vhkey);
+  const pport=+$("vh-s-pport").value;
+  $("vh-set-msg").textContent="Saving…";
+  try{
+    const r=await jf("/api/valheim/settings",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
+      name:$("vh-s-name").value.trim(),world:$("vh-s-world").value.trim(),password:$("vh-s-pass").value,
+      port:+$("vh-s-port").value,public:$("vh-s-public").checked,crossplay:$("vh-s-cross").checked,
+      preset:$("vh-s-preset").value,modifiers:mods,keys,panel_port:pport,restart})});
+    toast("Settings saved","ok");
+    if(r.panel_port_changed){
+      $("vh-set-msg").innerHTML=`Panel moves to port <b>${pport}</b> — reopen at <code>${location.hostname}:${pport}</code>`;
+      return;
+    }
+    $("vh-set-msg").textContent=restart?"Saved, the server is coming back up":"Saved — applies on the next restart";
+    setTimeout(load,restart?9000:600);
+  }catch(e){$("vh-set-msg").textContent=e.message;toast("Not saved","bad");}
+}
+$("vh-au-save").onclick=async()=>{
+  const user=$("vh-au-user").value.trim()||((VH&&VH.settings&&VH.settings.panel_user)||"admin");
+  $("vh-au-msg").textContent="Saving…";
+  try{
+    await jf("/api/panel/auth",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({user,password:$("vh-au-pass").value})});
+    $("vh-au-pass").value="";
+    $("vh-au-msg").textContent=`Login changed to "${user}". The browser still holds the old one — reopen the panel in a private window to sign in again.`;
+    toast("Login changed","ok");
+  }catch(e){$("vh-au-msg").textContent=e.message;toast("Not changed","bad");}
+};
+$("vh-set-save").onclick=()=>vhSaveSettings(false);
+$("vh-set-save-r").onclick=()=>vhSaveSettings(true);
+async function vhAction(a,btn){
+  if(!await confirmModal("Valheim",ASK[a][0],ASK[a][1]))return;
+  if(btn){btn.classList.add("loading");btn.disabled=true;}
+  try{await jf("/api/valheim/action/"+a,{method:"POST"});toast(ASK[a][1]+" OK","ok");}
+  catch(e){toast(e.message,"bad");}
+  if(btn){btn.classList.remove("loading");btn.disabled=false;}
+  setTimeout(load,2500);
+}
+["start","stop","restart","backup","update"].forEach(a=>{const b=$("vh-a-"+a);if(b)b.onclick=()=>vhAction(a,b);});
+async function vhLog(){
+  try{const d=await jf("/api/valheim/log?n=300");$("vh-log").textContent=d.log||"—";$("vh-log").scrollTop=$("vh-log").scrollHeight;}
+  catch(e){$("vh-log").textContent=e.message;}
+}
+$("vh-log-refresh").onclick=vhLog;
+$("vh-wup-btn").onclick=async()=>{
+  const f=$("vh-wup").files;
+  if(!f.length){toast("Pick the .db and .fwl files","bad");return;}
+  $("vh-wup-btn").disabled=true;$("vh-wup-btn").classList.add("loading");
+  try{
+    for(const x of f)await jf("/api/valheim/worlds/upload/"+encodeURIComponent(x.name),
+      {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:x});
+    toast("World uploaded","ok");$("vh-wup").value="";load();}
+  catch(e){toast(e.message,"bad");}
+  $("vh-wup-btn").disabled=false;$("vh-wup-btn").classList.remove("loading");
+};
+load();setInterval(load,20000);setInterval(vhTick,1000);
+</script>
+</body></html>

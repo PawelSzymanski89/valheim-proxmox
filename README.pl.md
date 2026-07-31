@@ -1,0 +1,131 @@
+# valheim-proxmox
+
+Jedna komenda na hoście Proxmoxa i masz serwer Valheima we własnym LXC, a do tego panel
+WWW do zarządzania nim. Bez Dockera, bez kombinowania z RCON-em, bez kolejnego panelu do
+utrzymywania.
+
+🇬🇧 **[English version → README.md](README.md)**
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/install.sh)"
+```
+
+Uruchamiasz **na hoście Proxmox VE** (jako root). Skrypt tworzy nieuprzywilejowany
+kontener Debian 12, instaluje SteamCMD i serwer Valheima, zakłada usługi i timery systemd,
+stawia panel i na koniec wypisuje adres, login oraz wygenerowane hasło.
+
+Trwa kilka minut — prawie całość to pobieranie ~1,5 GB ze Steama.
+
+## Co dostajesz
+
+| | |
+|---|---|
+| **Serwer gry** | Valheim dedicated, systemd z czystym stopem (`SIGINT`, więc świat się zapisuje) |
+| **Panel** | WWW na porcie **2460**, autoryzacja HTTP Basic, hasło losowane przy instalacji |
+| **Backupy** | kopia świata co 2 h, trzyma 30, przywracanie jednym klikiem |
+| **Aktualizacje** | sprawdza Steama co 2 h i restartuje **tylko** gdy jest nowy build |
+| **Domyślnie** | 4 rdzenie, 6 GB RAM, 30 GB dysku, kontener wstaje z hostem |
+
+## Panel
+
+| Zakładka | Co daje |
+|---|---|
+| **Players** | kto gra teraz — nick, identyfikator, **licznik czasu sesji na żywo** — oraz trwała historia logowań (pierwszy raz / ostatnio / ile wejść) |
+| **Access & bans** | lista adminów, lista banów, whitelista; ban prosto z listy online albo z historii |
+| **World** | lista światów, przełączanie aktywnego, pobieranie, kasowanie, wgrywanie pary `.db` + `.fwl` |
+| **Backups** | przywróć, pobierz, usuń; przełączniki timerów auto-backup i auto-update |
+| **Settings** | nazwa serwera, świat, hasło, **port gry**, **port panelu**, widoczność na liście serwerów, crossplay, preset i modyfikatory świata (walka, kara za śmierć, surowce, najazdy, portale) oraz przełączniki (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
+| **Log** | zdarzenia serwera, bez szumu keepalive od PlayFaba |
+
+Plus Start / Stop / Restart / Backup teraz / Sprawdź update.
+
+### Logowanie
+
+Instalator losuje 16-znakowe hasło i wypisuje je **raz**. Sztywnego domyślnego hasła
+świadomie nie ma — byłoby identyczne w każdej instalacji z tego repo. Login i hasło
+zmienia się w **Settings → Panel login**; dane czytane są przy każdym zapytaniu, więc
+zmiana działa od razu, bez restartu.
+
+Leżą w `/opt/valheim/panel.env` (600, właściciel root).
+
+### Porty
+
+| Port | Co |
+|---|---|
+| `2456-2458/udp` | gra (Valheim zawsze zajmuje trzy kolejne porty od tego, który ustawisz) |
+| `2460/tcp` | panel — celowo tuż obok portów gry, żeby się pamiętało, i z dala od zajeżdżonych 8080, 8000, 9000, 8006… |
+
+Oba zmienisz w **Settings**. Zmiana portu panelu restartuje go przez `systemd-run`, żeby
+zapytanie, które tę zmianę zleciło, zdążyło dostać odpowiedź. Panel nie pozwoli ustawić
+portu, który wpadłby w trzyportowy zakres gry.
+
+## Granie z internetu
+
+Przekieruj na routerze **UDP 2456-2458** na kontener. Tyle wystarczy — Valheim to goły
+UDP, nie idzie przez reverse proxy i nie potrzebuje certyfikatu.
+
+**Panelu nie wystawiaj na świat.** Umie kasować światy i wydawać je do pobrania. Tylko
+LAN albo VPN. Jeśli musisz — schowaj go za reverse proxy z własną autoryzacją.
+
+## Opcje
+
+Każdą wartość nadpiszesz zmienną środowiskową:
+
+```bash
+CTID=250 RAM=8192 CORES=6 DISK=40 GAME_PORT=2456 PANEL_PORT=2460 \
+SERVER_NAME="Klans" WORLD_NAME="Midgard" SERVER_PASS="wpuscmnie42" \
+bash -c "$(curl -fsSL .../install.sh)"
+```
+
+| Zmienna | Domyślnie | |
+|---|---|---|
+| `CTID` | pierwszy wolny | numer kontenera |
+| `HOSTNAME_` | `valheim` | nazwa hosta kontenera |
+| `CORES` / `RAM` / `DISK` | `4` / `6144` / `30` | rdzenie / MB / GB |
+| `STORAGE` | pierwszy storage przyjmujący rootfs | gdzie ląduje dysk kontenera |
+| `BRIDGE` | `vmbr0` | mostek sieciowy |
+| `GAME_PORT` / `PANEL_PORT` | `2456` / `2460` | |
+| `SERVER_NAME` / `WORLD_NAME` | `Valheim` / `Dedicated` | |
+| `SERVER_PASS` | losowe 10 znaków | hasło do gry (min. 5 znaków i **nie może zawierać** nazwy serwera ani świata — gra to odrzuca) |
+
+## Instalacja bez Proxmoxa
+
+`setup.sh` działa samodzielnie na dowolnym Debianie 12:
+
+```bash
+curl -fsSL .../setup.sh -o setup.sh && bash setup.sh
+```
+
+## Co gdzie leży
+
+```
+/opt/valheim/
+├── server/            pliki gry (SteamCMD)
+├── data/              savedir: worlds_local/, adminlist.txt, bannedlist.txt, permittedlist.txt
+├── backups/           world-RRRRMMDD-GGMMSS.tar.gz, trzyma 30
+├── server.env         ustawienia startowe — to edytuje panel
+├── panel.env          login, hasło i port panelu (600)
+├── players.json       historia logowań (journal się rotuje, ten plik nie)
+├── start.sh           skleja argumenty startowe z server.env
+├── backup.sh          kopia świata + retencja
+├── update.sh          sprawdzenie buildu na Steamie, restart tylko gdy nowy
+└── panel/             app.py, index.html, .venv
+```
+
+systemd: `valheim`, `valheim-panel`, `valheim-backup.timer`, `valheim-update.timer`.
+
+## Czego uczciwie nie da się zrobić
+
+- **Valheim nie ma RCON-a.** Komendy w grze (kick, spawn, pogoda, tryb boga) wpisuje się
+  w konsoli F5 jako gracz, którego identyfikator jest w `adminlist.txt`. Panel zarządza tą
+  listą — nie napisze za Ciebie w grze. „Kick" to tutaj ban i odbanowanie.
+- **Lista graczy online to heurystyka.** Linia z nickiem (`Got character ZDOID from …`)
+  nie zawiera identyfikatora gracza, więc nicki dopinane są do połączeń w kolejności
+  wejścia. Miarodajny licznik (`Connections N`) pada raz na ~10 minut — gdy oba się
+  rozjadą, panel to pokazuje, zamiast ukrywać.
+- **Panel chodzi jako root** we własnym kontenerze: woła `systemctl` i pisze po
+  `/opt/valheim`. Dlatego to osobny kontener i dlatego nie ma go w internecie.
+
+## Licencja
+
+MIT — patrz [LICENSE](LICENSE).
