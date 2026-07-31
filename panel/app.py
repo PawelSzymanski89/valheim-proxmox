@@ -135,6 +135,14 @@ app = FastAPI(title="Valheim panel")
 OPEN_PATHS = {"/", "/icon.svg", "/api/login", "/api/logout"}
 
 
+@app.exception_handler(Exception)
+async def _unhandled(request: Request, exc: Exception):
+    # Anything that reaches here is a panel bug; it belongs in the log next to the action
+    # that triggered it, not only in uvicorn's traceback.
+    _log("error.unhandled", ok=False, path=request.url.path, error=f"{type(exc).__name__}: {exc}"[:300])
+    return JSONResponse({"detail": "Panel error — see the Log tab, panel log"}, status_code=500)
+
+
 @app.middleware("http")
 async def guard(request: Request, call_next):
     if request.url.path in OPEN_PATHS or _who(request):
@@ -187,7 +195,27 @@ def panel_auth(a: Auth):
     cfg = _env_file(VH_PANEL_ENV)
     cfg["PANEL_USER"], cfg["PANEL_PASS"] = a.user, a.password
     _save_panel_env(cfg)
+    _log("panel.login_changed", user=a.user)     # never the password
     return {"ok": True, "user": a.user}
+
+
+VH_LOG = Path(os.environ.get("VH_LOG", f"{VH_DIR}/panel.log"))
+LOG_KEEP = 4000
+
+
+def _log(action, ok=True, **fields):
+    """One JSON line per action the panel takes. This is the file to open when someone
+    says "the mod did not install" — uvicorn's journal only shows the HTTP status."""
+    try:
+        rec = {"ts": int(time.time()), "action": action, "ok": ok}
+        rec.update({k: v for k, v in fields.items() if v is not None})
+        with VH_LOG.open("a") as f:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        if VH_LOG.stat().st_size > 2_000_000:
+            keep = VH_LOG.read_text(errors="replace").splitlines()[-LOG_KEEP:]
+            VH_LOG.write_text("\n".join(keep) + "\n")
+    except Exception:
+        pass          # a broken log must never break the action it was describing
 
 
 def _sh(cmd, timeout=60):
@@ -619,7 +647,30 @@ def action(action: str):
     cmd = VH_ACTIONS.get(action)
     if not cmd:
         raise HTTPException(400, "Unknown action")
-    return {"ok": True, "out": _sh_ok(cmd[0], timeout=cmd[1]).strip()[-400:]}
+    out = _sh_ok(cmd[0], timeout=cmd[1]).strip()[-400:]
+    _log("server." + action, out=out or None)
+    return {"ok": True, "out": out}
+
+
+@app.get("/api/panel/log")
+def panel_log(n: int = 200, kind: str = "all"):
+    n = max(10, min(1000, n))
+    try:
+        lines = VH_LOG.read_text(errors="replace").splitlines()[-2000:]
+    except FileNotFoundError:
+        return {"entries": [], "file": str(VH_LOG)}
+    out = []
+    for ln in lines:
+        try:
+            rec = json.loads(ln)
+        except Exception:
+            continue
+        if kind == "mods" and not rec.get("action", "").startswith(("mods.", "config.")):
+            continue
+        if kind == "errors" and rec.get("ok", True):
+            continue
+        out.append(rec)
+    return {"entries": out[-n:][::-1], "file": str(VH_LOG)}
 
 
 @app.get("/api/valheim/log")
@@ -648,6 +699,7 @@ def list_save(kind: str, body: Ids):
         seen.add(i)
         ids.append(i)
     _write(f"{VH_DATA}/{fn}", f"// {kind} — managed by the Valheim panel\n" + "\n".join(ids) + "\n")
+    _log("list.save", kind=kind, count=len(ids), ids=ids[:20])
     return {"ok": True, "count": len(ids)}
 
 
@@ -709,6 +761,9 @@ def _save_settings(s: Settings):
         # restarting our own unit from inside it would kill this request mid-flight,
         # so hand the job to systemd and answer first
         _sh("systemd-run --on-active=2 --unit=valheim-panel-restart systemctl restart valheim-panel")
+    _log("settings.save", world=s.world, port=s.port, panel_port=s.panel_port,
+         public=s.public, crossplay=s.crossplay, preset=s.preset or None,
+         modifiers=mods or None, keys=keys or None, restarted=s.restart)
     return {"ok": True, "restarted": s.restart, "panel_port_changed": port_changed}
 
 
@@ -747,6 +802,7 @@ def world_delete(name: str):
     if cur["world"] == name:
         raise HTTPException(409, "That is the active world — switch to another one first")
     _sh_ok(f"cd {VH_WORLDS} && rm -f {q}.db {q}.fwl {q}.db.old {q}.fwl.old {q}_backup_auto-*.db {q}_backup_auto-*.fwl")
+    _log("world.delete", world=name)
     return {"ok": True}
 
 
@@ -771,6 +827,7 @@ async def world_upload(filename: str, data: bytes = Body(...)):
     p = Path(VH_WORLDS) / filename
     p.write_bytes(data)
     _sh(f"chown valheim:valheim {shlex.quote(str(p))}")
+    _log("world.upload", file=filename, size=len(data))
     return {"ok": True, "saved": filename}
 
 
@@ -787,12 +844,14 @@ def backup_restore(fn: str):
     _sh_ok(f"{VH_DIR}/backup.sh", timeout=120)
     _sh_ok(f"systemctl stop valheim && tar xzf {VH_BACKUPS}/{fn} -C {VH_WORLDS} "
            f"&& chown -R valheim:valheim {VH_WORLDS} && systemctl start valheim", timeout=240)
+    _log("backup.restore", file=fn)
     return {"ok": True}
 
 
 @app.delete("/api/valheim/backups/{fn}")
 def backup_delete(fn: str):
     _sh_ok(f"rm -f {VH_BACKUPS}/{_bak_ok(fn)}")
+    _log("backup.delete", file=fn)
     return {"ok": True}
 
 
@@ -809,6 +868,7 @@ def timer(name: str, state: str):
     if not unit or state not in ("on", "off"):
         raise HTTPException(400, "Unknown timer or state")
     _sh_ok(f"systemctl {'enable --now' if state == 'on' else 'disable --now'} {unit}")
+    _log("timer." + state, timer=name)
     return {"ok": True}
 
 
@@ -991,6 +1051,9 @@ def mods_install(p: ModPick):
     if p.restart or was_running:
         _sh_ok("systemctl start valheim", timeout=180)
         report["restarted"] = True
+    _log("mods.install", ok=not report["failed"], code=p.code or None,
+         installed=[m["full_name"] + " " + m["version"] for m in report["installed"]],
+         failed=report["failed"] or None, bepinex=report.get("bepinex"))
     return report
 
 
@@ -1010,6 +1073,7 @@ def mods_clear(c: ModClear):
     _mods_save(st)
     if c.start:
         _sh_ok("systemctl start valheim", timeout=180)
+    _log("mods.clear", removed=list(st.get("mods", {})) or None, started=c.start)
     return {"ok": True, "started": c.start}
 
 
@@ -1021,6 +1085,158 @@ def mods_remove(full_name: str, restart: bool = True):
     st = _mods_state()
     st.get("mods", {}).pop(full_name, None)
     _mods_save(st)
+    _log("mods.remove", package=full_name)
     if restart:
         _sh_ok("systemctl restart valheim", timeout=180)
     return {"ok": True}
+
+# ---------- mod configs ----------
+# BepInEx writes one .cfg per plugin on first run. Each entry carries its own description,
+# type and defaults in comments above it, which is enough to build a form — so the keys are
+# never typed by hand and cannot be misspelled. Only values are ever rewritten; comments,
+# sections and ordering come back byte for byte.
+VH_MODCFG = f"{VH_SERVER}/BepInEx/config"
+VH_CFGHIST = f"{VH_MODCFG}/.history"
+CFG_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}\.(cfg|json|ya?ml|txt|ini|xml)$")
+CFG_MAX = 512 * 1024
+CFG_KEEP = 20
+
+
+def _cfg_path(name, base=VH_MODCFG):
+    if not CFG_NAME_RE.match(name or ""):
+        raise HTTPException(400, "Not a config file name")
+    p = Path(base) / name
+    if not str(p.resolve()).startswith(str(Path(base).resolve())):
+        raise HTTPException(400, "Path escapes the config directory")
+    return p
+
+
+def _cfg_parse(text):
+    """BepInEx .cfg -> [{section, key, value, line, description, type, default, choices, range}]."""
+    entries, section, desc, meta = [], "", [], {}
+    for n, raw in enumerate(text.split("\n")):
+        line = raw.strip()
+        if not line:
+            desc, meta = [], {}
+            continue
+        if line.startswith("["):
+            section = line.strip("[]").strip()
+            desc, meta = [], {}
+            continue
+        if line.startswith("##"):
+            desc.append(line.lstrip("#").strip())
+            continue
+        if line.startswith("#"):
+            body = line.lstrip("#").strip()
+            for label, key in (("Setting type:", "type"), ("Default value:", "default"),
+                               ("Acceptable values:", "choices"), ("Acceptable value range:", "range")):
+                if body.startswith(label):
+                    meta[key] = body[len(label):].strip()
+                    break
+            else:
+                desc.append(body)
+            continue
+        if "=" in line:
+            k, _, v = line.partition("=")
+            choices = [c.strip() for c in meta.get("choices", "").split(",") if c.strip()]
+            rng = None
+            m = re.search(r"From\s+(-?[\d.]+)\s+to\s+(-?[\d.]+)", meta.get("range", ""))
+            if m:
+                rng = [m.group(1), m.group(2)]
+            entries.append({"section": section, "key": k.strip(), "value": v.strip(), "line": n,
+                            "description": " ".join(desc), "type": meta.get("type", ""),
+                            "default": meta.get("default", ""), "choices": choices, "range": rng})
+            desc, meta = [], {}
+    return entries
+
+
+def _cfg_apply(text, changes):
+    """Rewrite only the value on each entry's own line — everything else is left alone."""
+    lines = text.split("\n")
+    by_line = {e["line"]: e for e in _cfg_parse(text)}
+    for ch in changes:
+        ln = ch.get("line")
+        e = by_line.get(ln)
+        if e is None or e["key"] != ch.get("key") or e["section"] != ch.get("section"):
+            raise HTTPException(409, "The file changed on disk since you opened it — reload and try again")
+        val = str(ch.get("value", ""))
+        if "\n" in val or "\r" in val:
+            raise HTTPException(400, f"{e['key']}: a value cannot span lines")
+        lines[ln] = f"{e['key']} = {val}"
+    return "\n".join(lines)
+
+
+def _cfg_snapshot(p):
+    """Keep every save, newest first, so any of them can be restored with one click."""
+    if not p.exists():
+        return
+    d = Path(VH_CFGHIST) / p.name
+    _sh_ok(f"mkdir -p {shlex.quote(str(d))}")
+    (d / str(int(time.time()))).write_text(p.read_text(errors="replace"))
+    old = sorted(d.iterdir(), key=lambda f: f.name, reverse=True)[CFG_KEEP:]
+    for f in old:
+        f.unlink(missing_ok=True)
+
+
+@app.get("/api/mods/configs")
+def mod_configs():
+    out = _sh(f"ls -l --time-style=+%s {VH_MODCFG} 2>/dev/null").stdout
+    files = [f for f in _ls(out.splitlines()) if CFG_NAME_RE.match(f["name"])]
+    return {"dir": VH_MODCFG, "files": sorted(files, key=lambda f: f["name"].lower())}
+
+
+@app.get("/api/mods/configs/{name}")
+def mod_config_read(name: str):
+    p = _cfg_path(name)
+    if not p.exists():
+        raise HTTPException(404, "No such config")
+    if p.stat().st_size > CFG_MAX:
+        raise HTTPException(413, "File too large to edit here")
+    text = p.read_text(errors="replace")
+    hist = []
+    d = Path(VH_CFGHIST) / name
+    if d.is_dir():
+        hist = sorted((int(f.name) for f in d.iterdir() if f.name.isdigit()), reverse=True)
+    return {"name": name, "mtime": int(p.stat().st_mtime), "history": hist,
+            "form": _cfg_parse(text) if name.endswith((".cfg", ".ini")) else None,
+            "content": text}
+
+
+class CfgSave(BaseModel):
+    changes: list = []      # [{section, key, line, value}]
+    content: str = ""       # only used for files with no form (json/yaml)
+    restart: bool = False
+
+
+@app.post("/api/mods/configs/{name}")
+def mod_config_write(name: str, body: CfgSave):
+    p = _cfg_path(name)
+    if not p.exists():
+        raise HTTPException(404, "No such config")
+    _cfg_snapshot(p)
+    if body.changes:
+        new = _cfg_apply(p.read_text(errors="replace"), body.changes)
+    else:
+        if len(body.content.encode()) > CFG_MAX:
+            raise HTTPException(413, "File too large")
+        new = body.content
+    _write(str(p), new)
+    _log("config.save", file=name, restarted=body.restart,
+         changed=[f"{c.get('key')}={c.get('value')}" for c in body.changes] or None)
+    if body.restart:
+        _sh_ok("systemctl restart valheim", timeout=180)
+    return {"ok": True, "restarted": body.restart}
+
+
+@app.post("/api/mods/configs/{name}/restore/{stamp}")
+def mod_config_restore(name: str, stamp: int, restart: bool = False):
+    p = _cfg_path(name)
+    src = Path(VH_CFGHIST) / name / str(stamp)
+    if not src.exists():
+        raise HTTPException(404, "No such version")
+    _cfg_snapshot(p)          # the state being replaced is itself worth keeping
+    _write(str(p), src.read_text(errors="replace"))
+    _log("config.restore", file=name, version=stamp, restarted=restart)
+    if restart:
+        _sh_ok("systemctl restart valheim", timeout=180)
+    return {"ok": True, "restarted": restart}
