@@ -139,6 +139,14 @@
       <div class="muted" style="margin-bottom:6px">Online now <span id="vh-on-note"></span></div>
       <table><thead><tr><th>Player</th><th>Id</th><th>Joined</th><th class="r">Session</th><th class="r">Actions</th></tr></thead>
       <tbody id="vh-online"><tr><td colspan="5" class="muted">—</td></tr></tbody></table>
+      <div class="row" style="margin:18px 0 6px"><div class="muted">Playtime</div>
+        <button class="mini" id="st-refresh">Refresh</button></div>
+      <div id="st-sum" class="grid"></div>
+      <table style="margin-top:10px"><thead><tr><th>Player</th><th class="r">Total</th><th class="r">Longest</th><th class="r">Sessions</th><th>Last seen</th></tr></thead>
+      <tbody id="st-board"><tr><td colspan="5" class="muted">—</td></tr></tbody></table>
+      <div class="muted" style="margin:16px 0 6px">When the server is busy</div>
+      <div id="st-hours" style="display:flex;gap:3px;align-items:flex-end;height:70px"></div>
+
       <div class="muted" style="margin:16px 0 6px">Login history</div>
       <table><thead><tr><th>Player</th><th>Id</th><th>First seen</th><th>Last seen</th><th class="r">Joins</th><th class="r">Actions</th></tr></thead>
       <tbody id="vh-history"><tr><td colspan="6" class="muted">—</td></tr></tbody></table>
@@ -201,9 +209,16 @@
         (<b>Settings → Export profile → as a code</b>) and paste the code here. Everyone ends up on the
         same versions, which is what stops the “incompatible version” bounce at join time.</div>
       <div id="mods-preview-box" style="margin-top:14px"></div>
-      <div class="muted" style="margin:18px 0 6px">Installed on the server</div>
-      <table><thead><tr><th>Package</th><th>Version</th><th class="r">Actions</th></tr></thead>
-      <tbody id="mods-list"><tr><td colspan="3" class="muted">—</td></tr></tbody></table>
+      <div class="row" style="margin:18px 0 6px">
+        <div class="muted">Installed on the server</div>
+        <div style="display:flex;gap:6px">
+          <button class="mini" id="mods-check">Check for updates</button>
+          <button class="mini" id="mods-update">Update all</button>
+          <button class="mini" id="mods-export">Make a share code</button>
+        </div>
+      </div>
+      <table><thead><tr><th>Package</th><th>Version</th><th>Newest</th><th>Pinned</th><th class="r">Actions</th></tr></thead>
+      <tbody id="mods-list"><tr><td colspan="5" class="muted">—</td></tr></tbody></table>
       <div class="add" style="margin-top:12px">
         <input id="mods-ns" placeholder="author" style="max-width:180px">
         <input id="mods-name" placeholder="ModName" style="max-width:220px">
@@ -389,6 +404,36 @@ const I18N={
  "In the app: <b>+</b> → paste the topic above → subscribe. No account, no login.":"W apce: <b>+</b> → wklej temat z góry → subskrybuj. Bez konta, bez logowania.",
  "Hit <b>Send a test</b> below. If the phone buzzes, you are done.":"Kliknij <b>Wyślij testowe</b> niżej. Jak telefon zabrzęczy, gotowe.",
  "Everyone who should get alerts subscribes to the same topic — add as many phones as you like.":"Każdy, kto ma dostawać alerty, subskrybuje ten sam temat — telefonów może być ile chcesz.",
+ "Check for updates":"Sprawdź aktualizacje",
+ "Update all":"Zaktualizuj wszystkie",
+ "Make a share code":"Zrób kod udostępniania",
+ "Newest":"Najnowsza",
+ "Pinned":"Przypięty",
+ "update":"aktualizuj",
+ "Pinned — will not be updated":"Przypięty — nie będzie aktualizowany",
+ "Unpinned":"Odpięty",
+ "Asking Thunderstore…":"Pytam Thunderstore…",
+ "Nothing to update — check for updates first":"Nic do aktualizacji — najpierw sprawdź aktualizacje",
+ "Update mods?":"Zaktualizować mody?",
+ "packages. The server stops for the update and starts again. Players need the same versions — send them a fresh share code afterwards.":"paczek. Serwer zatrzyma się na czas aktualizacji i wstanie po niej. Gracze muszą mieć te same wersje — wyślij im potem świeży kod udostępniania.",
+ "Update":"Aktualizuj",
+ "Updating…":"Aktualizuję…",
+ "Updated":"Zaktualizowano",
+ "failed":"nieudanych",
+ "Building the profile…":"Buduję profil…",
+ "Share code ready":"Kod udostępniania gotowy",
+ "Give this to players — they paste it into Thunderstore Mod Manager and land on exactly these versions.":"Daj go graczom — wklejają w Thunderstore Mod Managerze i mają dokładnie te wersje.",
+ "Done":"Gotowe",
+ "Playtime":"Czas gry",
+ "Total":"Łącznie",
+ "Longest":"Najdłuższa",
+ "Sessions":"Sesji",
+ "Last seen":"Ostatnio",
+ "When the server is busy":"Kiedy serwer żyje",
+ "Time played, everyone":"Czas gry, wszyscy",
+ "Players seen":"Widzianych graczy",
+ "Sessions recorded":"Zapisanych sesji",
+ "nobody has finished a session yet":"nikt jeszcze nie zakończył sesji",
  "Valheim — server admin":"Valheim — panel serwera",
  "Everything a server admin can control. In-game commands (kick, spawn, weather)":"Wszystko, czym steruje admin serwera. Komendy w grze (kick, spawn, pogoda)",
  "live in the F5 console — add yourself to":"są w konsoli F5 — dopisz się do",
@@ -544,7 +589,7 @@ async function load(){
     if(v.disk)b.push("disk: "+fmtBytes(v.disk.used)+" used / "+fmtBytes(v.disk.avail)+" free");
     $("vh-meta").textContent=b.join(" · ");
     $("warn-default").style.display=(v.settings||{}).panel_default_pass?"block":"none";
-    vhOnline(v);vhHistory(v);vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
+    vhOnline(v);vhHistory(v);vhStats();vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
     $("vh-err").textContent="";
   }catch(e){$("vh-err").textContent=e.message;}
 }
@@ -598,6 +643,26 @@ function vhHistory(v){
   $("vh-history").querySelectorAll("[data-vhban]").forEach(b=>b.onclick=()=>vhBan(b.dataset.vhban,true));
   $("vh-history").querySelectorAll("[data-vhunban]").forEach(b=>b.onclick=()=>vhBan(b.dataset.vhunban,false));
 }
+async function vhStats(){
+  try{
+    const s=await jf("/api/valheim/players/stats");
+    $("st-sum").innerHTML=
+      `<div class="stat"><div class="muted">${t("Time played, everyone")}</div><div>${fmtDur(s.total_seconds)}</div></div>`+
+      `<div class="stat"><div class="muted">${t("Players seen")}</div><div>${s.players.length}</div></div>`+
+      `<div class="stat"><div class="muted">${t("Sessions recorded")}</div><div>${s.players.reduce((a,p)=>a+p.sessions,0)}</div></div>`;
+    $("st-board").innerHTML=s.players.length?s.players.map(p=>`<tr>
+      <td>${esc(p.name||p.id)}</td><td class="r">${fmtDur(p.total)}</td>
+      <td class="r muted">${fmtDur(p.longest)}</td><td class="r">${p.sessions}</td>
+      <td class="muted">${fmtTs(p.last)}</td></tr>`).join("")
+      :`<tr><td colspan="5" class="muted">${t("nobody has finished a session yet")}</td></tr>`;
+    const max=Math.max(1,...s.by_hour);
+    $("st-hours").innerHTML=s.by_hour.map((v,i)=>
+      `<div title="${i}:00 — ${v}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+        <div style="height:${Math.round(v/max*100)}%;background:${v?"var(--acc)":"var(--line)"};min-height:2px;border-radius:2px 2px 0 0"></div>
+        <div class="muted" style="font-size:9px;text-align:center">${i%3?"":i}</div></div>`).join("");
+  }catch(e){$("st-board").innerHTML=`<tr><td colspan="5" class="err">${esc(e.message)}</td></tr>`;}
+}
+$("st-refresh").onclick=vhStats;
 function vhSaveList(kind,ids){return jf("/api/valheim/lists/"+kind,{method:"POST",
   headers:{"Content-Type":"application/json"},body:JSON.stringify({ids})});}
 async function vhBan(id,on){
@@ -770,15 +835,24 @@ async function vhSummary(){
 $("sum-recheck").onclick=vhSummary;
 // ---- Mods ----
 let MODS=null;
-async function vhMods(){
+async function vhMods(check){
   try{
-    const m=await jf("/api/mods");MODS=m;
+    const m=await jf("/api/mods"+(check?"?check=1":""));MODS=m;
     $("mods-state").innerHTML=(m.bepinex?'<span class="dot run"></span>BepInEx installed':'<span class="dot stop"></span>BepInEx missing — installed automatically with the first mod')
       +(m.profile_code?` · profile <code>${esc(m.profile_code)}</code>${m.profile_name?" ("+esc(m.profile_name)+")":""}`:"");
     $("mods-list").innerHTML=m.mods.length?m.mods.map(x=>`<tr><td>${esc(x.full_name)}</td>
       <td class="muted">${esc(x.version||"?")}</td>
-      <td class="r"><button class="mini danger" data-modrm="${esc(x.full_name)}">remove</button></td></tr>`).join("")
-      :`<tr><td colspan="3" class="muted">no mods installed</td></tr>`;
+      <td class="${x.outdated?"":"muted"}" ${x.outdated?'style="color:var(--acc2)"':""}>${m.checked?esc(x.latest||"?"):"—"}</td>
+      <td><input type="checkbox" data-pin="${esc(x.full_name)}" ${x.pinned?"checked":""}></td>
+      <td class="r">${x.outdated?`<button class="mini" data-modup="${esc(x.full_name)}">update</button> `:""}
+        <button class="mini danger" data-modrm="${esc(x.full_name)}">remove</button></td></tr>`).join("")
+      :`<tr><td colspan="5" class="muted">no mods installed</td></tr>`;
+    $("mods-list").querySelectorAll("[data-pin]").forEach(c=>c.onchange=()=>
+      jf("/api/mods/pin/"+encodeURIComponent(c.dataset.pin),{method:"POST",
+        headers:{"Content-Type":"application/json"},body:JSON.stringify({pinned:c.checked})})
+        .then(()=>toast(c.checked?t("Pinned — will not be updated"):t("Unpinned"),"ok"))
+        .catch(e=>{toast(e.message,"bad");c.checked=!c.checked;}));
+    $("mods-list").querySelectorAll("[data-modup]").forEach(b=>b.onclick=()=>vhModsUpdate([b.dataset.modup]));
     $("mods-list").querySelectorAll("[data-modrm]").forEach(b=>b.onclick=async()=>{
       if(!await confirmModal("Remove mod?",`<b>${esc(b.dataset.modrm)}</b> — the server restarts.`,"Remove"))return;
       b.classList.add("loading");
@@ -787,7 +861,35 @@ async function vhMods(){
     $("mods-err").textContent="";
   }catch(e){$("mods-err").textContent=e.message;}
 }
-$("mods-refresh").onclick=vhMods;
+$("mods-refresh").onclick=()=>vhMods();
+$("mods-check").onclick=()=>{toast(t("Asking Thunderstore…"));vhMods(true);};
+$("mods-update").onclick=()=>{
+  const out=(MODS&&MODS.mods||[]).filter(m=>m.outdated).map(m=>m.full_name);
+  if(!out.length){toast(t("Nothing to update — check for updates first"),"bad");return;}
+  vhModsUpdate(out);
+};
+async function vhModsUpdate(list){
+  if(!await confirmModal(t("Update mods?"),
+      `${list.length} ${t("packages. The server stops for the update and starts again. Players need the same versions — send them a fresh share code afterwards.")}`,
+      t("Update")))return;
+  toast(t("Updating…"));
+  try{
+    const r=await jf("/api/mods/update",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({mods:list,restart:true})});
+    toast(`${t("Updated")} ${r.updated.length}${r.failed.length?", "+r.failed.length+" "+t("failed"):""}`,r.failed.length?"bad":"ok");
+    setTimeout(()=>vhMods(true),4000);
+  }catch(e){toast(e.message,"bad");}
+}
+$("mods-export").onclick=async()=>{
+  toast(t("Building the profile…"));
+  try{
+    const r=await jf("/api/mods/export",{method:"POST"});
+    await confirmModal(t("Share code ready"),
+      `<div class="muted">${t("Give this to players — they paste it into Thunderstore Mod Manager and land on exactly these versions.")}</div>
+       <div style="margin-top:10px"><code style="font-size:14px">${esc(r.code)}</code></div>`,t("Done"));
+    vhMods(MODS&&MODS.checked);
+  }catch(e){toast(e.message,"bad");}
+};
 $("mods-clear").onclick=async()=>{
   if(!await confirmModal(t("Remove all mods?"),
       t("The world is backed up, the server stops and BepInEx with every plugin is deleted. The world itself is untouched — but anything a mod added to it stops existing."),
@@ -1219,7 +1321,7 @@ async function load(){
     if(v.disk)b.push("disk: "+fmtBytes(v.disk.used)+" used / "+fmtBytes(v.disk.avail)+" free");
     $("vh-meta").textContent=b.join(" · ");
     $("warn-default").style.display=(v.settings||{}).panel_default_pass?"block":"none";
-    vhOnline(v);vhHistory(v);vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
+    vhOnline(v);vhHistory(v);vhStats();vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
     $("vh-err").textContent="";
   }catch(e){$("vh-err").textContent=e.message;}
 }
@@ -1273,6 +1375,26 @@ function vhHistory(v){
   $("vh-history").querySelectorAll("[data-vhban]").forEach(b=>b.onclick=()=>vhBan(b.dataset.vhban,true));
   $("vh-history").querySelectorAll("[data-vhunban]").forEach(b=>b.onclick=()=>vhBan(b.dataset.vhunban,false));
 }
+async function vhStats(){
+  try{
+    const s=await jf("/api/valheim/players/stats");
+    $("st-sum").innerHTML=
+      `<div class="stat"><div class="muted">${t("Time played, everyone")}</div><div>${fmtDur(s.total_seconds)}</div></div>`+
+      `<div class="stat"><div class="muted">${t("Players seen")}</div><div>${s.players.length}</div></div>`+
+      `<div class="stat"><div class="muted">${t("Sessions recorded")}</div><div>${s.players.reduce((a,p)=>a+p.sessions,0)}</div></div>`;
+    $("st-board").innerHTML=s.players.length?s.players.map(p=>`<tr>
+      <td>${esc(p.name||p.id)}</td><td class="r">${fmtDur(p.total)}</td>
+      <td class="r muted">${fmtDur(p.longest)}</td><td class="r">${p.sessions}</td>
+      <td class="muted">${fmtTs(p.last)}</td></tr>`).join("")
+      :`<tr><td colspan="5" class="muted">${t("nobody has finished a session yet")}</td></tr>`;
+    const max=Math.max(1,...s.by_hour);
+    $("st-hours").innerHTML=s.by_hour.map((v,i)=>
+      `<div title="${i}:00 — ${v}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
+        <div style="height:${Math.round(v/max*100)}%;background:${v?"var(--acc)":"var(--line)"};min-height:2px;border-radius:2px 2px 0 0"></div>
+        <div class="muted" style="font-size:9px;text-align:center">${i%3?"":i}</div></div>`).join("");
+  }catch(e){$("st-board").innerHTML=`<tr><td colspan="5" class="err">${esc(e.message)}</td></tr>`;}
+}
+$("st-refresh").onclick=vhStats;
 function vhSaveList(kind,ids){return jf("/api/valheim/lists/"+kind,{method:"POST",
   headers:{"Content-Type":"application/json"},body:JSON.stringify({ids})});}
 async function vhBan(id,on){
@@ -1445,15 +1567,24 @@ async function vhSummary(){
 $("sum-recheck").onclick=vhSummary;
 // ---- Mods ----
 let MODS=null;
-async function vhMods(){
+async function vhMods(check){
   try{
-    const m=await jf("/api/mods");MODS=m;
+    const m=await jf("/api/mods"+(check?"?check=1":""));MODS=m;
     $("mods-state").innerHTML=(m.bepinex?'<span class="dot run"></span>BepInEx installed':'<span class="dot stop"></span>BepInEx missing — installed automatically with the first mod')
       +(m.profile_code?` · profile <code>${esc(m.profile_code)}</code>${m.profile_name?" ("+esc(m.profile_name)+")":""}`:"");
     $("mods-list").innerHTML=m.mods.length?m.mods.map(x=>`<tr><td>${esc(x.full_name)}</td>
       <td class="muted">${esc(x.version||"?")}</td>
-      <td class="r"><button class="mini danger" data-modrm="${esc(x.full_name)}">remove</button></td></tr>`).join("")
-      :`<tr><td colspan="3" class="muted">no mods installed</td></tr>`;
+      <td class="${x.outdated?"":"muted"}" ${x.outdated?'style="color:var(--acc2)"':""}>${m.checked?esc(x.latest||"?"):"—"}</td>
+      <td><input type="checkbox" data-pin="${esc(x.full_name)}" ${x.pinned?"checked":""}></td>
+      <td class="r">${x.outdated?`<button class="mini" data-modup="${esc(x.full_name)}">update</button> `:""}
+        <button class="mini danger" data-modrm="${esc(x.full_name)}">remove</button></td></tr>`).join("")
+      :`<tr><td colspan="5" class="muted">no mods installed</td></tr>`;
+    $("mods-list").querySelectorAll("[data-pin]").forEach(c=>c.onchange=()=>
+      jf("/api/mods/pin/"+encodeURIComponent(c.dataset.pin),{method:"POST",
+        headers:{"Content-Type":"application/json"},body:JSON.stringify({pinned:c.checked})})
+        .then(()=>toast(c.checked?t("Pinned — will not be updated"):t("Unpinned"),"ok"))
+        .catch(e=>{toast(e.message,"bad");c.checked=!c.checked;}));
+    $("mods-list").querySelectorAll("[data-modup]").forEach(b=>b.onclick=()=>vhModsUpdate([b.dataset.modup]));
     $("mods-list").querySelectorAll("[data-modrm]").forEach(b=>b.onclick=async()=>{
       if(!await confirmModal("Remove mod?",`<b>${esc(b.dataset.modrm)}</b> — the server restarts.`,"Remove"))return;
       b.classList.add("loading");
@@ -1462,7 +1593,35 @@ async function vhMods(){
     $("mods-err").textContent="";
   }catch(e){$("mods-err").textContent=e.message;}
 }
-$("mods-refresh").onclick=vhMods;
+$("mods-refresh").onclick=()=>vhMods();
+$("mods-check").onclick=()=>{toast(t("Asking Thunderstore…"));vhMods(true);};
+$("mods-update").onclick=()=>{
+  const out=(MODS&&MODS.mods||[]).filter(m=>m.outdated).map(m=>m.full_name);
+  if(!out.length){toast(t("Nothing to update — check for updates first"),"bad");return;}
+  vhModsUpdate(out);
+};
+async function vhModsUpdate(list){
+  if(!await confirmModal(t("Update mods?"),
+      `${list.length} ${t("packages. The server stops for the update and starts again. Players need the same versions — send them a fresh share code afterwards.")}`,
+      t("Update")))return;
+  toast(t("Updating…"));
+  try{
+    const r=await jf("/api/mods/update",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({mods:list,restart:true})});
+    toast(`${t("Updated")} ${r.updated.length}${r.failed.length?", "+r.failed.length+" "+t("failed"):""}`,r.failed.length?"bad":"ok");
+    setTimeout(()=>vhMods(true),4000);
+  }catch(e){toast(e.message,"bad");}
+}
+$("mods-export").onclick=async()=>{
+  toast(t("Building the profile…"));
+  try{
+    const r=await jf("/api/mods/export",{method:"POST"});
+    await confirmModal(t("Share code ready"),
+      `<div class="muted">${t("Give this to players — they paste it into Thunderstore Mod Manager and land on exactly these versions.")}</div>
+       <div style="margin-top:10px"><code style="font-size:14px">${esc(r.code)}</code></div>`,t("Done"));
+    vhMods(MODS&&MODS.checked);
+  }catch(e){toast(e.message,"bad");}
+};
 $("mods-clear").onclick=async()=>{
   if(!await confirmModal(t("Remove all mods?"),
       t("The world is backed up, the server stops and BepInEx with every plugin is deleted. The world itself is untouched — but anything a mod added to it stops existing."),

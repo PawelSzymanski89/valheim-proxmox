@@ -129,6 +129,13 @@ and if someone is on at that hour the restart is put off and retried later, with
 either way. `update.sh` reads the same player count, so an automatic game update also waits for
 an empty server.
 
+### Playtime and when the server is busy
+
+The **Players** tab keeps a leaderboard — total time played, longest single session, number of
+sessions, last seen — and a bar per hour of the day showing when people actually play. All of it
+comes out of the session log the panel already keeps, so nothing extra runs on the game server and
+nothing is asked of the players.
+
 ## Panel login and getting back in
 
 Login happens on the panel's own screen, not the browser's grey box: session cookie, signed
@@ -210,6 +217,20 @@ The world file is untouched, but anything a mod added inside it stops existing.
 
 Installed mods live in `server/BepInEx/plugins/<author>-<Package>/`, and `start.sh` turns on
 the doorstop loader by itself once `BepInEx/` exists.
+
+### Keeping versions in step
+
+**Check for updates** asks Thunderstore what the newest version of each installed package is and
+marks what is behind. **Update all** takes only those, stops the server, updates and starts it
+again.
+
+**Pin** a package and it is never offered again — because the versions that matter are the ones
+your players run, and a server that quietly moves ahead bounces everyone at the door. Pinned
+packages are refused by the update call itself, not just hidden in the UI.
+
+**Make a share code** turns whatever is installed into a Thunderstore profile and gives you back
+one code. Players paste it into their mod manager and land on exactly these versions — the same
+mechanism as importing, in the other direction.
 
 ## Mod config, without SSH and without breaking it
 
@@ -446,6 +467,20 @@ zestaw. Plik świata zostaje nietknięty, ale to, co mod do niego dodał, przest
 Zainstalowane mody leżą w `server/BepInEx/plugins/<autor>-<Paczka>/`, a `start.sh` sam włącza
 loader doorstop, gdy tylko pojawi się katalog `BepInEx/`.
 
+### Trzymanie wersji w jednej linii
+
+**Sprawdź aktualizacje** pyta Thunderstore o najnowszą wersję każdej zainstalowanej paczki i
+zaznacza to, co zostało w tyle. **Zaktualizuj wszystkie** bierze tylko te, zatrzymuje serwer,
+aktualizuje i podnosi go z powrotem.
+
+**Przypnij** paczkę, a nigdy więcej nie zostanie zaproponowana — bo liczą się te wersje, które
+mają Twoi gracze, a serwer, który po cichu ucieka do przodu, odbija wszystkich przy wejściu.
+Przypięte paczki odrzuca samo wywołanie aktualizacji, nie tylko interfejs.
+
+**Zrób kod udostępniania** zamienia to, co stoi na serwerze, w profil Thunderstore i oddaje jeden
+kod. Gracze wklejają go w swoim managerze i mają dokładnie te wersje — ten sam mechanizm co import,
+tylko w drugą stronę.
+
 ## Konfiguracja modów — bez SSH i bez rozwalania
 
 BepInEx zapisuje po jednym `.cfg` na plugin. Zakładka **Konfiguracja modów** czyta je i buduje
@@ -489,6 +524,13 @@ zwykła higiena — ale nie w środku najazdu. Ustawiasz godzinę, zostawiasz **
 gra**, a jeśli o tej porze ktoś siedzi na serwerze, restart zostaje przełożony i ponowiony
 później; w obu przypadkach dostajesz powiadomienie. `update.sh` czyta ten sam licznik graczy, więc
 automatyczna aktualizacja gry też czeka na pusty serwer.
+
+### Czas gry i pory, w których serwer żyje
+
+Zakładka **Gracze** prowadzi ranking — łączny czas gry, najdłuższa pojedyncza sesja, liczba sesji,
+ostatnia obecność — oraz słupek na każdą godzinę doby, pokazujący, kiedy ludzie realnie grają.
+Wszystko wychodzi z dziennika sesji, który panel i tak prowadzi, więc na serwerze gry nic
+dodatkowego nie chodzi i nikt niczego nie musi instalować.
 
 ## Dziennik panelu
 

@@ -50,4 +50,11 @@ assert by_id["76561198000000001"]["sessions"] == 1, by_id
 again = {p["id"]: p["sessions"] for p in app._history(hist)}
 assert again == {i: 1 for i in by_id}, again
 
+# Skjor joined 10:01 and left 10:09 — eight minutes, recorded once
+skjor = by_id["76561198000000001"]
+assert skjor["total"] == 8 * 60, skjor
+assert len(skjor["log"]) == 1 and skjor["log"][0]["seconds"] == 8 * 60, skjor
+# Hilda never left in this log, so she has no closed session yet
+assert by_id["76561198000000002"]["total"] == 0, by_id["76561198000000002"]
+
 print("OK — log parser and login history")
