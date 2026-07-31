@@ -5,62 +5,88 @@
 <title>Valheim — server admin</title>
 <style>
   :root{
-    --bg:#0e1116; --card:#161b22; --card2:#1c2430; --line:#26303d; --tx:#e6edf3; --dim:#8b98a5;
-    --acc:#5b8def; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; --field:#0d1117;
+    /* mroczny nordycki: kamień, sadza, przyćmione złoto */
+    --bg:#0b0d0f; --card:#14181c; --card2:#1b2127; --line:#2b3138; --tx:#dcd3c3; --dim:#8d8477;
+    --acc:#c9a227; --acc2:#e3c05a; --ok:#5d7a4a; --warn:#b8860b; --bad:#8f2f28; --field:#0d1114;
   }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  body{margin:0;color:var(--tx);font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:
+      radial-gradient(1200px 620px at 50% -12%, #1c242b 0%, transparent 62%),
+      radial-gradient(760px 420px at 50% 112%, #171a14 0%, transparent 62%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
+      var(--bg);
+    background-attachment:fixed}
   .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 60px}
-  h1{font-size:20px;margin:0 0 2px;font-weight:650}
+  h1{margin:0 0 2px;font:600 26px/1.1 Georgia,"Times New Roman",serif;letter-spacing:.2em;
+    text-transform:uppercase;color:var(--acc2);text-shadow:0 2px 18px rgba(201,162,39,.22)}
+  h1:after{content:"ᚠ ᚢ ᚦ ᚨ ᚱ ᚲ";display:block;font:400 11px/1 system-ui;letter-spacing:.5em;
+    color:var(--acc);opacity:.45;margin-top:8px}
   .sub{color:var(--dim);font-size:13px;margin-bottom:22px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
-  .card h2{font-size:14px;text-transform:uppercase;letter-spacing:.04em;color:var(--dim);margin:0 0 14px;font-weight:600}
+  .card{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);
+    border-radius:4px;padding:20px;box-shadow:0 0 0 1px rgba(201,162,39,.08),0 18px 40px rgba(0,0,0,.5);
+    position:relative}
+  .card:before{content:"";position:absolute;inset:5px;border:1px solid rgba(201,162,39,.10);
+    border-radius:2px;pointer-events:none}
+  .card h2{font:600 13px/1 Georgia,serif;text-transform:uppercase;letter-spacing:.16em;
+    color:var(--acc);margin:0 0 14px}
   .row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
   .muted{color:var(--dim);font-size:13px}
   .big{font-size:26px;font-weight:700}
   .r{text-align:right}
   .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
-  .stat{background:var(--card2);border-radius:9px;padding:10px 12px}
+  .stat{background:#10151a;border:1px solid var(--line);border-radius:3px;padding:11px 13px}
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
   .dot.run{background:var(--ok)}.dot.stop{background:var(--bad)}
   table{width:100%;border-collapse:collapse;font-size:14px}
-  th{text-align:left;font-weight:600;color:var(--dim);font-size:12px;text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--line)}
+  th{text-align:left;font-weight:600;color:var(--acc);font-size:11px;text-transform:uppercase;
+    letter-spacing:.1em;padding:7px 8px;border-bottom:1px solid var(--line)}
   td{padding:7px 8px;border-bottom:1px solid var(--line)}
   code{background:var(--field);padding:1px 6px;border-radius:5px;font-size:12px}
-  button{background:var(--card2);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px 13px;font:inherit;cursor:pointer}
-  button:hover{border-color:var(--acc)}
-  button.primary{background:var(--acc);border-color:var(--acc);color:#fff}
-  button.danger{color:var(--bad)}
+  button{background:linear-gradient(180deg,#242b32,#181d22);color:var(--tx);border:1px solid var(--line);
+    border-radius:3px;padding:8px 14px;font:500 13px/1.2 system-ui;letter-spacing:.06em;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--acc);box-shadow:0 0 16px rgba(201,162,39,.14)}
+  button.primary{color:var(--acc2);border-color:var(--acc)}
+  button.danger{color:#e0796f;border-color:#4a2a27}
+  button.danger:hover{border-color:var(--bad);box-shadow:0 0 16px rgba(143,47,40,.25)}
   button.mini{padding:3px 9px;font-size:12px}
   button:disabled,button.loading{opacity:.55;pointer-events:none}
-  input,select{background:var(--field);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font:inherit;width:100%}
+  input,select{background:var(--field);color:var(--tx);border:1px solid var(--line);border-radius:3px;
+    padding:8px 11px;font:inherit;width:100%;transition:border-color .15s}
+  input:focus,select:focus{outline:none;border-color:var(--acc);box-shadow:0 0 0 3px rgba(201,162,39,.09)}
   input[type=checkbox]{width:auto}
   .add{display:flex;gap:8px;flex-wrap:wrap}
   .add input{width:auto;flex:1;min-width:120px}
   .err{color:var(--bad);font-size:13px;margin-top:10px;min-height:18px}
-  .log{background:var(--field);border:1px solid var(--line);border-radius:9px;padding:12px;font-size:12px;
+  .log{background:var(--field);border:1px solid var(--line);border-radius:3px;padding:12px;font-size:12px;
        max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
   /* tabs — 6 lines of JS below, no framework */
   .tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:16px 0 0}
   .tabs a{padding:8px 14px;color:var(--dim);text-decoration:none;font-size:14px;border-bottom:2px solid transparent;cursor:pointer}
-  .tabs a.on{color:var(--tx);border-bottom-color:var(--acc)}
+  .tabs a.on{color:var(--acc2);border-bottom-color:var(--acc)}
+  .tabs a{text-transform:uppercase;letter-spacing:.1em;font-size:12px}
   .pane{display:none;padding-top:16px}.pane.on{display:block}
   /* modal + toast */
   .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50}
   .modal-bg.open{display:flex}
-  .modal{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;max-width:460px;width:92%}
+  .modal{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--acc);
+    border-radius:4px;padding:22px;max-width:460px;width:92%;box-shadow:0 24px 60px rgba(0,0,0,.7)}
   .modal-t{font-weight:650;margin-bottom:8px}
   .modal-b{color:var(--dim);font-size:14px;margin-bottom:16px}
   .modal-a{display:flex;gap:8px;justify-content:flex-end}
   #toast{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:8px;z-index:60}
-  .toast{background:var(--card2);border:1px solid var(--line);border-radius:9px;padding:10px 14px;font-size:14px}
+  .toast{background:linear-gradient(180deg,#232a31,#171c21);border:1px solid var(--line);
+    border-radius:3px;padding:10px 15px;font-size:14px;box-shadow:0 10px 30px rgba(0,0,0,.6)}
   .toast.ok{border-color:var(--ok)}.toast.bad{border-color:var(--bad)}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="row"><h1>Valheim — server admin</h1>
-    <div id="lang" style="display:flex;gap:4px"></div></div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <div id="lang" style="display:flex;gap:4px"></div>
+      <button class="mini" id="logout">Wyloguj</button>
+    </div></div>
   <div class="sub">Everything a server admin can control. In-game commands (kick, spawn, weather)
     live in the F5 console — add yourself to <b>Admins</b> below and use it there.</div>
 
@@ -633,6 +659,8 @@ $("vh-wup-btn").onclick=async()=>{
 };
 $("lang").innerHTML=["pl","en"].map(l=>`<button class="mini" data-lang="${l}" ${l===LANG?'style="border-color:var(--acc)"':""}>${l.toUpperCase()}</button>`).join("");
 $("lang").querySelectorAll("[data-lang]").forEach(b=>b.onclick=()=>setLang(b.dataset.lang));
+$("logout").textContent=LANG==="pl"?"Wyloguj":"Log out";
+$("logout").onclick=()=>jf("/api/logout",{method:"POST"}).then(()=>location.reload());
 applyLang(document.body);
 // wszystko, co JS dorysuje później, też przechodzi przez słownik
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{

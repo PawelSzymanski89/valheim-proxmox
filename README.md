@@ -43,9 +43,13 @@ Plus Start / Stop / Restart / Back up now / Check update.
 
 ### Panel login and getting back in
 
-The first login is always the same, deliberately: **`admin` / `valheim123`**. No hunting through
-install output for a generated string. The panel shows a red banner until you change it in
-**Settings → Panel login**, and refuses to let you set the default back.
+Login happens on the panel's own screen, not the browser's grey box: session cookie, signed
+with a secret **and** the current password hash, so changing the password ends every session.
+HTTP Basic still works for `curl` and scripts.
+
+The first login is always the same, deliberately: **`admin` / `valheim123`**. No hunting
+through install output for a generated string. The panel shows a red banner until you change
+it in **Settings → Panel login**, and refuses to let you set the default back.
 
 Locked out? There is no reset dance — set a new password from the Proxmox host:
 
