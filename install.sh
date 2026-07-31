@@ -13,6 +13,8 @@ DISK=${DISK:-30}
 CORES=${CORES:-4}
 RAM=${RAM:-6144}
 BRIDGE=${BRIDGE:-vmbr0}
+IP=${IP:-dhcp}                 # or a fixed address: IP=192.168.89.21/24 GW=192.168.89.1
+GW=${GW:-}
 STORAGE=${STORAGE:-}
 TEMPLATE_STORAGE=${TEMPLATE_STORAGE:-local}
 GAME_PORT=${GAME_PORT:-2456}
@@ -58,12 +60,12 @@ if ! pveam list "$TEMPLATE_STORAGE" 2>/dev/null | grep -q "$TEMPLATE"; then
   pveam download "$TEMPLATE_STORAGE" "$TEMPLATE" >/dev/null
 fi
 
-msg "Creating LXC $CTID ($HOSTNAME_): ${CORES} cores, ${RAM} MB RAM, ${DISK} GB on $STORAGE"
+msg "Creating LXC $CTID ($HOSTNAME_): ${CORES} cores, ${RAM} MB RAM, ${DISK} GB on $STORAGE, ip=$IP"
 pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$TEMPLATE" \
   --hostname "$HOSTNAME_" \
   --cores "$CORES" --memory "$RAM" --swap 512 \
   --rootfs "$STORAGE:$DISK" \
-  --net0 "name=eth0,bridge=$BRIDGE,ip=dhcp" \
+  --net0 "name=eth0,bridge=$BRIDGE,ip=$IP${GW:+,gw=$GW}" \
   --unprivileged 1 --features nesting=1 \
   --onboot 1 --start 1 >/dev/null
 

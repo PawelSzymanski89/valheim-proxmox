@@ -120,6 +120,7 @@ bash -c "$(curl -fsSL .../install.sh)"
 | `HOSTNAME_` | `valheim` | nazwa hosta kontenera |
 | `CORES` / `RAM` / `DISK` | `4` / `6144` / `30` | rdzenie / MB / GB |
 | `STORAGE` | pierwszy storage przyjmujący rootfs | gdzie ląduje dysk kontenera |
+| `IP` / `GW` | `dhcp` | stały adres zamiast DHCP: `IP=192.168.89.21/24 GW=192.168.89.1` — przydaje się, gdy DNS albo forward już wskazują ten adres |
 | `BRIDGE` | `vmbr0` | mostek sieciowy |
 | `GAME_PORT` / `PANEL_PORT` | `2456` / `2460` | |
 | `SERVER_NAME` / `WORLD_NAME` | `Valheim` / `Dedicated` | |
