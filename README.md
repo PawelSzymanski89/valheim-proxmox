@@ -31,7 +31,7 @@ Takes a few minutes — most of it is Steam pulling ~1.5 GB.
 | Tab | What it does |
 |---|---|
 | **Players** | who is online right now — name, id, **live session timer** — and a persistent login history (first seen / last seen / number of joins) |
-| **Access & bans** | admin list, ban list, allowlist; ban straight from the online list or the history |
+| **Access & bans** | admin list, ban list, allowlist; ban straight from the online list or the history. **An allowlist that is not empty locks everyone else out** — that is Valheim's own rule, not the panel's |
 | **World** | list worlds, switch the active one, download, delete, upload a `.db` + `.fwl` pair |
 | **Backups** | restore, download, delete; toggles for the auto-backup and auto-update timers |
 | **Settings** | server name, world, password, **game port**, **panel port**, public listing, crossplay, world preset and modifiers (combat, death penalty, resources, raids, portals) and the world toggles (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
@@ -125,6 +125,14 @@ systemd: `valheim`, `valheim-panel`, `valheim-backup.timer`, `valheim-update.tim
   only every ~10 minutes; when the two disagree the panel says so rather than hiding it.
 - **The panel runs as root** in its own container. It calls `systemctl` and writes into
   `/opt/valheim`. That is why it is a dedicated container and why it should not face the internet.
+
+## Verified on
+
+Proxmox VE 8.4, `debian-12-standard` template, Valheim dedicated `l-0.221.12`.
+Every panel action was exercised against a real container: settings propagation down to the
+running process arguments, world switch/upload/delete, backup restore (checksum matched
+before and after), timers, panel port change, login change. The player list and the login
+history are covered by `panel/test_parse.py`, since they need real players joining.
 
 ## License
 

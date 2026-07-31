@@ -145,7 +145,7 @@ echo '@lists'; for f in {' '.join(VH_LISTS.values())}; do echo "#$f"; cat {VH_DA
 echo '@worlds'; ls -l --time-style=+%s {VH_WORLDS} 2>/dev/null
 echo '@backups'; ls -l --time-style=+%s {VH_BACKUPS} 2>/dev/null
 echo '@timers'; for t in {' '.join(VH_TIMERS.values())}; do \
-  n=$(systemctl list-timers --all --no-pager $t 2>/dev/null | awk 'NR==2{{print $1,$2,$3,$4}}'); \
+  n=$(systemctl list-timers --all --no-pager $t 2>/dev/null | awk 'NR==2 && $1!="-"{{print $1,$2,$3,$4}}'); \
   echo "$t $(systemctl is-enabled $t 2>/dev/null) $(systemctl is-active $t 2>/dev/null) $(date -d "$n" +%s 2>/dev/null || echo 0)"; done
 echo '@disk'; df -B1 --output=used,avail {VH_DIR} 2>/dev/null | tail -1
 echo '@log'; journalctl -u valheim -o short-iso --no-pager | {VH_LOG_FILTER} | tail -n 4000
