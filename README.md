@@ -183,6 +183,20 @@ The world file is untouched, but anything a mod added inside it stops existing.
 Installed mods live in `server/BepInEx/plugins/<author>-<Package>/`, and `start.sh` turns on
 the doorstop loader by itself once `BepInEx/` exists.
 
+## Mod config, without SSH and without breaking it
+
+BepInEx writes one `.cfg` per plugin. The **Mod config** tab reads them and builds a **form**:
+every entry keeps its own description, type and default from the file's own comments, so a
+boolean is a checkbox, a bounded number is a number field with the bounds, and a setting with
+listed acceptable values is a dropdown. Keys, sections and comments are never retyped — only
+values are rewritten, on their own line. A config cannot be broken from here.
+
+**Every save is kept.** Under the form there is a list of earlier versions; one click puts any
+of them back, and the state being replaced is itself added to the list, so restoring is
+reversible too. Twenty versions per file.
+
+Mods read their config at startup, so **Save** and **Save & restart** are separate buttons.
+
 ## Options
 
 Every value can be overridden with an environment variable:
