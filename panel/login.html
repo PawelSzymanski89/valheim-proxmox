@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pl"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Valheim — panel</title>
+<style>
+  :root{
+    --bg:#0b0d0f; --stone:#14181c; --stone2:#1b2127; --line:#2b3138;
+    --tx:#dcd3c3; --dim:#8d8477; --gold:#c9a227; --gold2:#e3c05a;
+    --blood:#8f2f28; --moss:#5d7a4a;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+    background:
+      radial-gradient(1100px 600px at 50% -10%, #1c242b 0%, transparent 60%),
+      radial-gradient(700px 400px at 50% 110%, #171a14 0%, transparent 60%),
+      repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
+      var(--bg);
+    color:var(--tx);font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  .box{width:100%;max-width:400px;background:linear-gradient(180deg,var(--stone2),var(--stone));
+    border:1px solid var(--line);border-radius:4px;padding:34px 30px 28px;
+    box-shadow:0 0 0 1px rgba(201,162,39,.12), 0 24px 60px rgba(0,0,0,.75);position:relative}
+  .box:before{content:"";position:absolute;inset:6px;border:1px solid rgba(201,162,39,.14);
+    border-radius:2px;pointer-events:none}
+  h1{margin:0;text-align:center;font:600 30px/1.1 Georgia,"Times New Roman",serif;
+    letter-spacing:.22em;text-transform:uppercase;color:var(--gold2);
+    text-shadow:0 2px 18px rgba(201,162,39,.25)}
+  .runes{text-align:center;color:var(--gold);opacity:.5;letter-spacing:.5em;margin:12px 0 4px;font-size:13px}
+  .sub{text-align:center;color:var(--dim);font-size:13px;margin-bottom:24px}
+  label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);margin:14px 0 5px}
+  input{width:100%;background:#0d1114;color:var(--tx);border:1px solid var(--line);border-radius:3px;
+    padding:11px 12px;font:inherit;transition:border-color .15s}
+  input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,162,39,.10)}
+  button{width:100%;margin-top:22px;background:linear-gradient(180deg,#2a3138,#1a2026);color:var(--gold2);
+    border:1px solid var(--gold);border-radius:3px;padding:12px;font:600 13px/1 system-ui;
+    letter-spacing:.18em;text-transform:uppercase;cursor:pointer;transition:.15s}
+  button:hover{background:linear-gradient(180deg,#343d45,#222930);box-shadow:0 0 22px rgba(201,162,39,.18)}
+  button:disabled{opacity:.5;pointer-events:none}
+  .err{color:#e0796f;font-size:13px;min-height:20px;margin-top:14px;text-align:center}
+  .foot{margin-top:20px;text-align:center;color:var(--dim);font-size:11px;letter-spacing:.06em}
+</style>
+</head>
+<body>
+<form class="box" id="f">
+  <h1>Valheim</h1>
+  <div class="runes">ᚠ ᚢ ᚦ ᚨ ᚱ ᚲ</div>
+  <div class="sub" id="sub">Panel serwera</div>
+  <label id="l-user">Login</label>
+  <input id="u" autocomplete="username" autofocus>
+  <label id="l-pass">Hasło</label>
+  <input id="p" type="password" autocomplete="current-password">
+  <button id="b">Wejdź</button>
+  <div class="err" id="e"></div>
+  <div class="foot" id="foot">Brama zamknięta dla nieproszonych</div>
+</form>
+<script>
+const PL=(navigator.language||"").startsWith("pl");
+if(!PL){document.documentElement.lang="en";
+  sub.textContent="Server panel";document.getElementById("l-user").textContent="User";
+  document.getElementById("l-pass").textContent="Password";b.textContent="Enter";
+  foot.textContent="The gate stays shut for the uninvited";}
+f.onsubmit=async ev=>{
+  ev.preventDefault();
+  b.disabled=true;e.textContent="";
+  try{
+    const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({user:u.value.trim(),password:p.value})});
+    if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||("HTTP "+r.status));}
+    location.href="/";
+  }catch(err){
+    e.textContent=PL?"Zły login albo hasło":"Wrong user or password";
+    b.disabled=false;p.value="";p.focus();
+  }
+};
+</script>
+</body></html>

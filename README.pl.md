@@ -43,6 +43,10 @@ Plus Start / Stop / Restart / Backup teraz / Sprawdź update.
 
 ### Logowanie do panelu i odzyskiwanie dostępu
 
+Logujesz się na własnym ekranie panelu, nie w szarym okienku przeglądarki: ciasteczko sesji
+podpisane sekretem **i** skrótem aktualnego hasła, więc zmiana hasła kończy wszystkie sesje.
+HTTP Basic dalej działa — dla `curl`a i skryptów.
+
 Pierwsze logowanie jest **zawsze takie samo, celowo**: **`admin` / `valheim123`**. Żadnego
 szukania wylosowanego ciągu w wyjściu instalatora. Panel pokazuje czerwony baner, dopóki
 hasła nie zmienisz w **Ustawieniach → Logowanie do panelu**, i nie pozwoli ustawić
