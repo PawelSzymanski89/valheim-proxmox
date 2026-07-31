@@ -78,7 +78,7 @@ done
 msg "Installing inside the container (Steam download takes a few minutes)"
 # The stock Debian template ships without curl, so the host fetches setup.sh and
 # pushes it in. Also lets you run this straight from a git clone.
-if [ -f "$(dirname "$0")/setup.sh" ]; then
+if [ -f "$0" ] && [ -f "$(dirname "$0")/setup.sh" ]; then
   pct push "$CTID" "$(dirname "$0")/setup.sh" /tmp/setup.sh
 else
   curl -fsSL "$REPO_RAW/setup.sh" -o /tmp/valheim-setup.sh

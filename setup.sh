@@ -121,7 +121,7 @@ chown -R valheim:valheim "$VH_DIR"
 
 # ---------- panel ----------
 say "Installing the admin panel (FastAPI in its own venv)"
-if [ -d "$(dirname "$0")/panel" ]; then
+if [ -f "$0" ] && [ -d "$(dirname "$0")/panel" ]; then
   cp "$(dirname "$0")/panel/app.py" "$(dirname "$0")/panel/index.html" "$VH_DIR/panel/"
 else
   curl -fsSL "$REPO_RAW/panel/app.py" -o "$VH_DIR/panel/app.py"
