@@ -33,6 +33,11 @@
     color:var(--acc);margin:0 0 14px}
   .row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
   .muted{color:var(--dim);font-size:13px}
+  /* patrz login.html - ta sama nota, MIT wymaga jej zachowania */
+  .attrib{margin:26px 0 6px;text-align:center;color:var(--dim);font-size:11px;opacity:.75}
+  .attrib a{color:var(--acc);text-decoration:none;border-bottom:1px solid rgba(201,162,39,.3)}
+  .attrib a:hover{color:var(--acc2)}
+  .attrib .sep{opacity:.4;margin:0 6px}
   .big{font-size:26px;font-weight:700}
   .r{text-align:right}
   .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
@@ -351,6 +356,11 @@
     </div>
 
     <div class="err" id="vh-err"></div>
+  </div>
+  <div class="attrib">
+    <a href="https://github.com/PawelSzymanski89/valheim-proxmox" target="_blank" rel="noopener">valheim-proxmox</a>
+    <span class="sep">·</span>© 2026 Paweł Szymański<span class="sep">·</span>
+    <a href="https://github.com/PawelSzymanski89/valheim-proxmox/blob/main/LICENSE" target="_blank" rel="noopener">MIT</a>
   </div>
 </div>
 
