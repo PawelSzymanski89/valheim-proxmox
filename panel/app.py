@@ -1723,8 +1723,10 @@ def _speedtest(streams=4, chunk_mb=25):
     25 MB per stream is also the ceiling that matters: Cloudflare answers 403 above 100 MB.
     """
     def _sum(cmd, key):
-        out = _sh(f"for i in $(seq {streams}); do ( {cmd} ) & done > /tmp/.spd; wait; "
-                  f"awk '{{s+=$1}} END{{printf \"%.0f\", s}}' /tmp/.spd", timeout=180).stdout.strip()
+        tmp = "/tmp/.vh-speed"
+        out = _sh(f"for i in $(seq {streams}); do ( {cmd} ) & done > {tmp}; wait; "
+                  f"awk '{{s+=$1}} END{{printf \"%.0f\", s}}' {tmp}; rm -f {tmp}",
+                  timeout=180).stdout.strip()
         return float(out) if out else 0.0
 
     bytes_ = chunk_mb * 1000000

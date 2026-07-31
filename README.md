@@ -173,6 +173,22 @@ A test moves about 200 MB. **Test the link now** in the panel runs it on demand 
 (over 10 % loss or above 150 ms) raises an alert, because that is the point at which players start
 blaming the server.
 
+### What the panel keeps, and for how long
+
+Nothing grows without a ceiling. Each file trims itself on write, so there is no cron job to
+forget about and nothing to clean up by hand:
+
+| File | Kept | Roughly |
+|---|---|---|
+| `metrics.json` | 1440 points | 24 h of players, CPU and memory, one a minute (~90 KB) |
+| `link.json` | 168 entries | a week of hourly latency and loss (~25 KB) |
+| `players.json` | 60 sessions per player | totals stay forever, the session list does not |
+| `panel.log` | 4000 lines / 2 MB | trimmed when it crosses the size |
+| `BepInEx/config/.history` | 20 versions per file | older ones are dropped on the next save |
+
+The throughput test writes nothing but a temporary file it deletes itself, and the 200 MB it
+moves goes to `/dev/null`.
+
 ## Panel login and getting back in
 
 Login happens on the panel's own screen, not the browser's grey box: session cookie, signed
@@ -604,6 +620,22 @@ strumienie tej samej wielkości dały **890–923 w dół i 618–637 w górę**
 Jeden pomiar przepuszcza około 200 MB. **Zmierz łącze teraz** w panelu robi to na żądanie i odmawia, gdy ktoś gra, dopóki nie potwierdzisz, a zły
 wynik (ponad 10 % strat albo powyżej 150 ms) podnosi alert — bo to moment, w którym gracze zaczynają
 obwiniać serwer.
+
+### Co panel przechowuje i jak długo
+
+Nic nie rośnie bez sufitu. Każdy plik przycina się sam przy zapisie, więc nie ma crona do
+zapomnienia ani niczego do sprzątania ręcznie:
+
+| Plik | Trzyma | Czyli |
+|---|---|---|
+| `metrics.json` | 1440 punktów | 24 h graczy, CPU i pamięci, po jednym na minutę (~90 KB) |
+| `link.json` | 168 wpisów | tydzień godzinnych pomiarów opóźnienia i strat (~25 KB) |
+| `players.json` | 60 sesji na gracza | sumy zostają na zawsze, lista sesji nie |
+| `panel.log` | 4000 linii / 2 MB | przycinany po przekroczeniu rozmiaru |
+| `BepInEx/config/.history` | 20 wersji na plik | starsze znikają przy kolejnym zapisie |
+
+Test przepustowości nie zostawia po sobie nic poza plikiem tymczasowym, który sam kasuje, a te
+200 MB idzie do `/dev/null`.
 
 ## Dziennik panelu
 
