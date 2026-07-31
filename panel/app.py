@@ -358,11 +358,18 @@ def _history(hist):
         newest = max(newest, t)
         if t <= last:
             continue
-        p = players.setdefault(c["id"], {"id": c["id"], "name": None, "first": t, "last": t, "sessions": 0})
+        p = players.setdefault(c["id"], {"id": c["id"], "name": None, "first": t, "last": t,
+                                         "sessions": 0, "total": 0, "log": []})
         if kind == "join":
             p["sessions"] = p.get("sessions", 0) + 1
         if kind == "name" and c["name"]:
             p["name"] = c["name"]
+        if kind == "leave" and c.get("since"):
+            # the only place a session length can be known: the connection carried its start
+            dur = max(0, t - c["since"])
+            p["total"] = p.get("total", 0) + dur
+            p.setdefault("log", []).append({"start": c["since"], "end": t, "seconds": dur})
+            p["log"] = p["log"][-60:]
         p["first"] = min(p.get("first", t), t)
         p["last"] = max(p.get("last", t), t)
     try:
@@ -641,6 +648,34 @@ def summary():
         "public_listing": env["public"], "crossplay": env["crossplay"],
         "a2s": a2s, "checks": checks, "hostname": hostname,
     }
+
+
+@app.get("/api/valheim/players/stats")
+def player_stats():
+    """Playtime and when the server is actually busy — both come out of the session log the
+    history store already keeps, so nothing extra runs on the game server."""
+    try:
+        players = json.loads(VH_STORE.read_text()).get("players", {})
+    except Exception:
+        players = {}
+    by_hour = [0] * 24
+    for p in players.values():
+        for s in p.get("log", []):
+            h = datetime.fromtimestamp(s["start"]).hour
+            span = max(1, round(s["seconds"] / 3600))
+            for i in range(span):
+                by_hour[(h + i) % 24] += 1
+    board = sorted(({"id": p["id"], "name": p.get("name"), "total": p.get("total", 0),
+                     "sessions": p.get("sessions", 0), "last": p.get("last"),
+                     "first": p.get("first"),
+                     "longest": max((s["seconds"] for s in p.get("log", [])), default=0)}
+                    for p in players.values()),
+                   key=lambda x: x["total"], reverse=True)
+    recent = sorted((dict(s, id=p["id"], name=p.get("name"))
+                     for p in players.values() for s in p.get("log", [])),
+                    key=lambda s: s["start"], reverse=True)[:40]
+    return {"players": board, "by_hour": by_hour, "recent": recent,
+            "total_seconds": sum(p["total"] for p in board)}
 
 
 @app.post("/api/valheim/action/{action}")
@@ -994,14 +1029,94 @@ def _profile(code):
     return {"name": r2x.get("profileName") or "profile", "code": code, "mods": mods}
 
 
+TS_CACHE = {}          # full_name -> (checked_at, latest_version)
+
+
+def _ts_latest(full_name, max_age=3600):
+    """Newest version on Thunderstore, cached — the index is huge and this runs per package."""
+    hit = TS_CACHE.get(full_name)
+    if hit and time.time() - hit[0] < max_age:
+        return hit[1]
+    ns, _, name = full_name.partition("-")
+    try:
+        ver = _ts_package(ns, name)["latest"]["version_number"]
+    except Exception:
+        ver = None
+    TS_CACHE[full_name] = (time.time(), ver)
+    return ver
+
+
 @app.get("/api/mods")
-def mods_state():
+def mods_state(check: bool = False):
     st = _mods_state()
     installed = _sh(f"ls -1 {VH_PLUGINS} 2>/dev/null").stdout.split()
+    mods = []
+    for d in sorted(installed):
+        rec = dict(st.get("mods", {}).get(d, {}))
+        rec["full_name"] = d
+        rec["pinned"] = bool(rec.get("pinned"))
+        if check:
+            rec["latest"] = _ts_latest(d)
+            rec["outdated"] = bool(rec.get("latest") and rec.get("version") and
+                                   rec["latest"] != rec["version"] and not rec["pinned"])
+        mods.append(rec)
     return {"bepinex": _sh(f"test -d {VH_SERVER}/BepInEx && echo yes").stdout.strip() == "yes",
             "bepinex_version": st.get("bepinex_version"),
             "profile_code": st.get("profile_code"), "profile_name": st.get("profile_name"),
-            "mods": [{"full_name": d, **st.get("mods", {}).get(d, {})} for d in sorted(installed)]}
+            "checked": check, "mods": mods}
+
+
+class Pin(BaseModel):
+    pinned: bool = True
+
+
+@app.post("/api/mods/pin/{full_name}")
+def mods_pin(full_name: str, p: Pin):
+    """Pinned means: never offered for update. The versions your players run are the ones that
+    matter, and a server that quietly moves ahead of them bounces everyone at the door."""
+    st = _mods_state()
+    if full_name not in st.get("mods", {}):
+        raise HTTPException(404, "Not installed")
+    st["mods"][full_name]["pinned"] = p.pinned
+    _mods_save(st)
+    _log("mods.pin", package=full_name, pinned=p.pinned)
+    return {"ok": True}
+
+
+@app.post("/api/mods/export")
+def mods_export():
+    """Turn what is installed into a Thunderstore share code, so players import one code
+    instead of a list of names and versions."""
+    import base64 as _b
+    import io
+    import zipfile
+    st = _mods_state()
+    mods = st.get("mods", {})
+    if not mods:
+        raise HTTPException(400, "Nothing installed to export")
+    lines = ["profileName: " + (st.get("profile_name") or "Server"), "mods:"]
+    for full, rec in sorted(mods.items()):
+        maj, _, rest = (rec.get("version") or "0.0.0").partition(".")
+        minor, _, patch = rest.partition(".")
+        lines += [f"  - name: {full}",
+                  f"    versionNumber: {{major: {maj or 0}, minor: {minor or 0}, patch: {patch or 0}}}",
+                  "    enabled: true"]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("export.r2x", "\n".join(lines) + "\n")
+    body = ("#r2modman\n" + _b.b64encode(buf.getvalue()).decode()).encode()
+    req = urllib.request.Request(f"{TS}/api/experimental/legacyprofile/create/", data=body,
+                                 method="POST",
+                                 headers={"Content-Type": "application/octet-stream",
+                                          "User-Agent": "valheim-proxmox-panel"})
+    try:
+        code = json.loads(urllib.request.urlopen(req, timeout=30).read())["key"]
+    except Exception as e:
+        raise HTTPException(502, f"Thunderstore refused the profile ({e})")
+    st["profile_code"] = code
+    _mods_save(st)
+    _log("mods.export", code=code, count=len(mods))
+    return {"ok": True, "code": code, "count": len(mods)}
 
 
 @app.get("/api/mods/profile/{code}")
@@ -1059,6 +1174,40 @@ def mods_install(p: ModPick):
          installed=[m["full_name"] + " " + m["version"] for m in report["installed"]],
          failed=report["failed"] or None, bepinex=report.get("bepinex"))
     return report
+
+
+class ModUpdate(BaseModel):
+    mods: list = []
+    restart: bool = True
+
+
+@app.post("/api/mods/update")
+def mods_update(u: ModUpdate):
+    st = _mods_state()
+    was_running = _sh("systemctl is-active valheim").stdout.strip() == "active"
+    if was_running:
+        _sh_ok("systemctl stop valheim", timeout=180)
+    done, failed = [], []
+    for full in u.mods:
+        if st.get("mods", {}).get(full, {}).get("pinned"):
+            failed.append({"full_name": full, "error": "pinned"})
+            continue
+        ns, _, name = full.partition("-")
+        try:
+            got = _install_mod(ns, name)          # no version = latest
+            st["mods"][full] = {**st["mods"].get(full, {}), "version": got["version"]}
+            done.append(got)
+        except HTTPException as e:
+            failed.append({"full_name": full, "error": e.detail})
+    _mods_save(st)
+    if u.restart or was_running:
+        _sh_ok("systemctl start valheim", timeout=180)
+    if failed:
+        _notify("mod_failed", "Mod update failed", ", ".join(f["full_name"] for f in failed),
+                priority="high", tags="x")
+    _log("mods.update", ok=not failed, updated=[m["full_name"] + " " + m["version"] for m in done],
+         failed=failed or None)
+    return {"ok": True, "updated": done, "failed": failed}
 
 
 class ModClear(BaseModel):
