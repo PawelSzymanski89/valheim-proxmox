@@ -1473,7 +1473,8 @@ ALERTS_DEFAULT = {
     "events": {k: k not in ("player_leave",) for k in ALERT_EVENTS},
     "schedule": {"restart_at": "", "only_when_empty": True, "defer_minutes": 30,
                  "update_when_empty": True, "disk_warn_gb": 3,
-                 "link_minutes": 60, "link_speed_hours": 6, "link_when_empty": True},
+                 "link_minutes": 60, "link_speed_hours": 6,
+                 "speed_when_empty": True, "ping_when_empty": False},
 }
 
 
@@ -1673,7 +1674,7 @@ def alerts_set(body: dict = Body(...)):
         if s["restart_at"] and not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", s["restart_at"]):
             raise HTTPException(400, "Restart time must be HH:MM")
         cfg["schedule"]["restart_at"] = s["restart_at"]
-    for k in ("only_when_empty", "update_when_empty", "link_when_empty"):
+    for k in ("only_when_empty", "update_when_empty", "speed_when_empty", "ping_when_empty"):
         if k in s:
             cfg["schedule"][k] = bool(s[k])
     for k in ("defer_minutes", "disk_warn_gb", "link_minutes", "link_speed_hours"):
@@ -1830,14 +1831,15 @@ def _tick():
     except Exception:
         pass
 
-    # link quality — by default nothing is measured while anyone is playing. A ping is five
-    # packets and would not disturb a soul, but the setting says "leave the line alone", and a
-    # measurement nobody asked for is not worth arguing about.
+    # Two different costs, so two different rules. A ping is five packets over four seconds and
+    # keeps running while people play — that is exactly when you want the evidence, because
+    # "it was lagging last night" is unanswerable without it. Throughput moves 200 MB through
+    # the same line, so it waits for an empty server. Both are settings.
     try:
         link = _link_state()
         sch = cfg["schedule"]
-        busy = bool(now_on) and sch.get("link_when_empty", True)
-        if not busy and now - link.get("last_ping", 0) >= sch.get("link_minutes", 60) * 60:
+        ping_blocked = bool(now_on) and sch.get("ping_when_empty", False)
+        if not ping_blocked and now - link.get("last_ping", 0) >= sch.get("link_minutes", 60) * 60:
             p = _ping()
             link["ping"], link["last_ping"] = p, now
             if p and ((p.get("loss") or 0) > 10 or p["avg"] > 150):
@@ -1845,7 +1847,8 @@ def _tick():
                         f"{p['avg']} ms, {p.get('loss')}% packet loss — players will feel this.",
                         priority="high", tags="signal_strength")
             entry = {"t": now, **(p or {})}
-            if not now_on and now - link.get("last_speed", 0) >= sch.get("link_speed_hours", 6) * 3600:
+            speed_ok = not (now_on and sch.get("speed_when_empty", True))
+            if speed_ok and now - link.get("last_speed", 0) >= sch.get("link_speed_hours", 6) * 3600:
                 s2 = _speedtest()
                 link["speed"], link["last_speed"] = s2, now
                 entry.update(s2 or {})
