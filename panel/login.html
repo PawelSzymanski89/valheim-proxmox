@@ -83,8 +83,9 @@
 
       <div class="box" id="chart-box" style="margin-top:16px;display:none">
         <h2 id="h-charts">Obciążenie, ostatnie 12 h</h2>
-      <div class="muted" style="margin:-6px 0 12px" id="charts-hint">Gracze, CPU i pamięć — próbka co minutę.</div>
-        <div id="charts"></div>
+      <div class="muted" style="margin:-6px 0 12px" id="charts-hint">Łącze co 10 minut, obciążenie co minutę.</div>
+        <div id="link-charts"></div>
+      <div id="charts"></div>
       </div>
     </div>
 
@@ -109,7 +110,7 @@ const T=PL?{}:{ "Serwer":"Server","Mody":"Mods","Obciążenie, ostatnie 12 h":"L
  "Panel administratora":"Admin panel","Tylko dla administratora serwera.":"Server admin only.",
  "Login":"User","Hasło":"Password","Wejdź":"Enter","Paczka":"Package","Wersja":"Version",
  "Brama zamknięta dla nieproszonych":"The gate stays shut for the uninvited",
- "Gracze, CPU i pamięć — próbka co minutę.":"Players, CPU and memory — sampled every minute."};
+ "Łącze co 10 minut, obciążenie co minutę.":"Link every 10 minutes, load every minute."};
 const tr=s=>T[s]||s;
 ["h-status","h-mods","h-charts","charts-hint","h-login","login-hint","l-user","l-pass","b","th-mod","th-ver","foot"]
   .forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=tr(el.textContent);});
@@ -129,7 +130,8 @@ function chart(title,pts,color,unit,max){
   const W=560,H=70,top=max||Math.max(1,...pts);
   const d=pts.map((v,i)=>`${i?"L":"M"}${(i/(pts.length-1)*W).toFixed(1)},${(H-(v/top)*H).toFixed(1)}`).join("");
   return `<div style="margin-bottom:14px">
-    <div class="muted">${title} — ${PL?"teraz":"now"} ${pts[pts.length-1]??"?"}${unit}</div>
+    <div class="muted">${title} — ${PL?"teraz":"now"} ${pts[pts.length-1]??"?"}${unit}
+      <span style="opacity:.6">· min ${Math.min(...pts)}${unit} · max ${Math.max(...pts)}${unit}</span></div>
     <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:70px;display:block">
       <path class="ln" d="${d}" stroke="${color}"/>
       <path d="${d}L${W},${H}L0,${H}Z" fill="${color}" opacity=".10"/>
@@ -189,6 +191,16 @@ async function load(){
       if(cp)cp.onclick=e=>{e.preventDefault();navigator.clipboard.writeText(d.profile_code);cp.textContent=PL?"skopiowane":"copied";};
     }
 
+    const L=d.link&&d.link.history||[];
+    if(L.length>3){
+      document.getElementById("chart-box").style.display="";
+      const pick=k=>L.filter(x=>x[k]!=null);
+      const pings=pick("avg"),dn=pick("down_mbit"),up=pick("up_mbit");
+      document.getElementById("link-charts").innerHTML=
+        chart(PL?"Opóźnienie":"Latency",pings.map(x=>x.avg),"#c9a227"," ms")+
+        (dn.length>1?chart(PL?"Pobieranie":"Download",dn.map(x=>x.down_mbit),"#5b8def"," Mbit/s"):"")+
+        (up.length>1?chart(PL?"Wysyłanie":"Upload",up.map(x=>x.up_mbit),"#5d7a4a"," Mbit/s"):"");
+    }
     if(d.metrics&&d.metrics.length>3){
       document.getElementById("chart-box").style.display="";
       const m=d.metrics.slice(-720);
