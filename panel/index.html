@@ -178,6 +178,16 @@
     <div class="pane" id="t-settings">
       <div id="vh-set"></div>
       <div class="stat" style="margin-top:14px">
+        <div class="muted">Public page — what strangers see at the login address</div>
+        <div class="grid" style="margin-top:8px" id="pub-flags"></div>
+        <div class="add" style="margin-top:8px">
+          <input id="pub-note" placeholder="a line for your players, e.g. when the server restarts">
+          <button id="pub-save">Save page</button>
+        </div>
+        <div class="muted" id="pub-msg" style="margin-top:6px">Everything here is visible to the whole internet, so it is off unless you turn it on. The game password is never shown.</div>
+      </div>
+
+      <div class="stat" style="margin-top:14px">
         <div class="muted">Panel login — the password is the same on every install, change it here</div>
         <div class="add" style="margin-top:8px">
           <input id="vh-au-user" placeholder="user" autocomplete="username">
@@ -434,6 +444,17 @@ const I18N={
  "Players seen":"Widzianych graczy",
  "Sessions recorded":"Zapisanych sesji",
  "nobody has finished a session yet":"nikt jeszcze nie zakończył sesji",
+ "Public page — what strangers see at the login address":"Strona publiczna — co widzą obcy pod adresem logowania",
+ "a line for your players, e.g. when the server restarts":"zdanie dla graczy, np. o której serwer się restartuje",
+ "Save page":"Zapisz stronę",
+ "Everything here is visible to the whole internet, so it is off unless you turn it on. The game password is never shown.":"Wszystko tutaj widzi cały internet, więc domyślnie jest wyłączone. Hasło do gry nie pojawia się nigdy.",
+ "Show the page at all":"Pokazuj stronę w ogóle",
+ "Number of players online":"Liczba graczy online",
+ "Their names":"Ich nicki",
+ "Mod list and share code":"Lista modów i kod udostępniania",
+ "Load charts":"Wykresy obciążenia",
+ "Server version":"Wersja serwera",
+ "Port and whether a password is needed":"Port i czy potrzebne jest hasło",
  "Valheim — server admin":"Valheim — panel serwera",
  "Everything a server admin can control. In-game commands (kick, spawn, weather)":"Wszystko, czym steruje admin serwera. Komendy w grze (kick, spawn, pogoda)",
  "live in the F5 console — add yourself to":"są w konsoli F5 — dopisz się do",
@@ -758,7 +779,27 @@ function vhSettings(v){
       `<label style="display:block"><input type="checkbox" data-vhkey="${k}" ${(s.keys||[]).includes(k)?"checked":""}> ${KEY_PL[k]||k}</label>`).join("")}</div>
   </div>`;
   if(!$("vh-au-user").value)$("vh-au-user").value=s.panel_user||"admin";
+  if(!$("pub-flags").children.length)vhPublic();
 }
+const PUB_LABELS={enabled:"Show the page at all",show_players:"Number of players online",
+  show_names:"Their names",show_mods:"Mod list and share code",show_metrics:"Load charts",
+  show_version:"Server version",show_address:"Port and whether a password is needed"};
+async function vhPublic(){
+  try{
+    const c=await jf("/api/public/config");
+    $("pub-flags").innerHTML=Object.entries(PUB_LABELS).map(([k,l])=>
+      `<label class="stat" style="display:flex;gap:8px;align-items:center">
+        <input type="checkbox" data-pub="${k}" ${c[k]?"checked":""}> ${t(l)}</label>`).join("");
+    $("pub-note").value=c.note||"";
+  }catch(e){$("pub-msg").textContent=e.message;}
+}
+$("pub-save").onclick=async()=>{
+  const body={note:$("pub-note").value};
+  document.querySelectorAll("[data-pub]").forEach(c=>body[c.dataset.pub]=c.checked);
+  try{await jf("/api/public/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    toast(t("Saved"),"ok");}
+  catch(e){toast(e.message,"bad");}
+};
 async function vhSaveSettings(restart){
   const mods={};Object.keys((VH.options||{}).modifiers||{}).forEach(k=>{const el=$("vh-s-m-"+k);if(el&&el.value)mods[k]=el.value;});
   const keys=[...document.querySelectorAll("[data-vhkey]")].filter(c=>c.checked).map(c=>c.dataset.vhkey);
@@ -1490,7 +1531,27 @@ function vhSettings(v){
       `<label style="display:block"><input type="checkbox" data-vhkey="${k}" ${(s.keys||[]).includes(k)?"checked":""}> ${KEY_PL[k]||k}</label>`).join("")}</div>
   </div>`;
   if(!$("vh-au-user").value)$("vh-au-user").value=s.panel_user||"admin";
+  if(!$("pub-flags").children.length)vhPublic();
 }
+const PUB_LABELS={enabled:"Show the page at all",show_players:"Number of players online",
+  show_names:"Their names",show_mods:"Mod list and share code",show_metrics:"Load charts",
+  show_version:"Server version",show_address:"Port and whether a password is needed"};
+async function vhPublic(){
+  try{
+    const c=await jf("/api/public/config");
+    $("pub-flags").innerHTML=Object.entries(PUB_LABELS).map(([k,l])=>
+      `<label class="stat" style="display:flex;gap:8px;align-items:center">
+        <input type="checkbox" data-pub="${k}" ${c[k]?"checked":""}> ${t(l)}</label>`).join("");
+    $("pub-note").value=c.note||"";
+  }catch(e){$("pub-msg").textContent=e.message;}
+}
+$("pub-save").onclick=async()=>{
+  const body={note:$("pub-note").value};
+  document.querySelectorAll("[data-pub]").forEach(c=>body[c.dataset.pub]=c.checked);
+  try{await jf("/api/public/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    toast(t("Saved"),"ok");}
+  catch(e){toast(e.message,"bad");}
+};
 async function vhSaveSettings(restart){
   const mods={};Object.keys((VH.options||{}).modifiers||{}).forEach(k=>{const el=$("vh-s-m-"+k);if(el&&el.value)mods[k]=el.value;});
   const keys=[...document.querySelectorAll("[data-vhkey]")].filter(c=>c.checked).map(c=>c.dataset.vhkey);

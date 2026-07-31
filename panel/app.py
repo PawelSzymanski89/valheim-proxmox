@@ -132,7 +132,7 @@ def _who(request):
 app = FastAPI(title="Valheim panel")
 
 # The login screen and the login call are the only things reachable without a session.
-OPEN_PATHS = {"/", "/icon.svg", "/api/login", "/api/logout"}
+OPEN_PATHS = {"/", "/icon.svg", "/api/login", "/api/logout", "/api/public"}
 
 
 @app.exception_handler(Exception)
@@ -1400,6 +1400,15 @@ def mod_config_restore(name: str, stamp: int, restart: bool = False):
 # background watcher: it polls once a minute, pushes what changed to ntfy, and owns the
 # "restart only when nobody is playing" window.
 VH_ALERTS = Path(os.environ.get("VH_ALERTS", f"{VH_DIR}/alerts.json"))
+VH_PUBLIC = Path(f"{VH_DIR}/public.json")
+VH_METRICS = Path(f"{VH_DIR}/metrics.json")
+METRIC_POINTS = 1440          # one a minute = last 24 h
+# Minimal by default. Everything here is visible to the whole internet, so each extra field
+# is opt-in: a version number narrows down what to try against the server, a mod list and a
+# load chart tell a stranger what runs there and when nobody is watching.
+PUBLIC_DEFAULT = {"enabled": True, "show_players": True, "show_names": False,
+                  "show_mods": False, "show_metrics": False, "show_version": False,
+                  "show_address": False, "note": ""}
 VH_COUNT = Path(f"{VH_DIR}/players.count")   # read by update.sh so it can hold off too
 ALERT_EVENTS = {
     "server_down": "Server stopped",
@@ -1492,6 +1501,71 @@ def alerts_new_topic():
     _save_panel_env(env)
     _log("alerts.topic_generated", topic=env["NTFY_TOPIC"])
     return {"ok": True, "topic": env["NTFY_TOPIC"]}
+
+
+def _public_cfg():
+    cfg = dict(PUBLIC_DEFAULT)
+    try:
+        cfg.update(json.loads(VH_PUBLIC.read_text()))
+    except Exception:
+        pass
+    return cfg
+
+
+@app.get("/api/public")
+def public_status():
+    """The only endpoint reachable without logging in. Everything here is deliberate: the
+    address and port are already public DNS, the mod list and share code are what a player
+    needs before joining. The game password, disk, logs and checks never appear."""
+    cfg = _public_cfg()
+    if not cfg.get("enabled"):
+        raise HTTPException(404, "Not enabled")
+    env = _parse_env(Path(VH_ENV).read_text().splitlines())
+    st = _mods_state()
+    active = _sh("systemctl is-active valheim").stdout.strip() == "active"
+    started = _sh('date -d "$(systemctl show valheim -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0').stdout.strip()
+    ver = _sh("journalctl -u valheim -n 2000 --no-pager -o cat | grep -m1 -oP 'Valheim version: \\K\\S+' | tail -1").stdout.strip()
+    conns, _h, _c, _cts, _v, _jc = _scan(_sections(_sh(VH_STATUS_SH, timeout=90).stdout).get("log", []))
+    out = {"name": env["name"], "world": env["world"], "active": active,
+           "crossplay": env["crossplay"], "note": cfg.get("note") or None,
+           "uptime": (int(time.time()) - int(started)) if active and started.isdigit() and int(started) else None}
+    if cfg.get("show_version"):
+        out["version"] = ver or None
+    if cfg.get("show_address"):
+        out["port"] = env["port"]
+        out["password_required"] = bool(env["password"])
+    if cfg.get("show_players"):
+        out["players"] = len(conns)
+        if cfg.get("show_names"):
+            out["names"] = [c.get("name") for c in conns if c.get("name")]
+    if cfg.get("show_mods"):
+        out["mods"] = [{"full_name": k, "version": v.get("version")} for k, v in sorted(st.get("mods", {}).items())]
+        out["profile_code"] = st.get("profile_code")
+    if cfg.get("show_metrics"):
+        try:
+            out["metrics"] = json.loads(VH_METRICS.read_text())[-720:]
+        except Exception:
+            out["metrics"] = []
+    return out
+
+
+@app.get("/api/public/config")
+def public_cfg_get():
+    return _public_cfg()
+
+
+@app.post("/api/public/config")
+def public_cfg_set(body: dict = Body(...)):
+    cfg = _public_cfg()
+    for k in ("enabled", "show_players", "show_names", "show_mods", "show_metrics",
+              "show_version", "show_address"):
+        if k in body:
+            cfg[k] = bool(body[k])
+    if "note" in body:
+        cfg["note"] = str(body["note"])[:280]
+    VH_PUBLIC.write_text(json.dumps(cfg, indent=1))
+    _log("public.config", **{k: v for k, v in cfg.items() if k != "note"})
+    return {"ok": True}
 
 
 @app.get("/api/alerts")
@@ -1601,6 +1675,21 @@ def _tick():
     WATCH["online"] = now_on
     try:
         VH_COUNT.write_text(str(len(now_on)))     # update.sh reads this to hold off
+    except Exception:
+        pass
+
+    # rolling series for the public page charts
+    try:
+        m = s.get("machine") or {}
+        pts = []
+        try:
+            pts = json.loads(VH_METRICS.read_text())
+        except Exception:
+            pass
+        pts.append({"t": now, "p": len(now_on), "up": 1 if s["active"] else 0,
+                    "cpu": round(100 * m["load"][0] / m["cores"], 1) if m.get("cores") else None,
+                    "mem": round(100 * (1 - m["mem_avail"] / m["mem_total"]), 1) if m.get("mem_total") else None})
+        VH_METRICS.write_text(json.dumps(pts[-METRIC_POINTS:]))
     except Exception:
         pass
 

@@ -2,75 +2,198 @@
 <html lang="pl"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Valheim — panel</title>
+<title>Valheim — serwer</title>
 <link rel="icon" href="/icon.svg" type="image/svg+xml">
 <style>
   :root{
     --bg:#0b0d0f; --stone:#14181c; --stone2:#1b2127; --line:#2b3138;
     --tx:#dcd3c3; --dim:#8d8477; --gold:#c9a227; --gold2:#e3c05a;
-    --blood:#8f2f28; --moss:#5d7a4a;
+    --ok:#5d7a4a; --bad:#8f2f28;
   }
   *{box-sizing:border-box}
-  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+  body{margin:0;min-height:100vh;padding:32px 16px;color:var(--tx);
+    font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
     background:
       radial-gradient(1100px 600px at 50% -10%, #1c242b 0%, transparent 60%),
       radial-gradient(700px 400px at 50% 110%, #171a14 0%, transparent 60%),
       repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
-      var(--bg);
-    color:var(--tx);font:15px/1.6 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-  .box{width:100%;max-width:400px;background:linear-gradient(180deg,var(--stone2),var(--stone));
-    border:1px solid var(--line);border-radius:4px;padding:34px 30px 28px;
-    box-shadow:0 0 0 1px rgba(201,162,39,.12), 0 24px 60px rgba(0,0,0,.75);position:relative}
-  .box:before{content:"";position:absolute;inset:6px;border:1px solid rgba(201,162,39,.14);
-    border-radius:2px;pointer-events:none}
-  h1{margin:0;text-align:center;font:600 30px/1.1 Georgia,"Times New Roman",serif;
-    letter-spacing:.22em;text-transform:uppercase;color:var(--gold2);
-    text-shadow:0 2px 18px rgba(201,162,39,.25)}
-  .runes{text-align:center;color:var(--gold);opacity:.5;letter-spacing:.5em;margin:12px 0 4px;font-size:13px}
-  .sub{text-align:center;color:var(--dim);font-size:13px;margin-bottom:24px}
+      var(--bg)}
+  .wrap{max-width:1080px;margin:0 auto}
+  header{text-align:center;margin-bottom:26px}
+  h1{margin:0;font:600 30px/1.1 Georgia,"Times New Roman",serif;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--gold2);text-shadow:0 2px 18px rgba(201,162,39,.25)}
+  .runes{color:var(--gold);opacity:.45;letter-spacing:.5em;margin:10px 0 2px;font-size:12px}
+  .cols{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+  .box{background:linear-gradient(180deg,var(--stone2),var(--stone));border:1px solid var(--line);
+    border-radius:4px;padding:20px;position:relative;box-shadow:0 0 0 1px rgba(201,162,39,.10),0 18px 40px rgba(0,0,0,.55)}
+  .box:before{content:"";position:absolute;inset:5px;border:1px solid rgba(201,162,39,.10);border-radius:2px;pointer-events:none}
+  h2{font:600 12px/1 Georgia,serif;text-transform:uppercase;letter-spacing:.16em;color:var(--gold);margin:0 0 14px}
+  .big{font-size:24px;font-weight:700}
+  .muted{color:var(--dim);font-size:13px}
+  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:14px}
+  .cell{background:#10151a;border:1px solid var(--line);border-radius:3px;padding:10px 12px}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
+  .dot.up{background:var(--ok);box-shadow:0 0 10px rgba(93,122,74,.8)}
+  .dot.down{background:var(--bad)}
+  code{background:#0d1114;padding:2px 7px;border-radius:4px;font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;color:var(--gold);font-size:11px;text-transform:uppercase;letter-spacing:.1em;
+    padding:6px 8px;border-bottom:1px solid var(--line)}
+  td{padding:6px 8px;border-bottom:1px solid var(--line)}
   label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);margin:14px 0 5px}
-  input{width:100%;background:#0d1114;color:var(--tx);border:1px solid var(--line);border-radius:3px;
-    padding:11px 12px;font:inherit;transition:border-color .15s}
+  input{width:100%;background:#0d1114;color:var(--tx);border:1px solid var(--line);border-radius:3px;padding:11px 12px;font:inherit}
   input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,162,39,.10)}
-  button{width:100%;margin-top:22px;background:linear-gradient(180deg,#2a3138,#1a2026);color:var(--gold2);
+  button{width:100%;margin-top:20px;background:linear-gradient(180deg,#2a3138,#1a2026);color:var(--gold2);
     border:1px solid var(--gold);border-radius:3px;padding:12px;font:600 13px/1 system-ui;
-    letter-spacing:.18em;text-transform:uppercase;cursor:pointer;transition:.15s}
+    letter-spacing:.18em;text-transform:uppercase;cursor:pointer}
   button:hover{background:linear-gradient(180deg,#343d45,#222930);box-shadow:0 0 22px rgba(201,162,39,.18)}
-  button:disabled{opacity:.5;pointer-events:none}
-  .err{color:#e0796f;font-size:13px;min-height:20px;margin-top:14px;text-align:center}
-  .foot{margin-top:20px;text-align:center;color:var(--dim);font-size:11px;letter-spacing:.06em}
+  button.copy{width:auto;margin:0;padding:3px 9px;font-size:11px;letter-spacing:.06em}
+  .err{color:#e0796f;font-size:13px;min-height:20px;margin-top:12px;text-align:center}
+  .foot{margin-top:22px;text-align:center;color:var(--dim);font-size:11px;letter-spacing:.05em}
+  svg .ln{fill:none;stroke-width:1.5}
 </style>
 </head>
 <body>
-<form class="box" id="f">
-  <h1>Valheim</h1>
-  <div class="runes">ᚠ ᚢ ᚦ ᚨ ᚱ ᚲ</div>
-  <div class="sub" id="sub">Panel serwera</div>
-  <label id="l-user">Login</label>
-  <input id="u" autocomplete="username" autofocus>
-  <label id="l-pass">Hasło</label>
-  <input id="p" type="password" autocomplete="current-password">
-  <button id="b">Wejdź</button>
-  <div class="err" id="e"></div>
+<div class="wrap">
+  <header>
+    <h1>Valheim</h1>
+    <div class="runes">ᚠ ᚢ ᚦ ᚨ ᚱ ᚲ</div>
+    <div class="muted" id="sub">—</div>
+  </header>
+
+  <div class="cols">
+    <div>
+      <div class="box" id="status-box">
+        <h2 id="h-status">Serwer</h2>
+        <div class="big"><span class="dot" id="dot"></span><span id="state">…</span></div>
+        <div class="muted" id="meta"></div>
+        <div class="grid" style="margin-top:14px" id="cells"></div>
+        <div id="note" class="muted"></div>
+      </div>
+
+      <div class="box" id="mods-box" style="margin-top:16px;display:none">
+        <h2 id="h-mods">Mody</h2>
+        <div class="muted" id="mods-hint"></div>
+        <div id="code-row" style="margin:10px 0"></div>
+        <table><thead><tr><th id="th-mod">Paczka</th><th id="th-ver">Wersja</th></tr></thead>
+        <tbody id="mods"></tbody></table>
+      </div>
+
+      <div class="box" id="chart-box" style="margin-top:16px;display:none">
+        <h2 id="h-charts">Obciążenie, ostatnie 12 h</h2>
+        <div id="charts"></div>
+      </div>
+    </div>
+
+    <form class="box" id="f">
+      <h2 id="h-login">Panel administratora</h2>
+      <div class="muted" id="login-hint">Tylko dla administratora serwera.</div>
+      <label id="l-user">Login</label>
+      <input id="u" autocomplete="username">
+      <label id="l-pass">Hasło</label>
+      <input id="p" type="password" autocomplete="current-password">
+      <button id="b">Wejdź</button>
+      <div class="err" id="e"></div>
+    </form>
+  </div>
+
   <div class="foot" id="foot">Brama zamknięta dla nieproszonych</div>
-</form>
+</div>
+
 <script>
-const PL=(navigator.language||"").startsWith("pl");
-if(!PL){document.documentElement.lang="en";
-  sub.textContent="Server panel";document.getElementById("l-user").textContent="User";
-  document.getElementById("l-pass").textContent="Password";b.textContent="Enter";
-  foot.textContent="The gate stays shut for the uninvited";}
-f.onsubmit=async ev=>{
+const PL=!(navigator.language||"").startsWith("en");
+const T=PL?{}:{ "Serwer":"Server","Mody":"Mods","Obciążenie, ostatnie 12 h":"Load, last 12 h",
+ "Panel administratora":"Admin panel","Tylko dla administratora serwera.":"Server admin only.",
+ "Login":"User","Hasło":"Password","Wejdź":"Enter","Paczka":"Package","Wersja":"Version",
+ "Brama zamknięta dla nieproszonych":"The gate stays shut for the uninvited"};
+const tr=s=>T[s]||s;
+["h-status","h-mods","h-charts","h-login","login-hint","l-user","l-pass","b","th-mod","th-ver","foot"]
+  .forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=tr(el.textContent);});
+
+const fmtDur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`;};
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function cell(k,v){return `<div class="cell"><div class="muted">${k}</div><div>${v}</div></div>`;}
+
+function chart(title,pts,color,unit,max){
+  if(!pts.length)return "";
+  const W=560,H=70,top=max||Math.max(1,...pts);
+  const d=pts.map((v,i)=>`${i?"L":"M"}${(i/(pts.length-1)*W).toFixed(1)},${(H-(v/top)*H).toFixed(1)}`).join("");
+  return `<div style="margin-bottom:14px">
+    <div class="muted">${title} — ${PL?"teraz":"now"} ${pts[pts.length-1]??"?"}${unit}</div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:70px;display:block">
+      <path class="ln" d="${d}" stroke="${color}"/>
+      <path d="${d}L${W},${H}L0,${H}Z" fill="${color}" opacity=".10"/>
+    </svg></div>`;
+}
+
+async function load(){
+  try{
+    const r=await fetch("/api/public");
+    if(!r.ok)throw 0;
+    const d=await r.json();
+    document.getElementById("sub").textContent=d.name+(d.world?" · "+(PL?"świat":"world")+" "+d.world:"");
+    document.getElementById("dot").className="dot "+(d.active?"up":"down");
+    document.getElementById("state").textContent=d.active?(PL?"Działa":"Running"):(PL?"Wyłączony":"Offline");
+    const bits=[];
+    if(d.uptime)bits.push((PL?"od ":"up ")+fmtDur(d.uptime));
+    if(d.version)bits.push(d.version);
+    document.getElementById("meta").textContent=bits.join(" · ");
+
+    const c=[];
+    if(d.players!==undefined)c.push(cell(PL?"Gracze teraz":"Online now",
+      d.players+(d.names&&d.names.length?" — "+d.names.map(esc).join(", "):"")));
+    c.push(cell(PL?"Jak wejść":"How to join",d.crossplay
+      ? (PL?"kodem crossplay — poproś admina":"crossplay code — ask the admin")
+      : (PL?"po adresie serwera":"by server address")));
+    if(d.port)c.push(cell(PL?"Port":"Port",d.port+"–"+(d.port+2)+" UDP"));
+    if(d.password_required!==undefined)c.push(cell(PL?"Hasło do wejścia":"Password to join",
+      d.password_required?(PL?"tak":"yes"):(PL?"nie":"no")));
+    document.getElementById("cells").innerHTML=c.join("");
+    if(d.note)document.getElementById("note").textContent=d.note;
+
+    if(d.mods){
+      document.getElementById("mods-box").style.display="";
+      document.getElementById("mods-hint").textContent=d.mods.length
+        ? (PL?"Do wejścia potrzebujesz tych paczek w tych wersjach.":"You need these packages, in these versions, to join.")
+        : (PL?"Serwer bez modów — nic nie musisz instalować.":"Vanilla server — nothing to install.");
+      document.getElementById("mods").innerHTML=d.mods.map(m=>
+        `<tr><td>${esc(m.full_name)}</td><td class="muted">${esc(m.version||"?")}</td></tr>`).join("");
+      document.getElementById("code-row").innerHTML=d.profile_code
+        ? `<div class="cell"><div class="muted">${PL?"Kod do Thunderstore Mod Managera":"Thunderstore Mod Manager code"}</div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
+              <code id="code">${esc(d.profile_code)}</code><button class="copy" id="cp">${PL?"kopiuj":"copy"}</button></div></div>` : "";
+      const cp=document.getElementById("cp");
+      if(cp)cp.onclick=e=>{e.preventDefault();navigator.clipboard.writeText(d.profile_code);cp.textContent=PL?"skopiowane":"copied";};
+    }
+
+    if(d.metrics&&d.metrics.length>3){
+      document.getElementById("chart-box").style.display="";
+      const m=d.metrics.slice(-720);
+      document.getElementById("charts").innerHTML=
+        chart(PL?"Gracze":"Players",m.map(x=>x.p),"#c9a227","",Math.max(1,...m.map(x=>x.p)))+
+        chart("CPU",m.map(x=>x.cpu??0),"#5b8def","%",100)+
+        chart("RAM",m.map(x=>x.mem??0),"#5d7a4a","%",100);
+    }
+  }catch(err){
+    document.getElementById("state").textContent=PL?"Brak danych":"No data";
+    document.getElementById("status-box").style.opacity=".6";
+  }
+}
+load();setInterval(load,30000);
+
+document.getElementById("f").onsubmit=async ev=>{
   ev.preventDefault();
-  b.disabled=true;e.textContent="";
+  const b=document.getElementById("b");b.disabled=true;document.getElementById("e").textContent="";
   try{
     const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({user:u.value.trim(),password:p.value})});
-    if(!r.ok){const d=await r.json().catch(()=>({}));throw new Error(d.detail||("HTTP "+r.status));}
+      body:JSON.stringify({user:document.getElementById("u").value.trim(),password:document.getElementById("p").value})});
+    if(!r.ok)throw 0;
     location.href="/";
   }catch(err){
-    e.textContent=PL?"Zły login albo hasło":"Wrong user or password";
-    b.disabled=false;p.value="";p.focus();
+    document.getElementById("e").textContent=PL?"Zły login albo hasło":"Wrong user or password";
+    b.disabled=false;document.getElementById("p").value="";document.getElementById("p").focus();
   }
 };
 </script>
