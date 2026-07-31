@@ -79,7 +79,8 @@
     </div>
 
     <div class="tabs" id="tabs">
-      <a class="on" data-pane="t-players">Players</a>
+      <a class="on" data-pane="t-summary">Summary</a>
+      <a data-pane="t-players">Players</a>
       <a data-pane="t-access">Access &amp; bans</a>
       <a data-pane="t-world">World</a>
       <a data-pane="t-backups">Backups</a>
@@ -87,7 +88,19 @@
       <a data-pane="t-log">Log</a>
     </div>
 
-    <div class="pane on" id="t-players">
+    <div class="pane on" id="t-summary">
+      <div class="grid" id="sum-join"></div>
+      <div class="row" style="margin:18px 0 6px">
+        <div class="muted">Connectivity checks</div>
+        <button class="mini" id="sum-recheck">Run checks again</button>
+      </div>
+      <table><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
+      <tbody id="sum-checks"><tr><td colspan="3" class="muted">—</td></tr></tbody></table>
+      <div class="grid" id="sum-info" style="margin-top:18px"></div>
+      <div class="err" id="sum-err"></div>
+    </div>
+
+    <div class="pane" id="t-players">
       <div class="muted" style="margin-bottom:6px">Online now <span id="vh-on-note"></span></div>
       <table><thead><tr><th>Player</th><th>Id</th><th>Joined</th><th class="r">Session</th><th class="r">Actions</th></tr></thead>
       <tbody id="vh-online"><tr><td colspan="5" class="muted">—</td></tr></tbody></table>
@@ -184,6 +197,7 @@ $("tabs").querySelectorAll("a").forEach(a=>a.onclick=()=>{
   $("tabs").querySelectorAll("a").forEach(x=>x.classList.toggle("on",x===a));
   document.querySelectorAll(".pane").forEach(p=>p.classList.toggle("on",p.id===a.dataset.pane));
   if(a.dataset.pane==="t-log")vhLog();
+  if(a.dataset.pane==="t-summary")vhSummary();
 });
 
 const LIST_LABEL={admin:"Admins (in-game console)",banned:"Banned",permitted:"Allowlist"};
@@ -206,9 +220,34 @@ async function load(){
     if(v.settings)b.push("world: "+v.settings.world,"port "+v.settings.port,v.settings.public?"public":"not listed");
     if(v.disk)b.push("disk: "+fmtBytes(v.disk.used)+" used / "+fmtBytes(v.disk.avail)+" free");
     $("vh-meta").textContent=b.join(" · ");
-    vhOnline(v);vhHistory(v);vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);
+    vhOnline(v);vhHistory(v);vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
     $("vh-err").textContent="";
   }catch(e){$("vh-err").textContent=e.message;}
+}
+let SUM=null;
+function bar(pct,label){
+  const col=pct>=90?"var(--bad)":pct>=75?"var(--warn)":"var(--acc)";
+  return `<div class="muted">${label}</div>
+    <div style="height:8px;background:var(--field);border-radius:5px;overflow:hidden;margin:5px 0 3px">
+      <div style="height:100%;width:${Math.min(100,pct)}%;background:${col}"></div></div>`;
+}
+function paintMachine(){
+  const el=$("sum-info");if(!el||!VH)return;
+  const m=VH.machine,d=VH.disk,s=SUM||{},st=VH.settings||{};
+  const memPct=m?100*(1-m.mem_avail/m.mem_total):0;
+  const dskPct=d?100*d.used/(d.used+d.avail):0;
+  const loadPct=m?100*m.load[0]/m.cores:0;
+  el.innerHTML=
+    `<div class="stat">${bar(loadPct,"CPU load "+(m?m.load.map(x=>x.toFixed(2)).join(" / "):"—")+(m?" on "+m.cores+" cores":""))}
+      <div class="muted">1 / 5 / 15 min${m?" · procesy "+m.procs:""}</div></div>`+
+    `<div class="stat">${bar(memPct,"RAM "+(m?fmtBytes(m.mem_total-m.mem_avail)+" / "+fmtBytes(m.mem_total):"—"))}
+      <div class="muted">${m?memPct.toFixed(0)+"% used":""}</div></div>`+
+    `<div class="stat">${bar(dskPct,"Disk "+(d?fmtBytes(d.used)+" / "+fmtBytes(d.used+d.avail):"—"))}
+      <div class="muted">${d?fmtBytes(d.avail)+" free":""}</div></div>`+
+    `<div class="stat"><div class="muted">Machine</div><div>${esc(s.hostname||"—")} · ${m?m.cores+" cores":""}</div>
+      <div class="muted">up ${m?fmtDur(m.uptime):"—"}</div></div>`+
+    `<div class="stat"><div class="muted">Ports</div><div>game ${st.port||"?"}-${(st.port||0)+2} udp · panel ${st.panel_port||"?"} tcp</div></div>`+
+    `<div class="stat"><div class="muted">Listing</div><div>${st.public?"public":"not listed"} · crossplay ${st.crossplay?"on":"off"}</div></div>`;
 }
 function vhTick(){const now=Date.now()/1000;
   document.querySelectorAll("[data-since]").forEach(el=>el.textContent=fmtDur(now-(+el.dataset.since)));}
@@ -372,6 +411,36 @@ async function vhAction(a,btn){
   setTimeout(load,2500);
 }
 ["start","stop","restart","backup","update"].forEach(a=>{const b=$("vh-a-"+a);if(b)b.onclick=()=>vhAction(a,b);});
+// ---- Summary ----
+const STATE_ICON={ok:'<span class="dot run"></span>works',bad:'<span class="dot stop"></span>problem',
+  unknown:'<span class="muted">not checked</span>'};
+function copyBox(label,value,note){
+  if(!value)return "";
+  const id="cp"+Math.random().toString(36).slice(2,8);
+  return `<div class="stat"><div class="muted">${label}</div>
+    <div class="row" style="gap:8px"><code id="${id}" style="font-size:14px">${esc(value)}</code>
+      <button class="mini" data-copy="${id}">copy</button></div>
+    ${note?`<div class="muted" style="margin-top:4px">${note}</div>`:""}</div>`;
+}
+async function vhSummary(){
+  $("sum-checks").innerHTML='<tr><td colspan="3" class="muted">checking… (asking Steam takes a moment)</td></tr>';
+  try{
+    const s=await jf("/api/valheim/summary");
+    $("sum-join").innerHTML=
+      copyBox("Join from this network",s.join.lan,"same house / same LAN")+
+      copyBox("Join from the internet",s.join.public,`needs UDP ${s.ports.game[0]}-${s.ports.game[2]} forwarded to this container`)+
+      copyBox("Game password",s.join.password)+
+      copyBox("This panel",s.join.panel,"keep it off the internet");
+    $("sum-checks").innerHTML=s.checks.map(c=>`<tr>
+      <td>${esc(c.label)}</td><td>${STATE_ICON[c.state]||c.state}</td>
+      <td class="muted">${esc(c.detail||"")}</td></tr>`).join("");
+    SUM=s; paintMachine();
+    document.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{
+      navigator.clipboard.writeText($(b.dataset.copy).textContent).then(()=>toast("Copied","ok"),()=>toast("Copy failed","bad"));});
+    $("sum-err").textContent="";
+  }catch(e){$("sum-err").textContent=e.message;$("sum-checks").innerHTML='<tr><td colspan="3" class="muted">—</td></tr>';}
+}
+$("sum-recheck").onclick=vhSummary;
 async function vhLog(){
   try{const d=await jf("/api/valheim/log?n=300");$("vh-log").textContent=d.log||"—";$("vh-log").scrollTop=$("vh-log").scrollHeight;}
   catch(e){$("vh-log").textContent=e.message;}
@@ -388,6 +457,6 @@ $("vh-wup-btn").onclick=async()=>{
   catch(e){toast(e.message,"bad");}
   $("vh-wup-btn").disabled=false;$("vh-wup-btn").classList.remove("loading");
 };
-load();setInterval(load,20000);setInterval(vhTick,1000);
+load();vhSummary();setInterval(load,20000);setInterval(vhTick,1000);
 </script>
 </body></html>
