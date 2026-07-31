@@ -296,9 +296,34 @@ const I18N={
  "Listed in the Steam server browser":"Widoczny w przeglądarce serwerów Steam",
  "Router forward (inbound reachability)":"Przekierowanie na routerze (dostępność z zewnątrz)",
 };
+// ?demo=1 — tryb do zrzutów ekranu: adresy i sekrety zamienione na przykładowe,
+// żeby dokumentacja nie wynosiła cudzej sieci ani haseł na świat
+const DEMO=location.search.includes("demo");
+function scrub(s){
+  if(!DEMO||!s)return s;
+  return s
+    // najpierw adresy prywatne pod znacznik, inaczej reguła publiczna zjada ich podmianę
+    .replace(/\b(?:192\.168|10)\.[\d.]+\b/g,"@LAN@")
+    .replace(/\b172\.(?:1[6-9]|2\d|3[01])\.[\d.]+\b/g,"@LAN@")
+    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}\b/g,"203.0.113.10")
+    .replace(/@LAN@/g,"192.168.0.10")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi,"demo-profile-code")
+    .replace(new RegExp("\\b"+((VH&&VH.settings&&VH.settings.password)||"\u0000")+"\\b","g"),"••••••••")
+    .replace(new RegExp("\\b"+((VH&&VH.joincode)||"\u0000")+"\\b","g"),"••••••");
+}
 let LANG=localStorage.getItem("vhLang")||((navigator.language||"").startsWith("pl")?"pl":"en");
 const t=s=>(LANG==="pl"&&I18N[s])||s;
 function applyLang(root){
+  if(DEMO){
+    const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),n=[];
+    while(w.nextNode())n.push(w.currentNode);
+    n.forEach(x=>{const s=scrub(x.nodeValue);if(s!==x.nodeValue)x.nodeValue=s;});
+    if(root.querySelectorAll)root.querySelectorAll("input").forEach(e=>{
+      if(e.type==="checkbox"||e.type==="file")return;
+      const v=scrub(e.value);if(v!==e.value)e.value=v;
+      if(/pass/i.test(e.id))e.value="••••••••";
+    });
+  }
   if(LANG!=="pl")return;
   const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),n=[];
   while(w.nextNode())n.push(w.currentNode);
