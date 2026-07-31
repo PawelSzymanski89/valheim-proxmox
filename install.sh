@@ -76,7 +76,15 @@ done
 [ -n "${IP:-}" ] || die "Container $CTID got no IP address."
 
 msg "Installing inside the container (Steam download takes a few minutes)"
-pct exec "$CTID" -- bash -c "curl -fsSL $REPO_RAW/setup.sh -o /tmp/setup.sh"
+# The stock Debian template ships without curl, so the host fetches setup.sh and
+# pushes it in. Also lets you run this straight from a git clone.
+if [ -f "$(dirname "$0")/setup.sh" ]; then
+  pct push "$CTID" "$(dirname "$0")/setup.sh" /tmp/setup.sh
+else
+  curl -fsSL "$REPO_RAW/setup.sh" -o /tmp/valheim-setup.sh
+  pct push "$CTID" /tmp/valheim-setup.sh /tmp/setup.sh
+  rm -f /tmp/valheim-setup.sh
+fi
 pct exec "$CTID" -- env \
   REPO_RAW="$REPO_RAW" PANEL_PORT="$PANEL_PORT" GAME_PORT="$GAME_PORT" \
   SERVER_NAME="$SERVER_NAME" WORLD_NAME="$WORLD_NAME" SERVER_PASS="$SERVER_PASS" \

@@ -13,14 +13,17 @@ SERVER_PASS=${SERVER_PASS:-valheim123}
 REPO_RAW=${REPO_RAW:-https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main}
 APPID=896660
 
-say() { echo -e "\033[1;32m==>\033[0m $*"; }
+STEP=0; TOTAL=5
+say()  { STEP=$((STEP + 1)); echo -e "\033[1;32m[$STEP/$TOTAL]\033[0m $*"; }
+info() { echo "      $*"; }
+die()  { echo -e "\033[1;31mError:\033[0m $*" >&2; exit 1; }
 trap 'echo -e "\033[1;31mSetup failed at line $LINENO\033[0m" >&2' ERR
 
 # No `| head -c N` here: head closing the pipe kills the writer with SIGPIPE, and with
 # `set -o pipefail` that aborts the whole script before it prints anything.
 randstr() { local s; s=$(head -c 48 /dev/urandom | base64 | tr -dc "$1"); echo "${s:0:$2}"; }
 
-say "Packages"
+say "Installing packages (32-bit Steam libs, Python)"
 export DEBIAN_FRONTEND=noninteractive
 dpkg --add-architecture i386
 apt-get update -qq
@@ -28,17 +31,25 @@ apt-get install -y -qq --no-install-recommends \
   ca-certificates curl tar gzip procps \
   lib32gcc-s1 libsdl2-2.0-0:i386 libatomic1 \
   python3 python3-venv python3-pip >/dev/null
+info "done"
 
 id -u valheim >/dev/null 2>&1 || useradd -m -d "$VH_DIR" -s /bin/bash valheim
 mkdir -p "$VH_DIR"/{steamcmd,server,data/worlds_local,backups,panel}
 chown -R valheim:valheim "$VH_DIR"
 
-say "SteamCMD"
-sudo -u valheim bash -c "cd $VH_DIR/steamcmd && curl -sqL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar zxf -"
+say "Fetching SteamCMD"
+# runuser, not sudo — sudo is not in the stock Debian container image
+runuser -u valheim -- bash -c "cd $VH_DIR/steamcmd && curl -sqL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar zxf -"
+info "done"
 
-say "Valheim dedicated server (this pulls ~1.5 GB, give it a few minutes)"
-sudo -u valheim "$VH_DIR/steamcmd/steamcmd.sh" +force_install_dir "$VH_DIR/server" \
-  +login anonymous +app_update $APPID validate +quit >"$VH_DIR/steam-install.log" 2>&1
+say "Downloading the Valheim server (~1.5 GB, this is the slow part)"
+set +e
+runuser -u valheim -- "$VH_DIR/steamcmd/steamcmd.sh" +force_install_dir "$VH_DIR/server" \
+  +login anonymous +app_update $APPID validate +quit 2>&1 \
+  | tee "$VH_DIR/steam-install.log" | tr '\r' '\n' \
+  | grep --line-buffered -E 'Update state|Success! App|ERROR!' | sed -u 's/^/      /'
+set -e
+[ -x "$VH_DIR/server/valheim_server.x86_64" ] || die "Steam download failed — see $VH_DIR/steam-install.log"
 
 # ---------- launch config ----------
 # Settings live here, not in start.sh, so the panel has something to edit.
@@ -109,7 +120,7 @@ chmod +x "$VH_DIR"/{start.sh,backup.sh,update.sh}
 chown -R valheim:valheim "$VH_DIR"
 
 # ---------- panel ----------
-say "Admin panel"
+say "Installing the admin panel (FastAPI in its own venv)"
 if [ -d "$(dirname "$0")/panel" ]; then
   cp "$(dirname "$0")/panel/app.py" "$(dirname "$0")/panel/index.html" "$VH_DIR/panel/"
 else
@@ -203,10 +214,16 @@ OnUnitActiveSec=2h
 WantedBy=timers.target
 EOF
 
+say "Starting services"
 systemctl daemon-reload
 systemctl enable --now valheim.service valheim-panel.service valheim-backup.timer valheim-update.timer >/dev/null 2>&1
+for _ in $(seq 1 20); do
+  systemctl is-active --quiet valheim-panel && break
+  sleep 1
+done
+info "game server: $(systemctl is-active valheim) · panel: $(systemctl is-active valheim-panel)"
+info "the world is generated on first start, give it ~30 s"
 
-say "Done"
 echo
 echo "  Panel:    http://$(hostname -I | awk '{print $1}'):$(grep -oP "PANEL_PORT='\K[0-9]+" "$VH_DIR/panel.env")"
 echo "  User:     $(grep -oP "PANEL_USER='\K[^']+" "$VH_DIR/panel.env")"
