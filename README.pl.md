@@ -36,6 +36,7 @@ Trwa kilka minut — prawie całość to pobieranie ~1,5 GB ze Steama.
 | **World** | lista światów, przełączanie aktywnego, pobieranie, kasowanie, wgrywanie pary `.db` + `.fwl` |
 | **Backups** | przywróć, pobierz, usuń; przełączniki timerów auto-backup i auto-update |
 | **Settings** | nazwa serwera, świat, hasło, **port gry**, **port panelu**, widoczność na liście serwerów, crossplay, preset i modyfikatory świata (walka, kara za śmierć, surowce, najazdy, portale) oraz przełączniki (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
+| **Mods** | wklejasz **kod udostępniania** z Thunderstore Mod Managera / r2modman: panel go rozwija, pokazuje zawartość i instaluje zaznaczone paczki (BepInEx w komplecie, świat najpierw do kopii). Umie też pojedyncze paczki po nazwie |
 | **Log** | zdarzenia serwera, bez szumu keepalive od PlayFaba |
 
 Plus Start / Stop / Restart / Backup teraz / Sprawdź update.
@@ -74,9 +75,34 @@ z listy crossplay przez kod dołączenia, a przekierowanie portów na routerze n
 Przy wyłączonym crossplayu serwer nasłuchuje na `2456` i wchodzi się po adresie — i po to
 właśnie jest forward opisany wyżej. Dlatego instalator zostawia crossplay **wyłączony**;
 włączysz go w Settings, jeśli wolisz graczy z Xboxa/Game Passa zamiast wejścia po adresie.
+**Crossplay wymaga `libpulse-mainloop-glib0`.** Bez tego PlayFab Party nigdy się nie
+inicjalizuje, log co 30 s powtarza `begin PlayFab create and join network`, a kod dołączenia
+wychodzi pusty — czyli serwer, do którego nikt nie wejdzie żadną drogą. Instalator ją dokłada;
+diagnoza to `ldd libparty.so`. Przy działającym crossplayu panel wyciąga **kod dołączenia**
+z logu i pokazuje go na Summary (zmienia się przy każdym restarcie).
+
 
 **Panelu nie wystawiaj na świat.** Umie kasować światy i wydawać je do pobrania. Tylko
 LAN albo VPN. Jeśli musisz — schowaj go za reverse proxy z własną autoryzacją.
+
+## Mody z kodu udostępniania
+
+Wyeksportuj profil w Thunderstore Mod Managerze albo r2modmanie (**Settings → Export profile →
+as a code**) i wklej kod w zakładce **Mods**. Panel ściąga profil z Thunderstore, wypisuje
+paczki z dokładnymi wersjami i instaluje te, które zostawisz zaznaczone — razem z BepInEx-em,
+jeśli go jeszcze nie ma.
+
+Po co przez kod, a nie klikając mody z listy: wersje w kodzie to dokładnie te, które mają już
+Twoi gracze, a to niezgodność wersji odbija ludzi przy wejściu. Kod jest potem widoczny na
+zakładce **Summary**, więc możesz go oddać każdemu, kto ma się dostroić.
+
+Profile zawierają też mody czysto klienckie (UI, mapy, dźwięki). Na serwerze zwykle nie
+przeszkadzają, ale kilka potrafi rzucić wyjątkiem, więc odznacz to, czego serwer nie
+potrzebuje. Przed pierwszym modem świat trafia do kopii — mody potrafią popsuć zapis
+nieodwracalnie.
+
+Zainstalowane mody leżą w `server/BepInEx/plugins/<autor>-<Paczka>/`, a `start.sh` sam włącza
+loader doorstop, gdy tylko pojawi się katalog `BepInEx/`.
 
 ## Opcje
 

@@ -23,9 +23,11 @@ trap 'echo -e "\033[1;31mSetup failed at line $LINENO\033[0m" >&2' ERR
 # `set -o pipefail` that aborts the whole script before it prints anything.
 randstr() { local s; s=$(head -c 48 /dev/urandom | base64 | tr -dc "$1"); echo "${s:0:$2}"; }
 
-# libpulse0 is not optional: PlayFab Party (what crossplay runs on) fails to initialise
-# without it and the server then loops on "begin PlayFab create and join network" forever,
-# handing out an empty join code. Measured on a container that did not have it.
+# The PlayFab dependency is not optional and it is not just libpulse0: `ldd libparty.so`
+# asks for libpulse-mainloop-glib.so.0, which lives in a separate package. Without it
+# crossplay dies with "DLL Not Found", the server loops on "begin PlayFab create and join
+# network" forever and hands out an empty join code. Diagnosed on a live server that had
+# been unreachable for days because of exactly this.
 say "Installing packages (32-bit Steam libs, PlayFab dependency, Python)"
 export DEBIAN_FRONTEND=noninteractive
 # ssh/pct hand us the caller's LANG and LC_*, which the fresh container has no locales
@@ -36,7 +38,7 @@ apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
   ca-certificates curl tar gzip unzip procps \
   lib32gcc-s1 libsdl2-2.0-0:i386 libatomic1 \
-  libpulse0 \
+  libpulse0 libpulse-mainloop-glib0 \
   python3 python3-venv python3-pip >/dev/null
 info "done"
 
@@ -90,6 +92,17 @@ export SteamAppId=892970
 NAME=Valheim; WORLD=Dedicated; PASSWORD=; PORT=2456; PUBLIC=0; CROSSPLAY=0; PRESET=; MODIFIERS=; SETKEYS=
 [ -r /opt/valheim/server.env ] && . /opt/valheim/server.env
 cd /opt/valheim/server
+
+# BepInEx is loaded by doorstop; without these the plugins directory is simply ignored.
+# Names taken from start_server_bepinex.sh that ships with the pack — this is Doorstop 4,
+# the older DOORSTOP_ENABLE / DOORSTOP_INVOKE_DLL_PATH spelling is silently ignored.
+if [ -d /opt/valheim/server/BepInEx ]; then
+  export DOORSTOP_ENABLED=1
+  export DOORSTOP_TARGET_ASSEMBLY=./BepInEx/core/BepInEx.Preloader.dll
+  export LD_LIBRARY_PATH="./doorstop_libs:$LD_LIBRARY_PATH"
+  export LD_PRELOAD="libdoorstop_x64.so:$LD_PRELOAD"
+  echo "BepInEx: enabled"
+fi
 
 ARGS=(-nographics -batchmode -name "$NAME" -port "$PORT" -world "$WORLD" -savedir /opt/valheim/data -public "$PUBLIC")
 [ -n "$PASSWORD" ] && ARGS+=(-password "$PASSWORD")
@@ -146,7 +159,7 @@ else
 fi
 python3 -m venv "$VH_DIR/panel/.venv"
 "$VH_DIR/panel/.venv/bin/pip" install -q --upgrade pip
-"$VH_DIR/panel/.venv/bin/pip" install -q fastapi "uvicorn[standard]"
+"$VH_DIR/panel/.venv/bin/pip" install -q fastapi "uvicorn[standard]" pyyaml
 
 # A fixed default password would be the same on every install on the planet, so the
 # password is generated here and printed once. Change it later from the panel.

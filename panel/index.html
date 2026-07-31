@@ -85,6 +85,7 @@
       <a data-pane="t-world">World</a>
       <a data-pane="t-backups">Backups</a>
       <a data-pane="t-settings">Settings</a>
+      <a data-pane="t-mods">Mods</a>
       <a data-pane="t-log">Log</a>
     </div>
 
@@ -152,6 +153,28 @@
       </div>
     </div>
 
+    <div class="pane" id="t-mods">
+      <div class="row"><div class="muted" id="mods-state">—</div><button class="mini" id="mods-refresh">Refresh</button></div>
+      <div class="add" style="margin-top:12px">
+        <input id="mods-code" placeholder="Thunderstore Mod Manager share code">
+        <button id="mods-preview">Look up</button>
+      </div>
+      <div class="muted" style="margin-top:6px">Export a profile in Thunderstore Mod Manager / r2modman
+        (<b>Settings → Export profile → as a code</b>) and paste the code here. Everyone ends up on the
+        same versions, which is what stops the “incompatible version” bounce at join time.</div>
+      <div id="mods-preview-box" style="margin-top:14px"></div>
+      <div class="muted" style="margin:18px 0 6px">Installed on the server</div>
+      <table><thead><tr><th>Package</th><th>Version</th><th class="r">Actions</th></tr></thead>
+      <tbody id="mods-list"><tr><td colspan="3" class="muted">—</td></tr></tbody></table>
+      <div class="add" style="margin-top:12px">
+        <input id="mods-ns" placeholder="author" style="max-width:180px">
+        <input id="mods-name" placeholder="ModName" style="max-width:220px">
+        <input id="mods-ver" placeholder="version (optional)" style="max-width:170px">
+        <button id="mods-add">Install single package</button>
+      </div>
+      <div class="err" id="mods-err"></div>
+    </div>
+
     <div class="pane" id="t-log">
       <div class="row"><div class="muted">Server events (PlayFab keepalive noise filtered out)</div><button id="vh-log-refresh">Refresh</button></div>
       <pre class="log" id="vh-log" style="margin-top:10px">—</pre>
@@ -198,6 +221,7 @@ $("tabs").querySelectorAll("a").forEach(a=>a.onclick=()=>{
   document.querySelectorAll(".pane").forEach(p=>p.classList.toggle("on",p.id===a.dataset.pane));
   if(a.dataset.pane==="t-log")vhLog();
   if(a.dataset.pane==="t-summary")vhSummary();
+  if(a.dataset.pane==="t-mods")vhMods();
 });
 
 const LIST_LABEL={admin:"Admins (in-game console)",banned:"Banned",permitted:"Allowlist"};
@@ -423,12 +447,15 @@ function copyBox(label,value,note){
     ${note?`<div class="muted" style="margin-top:4px">${note}</div>`:""}</div>`;
 }
 async function vhSummary(){
+  if(!MODS){try{MODS=await jf("/api/mods");}catch(e){}}
   $("sum-checks").innerHTML='<tr><td colspan="3" class="muted">checking… (asking Steam takes a moment)</td></tr>';
   try{
     const s=await jf("/api/valheim/summary");
     $("sum-join").innerHTML=
       copyBox("Join from this network",s.join.lan,"same house / same LAN")+
       copyBox("Join from the internet",s.join.public,`needs UDP ${s.ports.game[0]}-${s.ports.game[2]} forwarded to this container`)+
+      (VH&&VH.joincode?copyBox("Crossplay join code",VH.joincode,"changes every time the server restarts"):"")+
+      (MODS&&MODS.profile_code?copyBox("Mod profile share code",MODS.profile_code,"players paste this into Thunderstore Mod Manager to get the same mods"):"")+
       copyBox("Game password",s.join.password)+
       copyBox("This panel",s.join.panel,"keep it off the internet");
     $("sum-checks").innerHTML=s.checks.map(c=>`<tr>
@@ -441,6 +468,64 @@ async function vhSummary(){
   }catch(e){$("sum-err").textContent=e.message;$("sum-checks").innerHTML='<tr><td colspan="3" class="muted">—</td></tr>';}
 }
 $("sum-recheck").onclick=vhSummary;
+// ---- Mods ----
+let MODS=null;
+async function vhMods(){
+  try{
+    const m=await jf("/api/mods");MODS=m;
+    $("mods-state").innerHTML=(m.bepinex?'<span class="dot run"></span>BepInEx installed':'<span class="dot stop"></span>BepInEx missing — installed automatically with the first mod')
+      +(m.profile_code?` · profile <code>${esc(m.profile_code)}</code>${m.profile_name?" ("+esc(m.profile_name)+")":""}`:"");
+    $("mods-list").innerHTML=m.mods.length?m.mods.map(x=>`<tr><td>${esc(x.full_name)}</td>
+      <td class="muted">${esc(x.version||"?")}</td>
+      <td class="r"><button class="mini danger" data-modrm="${esc(x.full_name)}">remove</button></td></tr>`).join("")
+      :`<tr><td colspan="3" class="muted">no mods installed</td></tr>`;
+    $("mods-list").querySelectorAll("[data-modrm]").forEach(b=>b.onclick=async()=>{
+      if(!await confirmModal("Remove mod?",`<b>${esc(b.dataset.modrm)}</b> — the server restarts.`,"Remove"))return;
+      b.classList.add("loading");
+      try{await jf("/api/mods/"+encodeURIComponent(b.dataset.modrm),{method:"DELETE"});toast("Removed","ok");setTimeout(vhMods,3000);}
+      catch(e){toast(e.message,"bad");b.classList.remove("loading");}});
+    $("mods-err").textContent="";
+  }catch(e){$("mods-err").textContent=e.message;}
+}
+$("mods-refresh").onclick=vhMods;
+$("mods-preview").onclick=async()=>{
+  const code=$("mods-code").value.trim();if(!code){toast("Paste a share code first","bad");return;}
+  $("mods-preview-box").innerHTML='<span class="muted">asking Thunderstore…</span>';
+  try{
+    const p=await jf("/api/mods/profile/"+encodeURIComponent(code));
+    $("mods-preview-box").innerHTML=`<div class="stat">
+      <div class="row"><div><b>${esc(p.name)}</b> <span class="muted">${p.mods.length} packages</span></div>
+        <button class="primary" id="mods-install">Install selected</button></div>
+      <div class="muted" style="margin:6px 0">Profiles hold client-side mods too — untick anything the server has no use for.</div>
+      <table><thead><tr><th style="width:32px"></th><th>Package</th><th>Version</th></tr></thead><tbody>${
+        p.mods.map(m=>`<tr><td><input type="checkbox" data-mod="${esc(m.full_name)}" data-ver="${esc(m.version)}" ${m.enabled?"checked":""}></td>
+          <td>${esc(m.full_name)}</td><td class="muted">${esc(m.version)}</td></tr>`).join("")}</tbody></table></div>`;
+    $("mods-install").onclick=async()=>{
+      const picked=[...document.querySelectorAll("[data-mod]")].filter(c=>c.checked)
+        .map(c=>({full_name:c.dataset.mod,version:c.dataset.ver}));
+      if(!picked.length){toast("Nothing selected","bad");return;}
+      if(!await confirmModal("Install mods?",`${picked.length} packages. The world is backed up first and the server restarts.`,"Install"))return;
+      $("mods-install").classList.add("loading");$("mods-install").textContent="installing…";
+      try{
+        const r=await jf("/api/mods/install",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({code,mods:picked,restart:true})});
+        toast(`Installed ${r.installed.length}${r.failed.length?", "+r.failed.length+" failed":""}`,r.failed.length?"bad":"ok");
+        if(r.failed.length)$("mods-err").textContent=r.failed.map(f=>f.full_name+": "+f.error).join(" · ");
+        $("mods-preview-box").innerHTML="";setTimeout(vhMods,4000);
+      }catch(e){toast(e.message,"bad");$("mods-install").classList.remove("loading");$("mods-install").textContent="Install selected";}
+    };
+  }catch(e){$("mods-preview-box").innerHTML=`<span class="err">${esc(e.message)}</span>`;}
+};
+$("mods-add").onclick=async()=>{
+  const ns=$("mods-ns").value.trim(),name=$("mods-name").value.trim(),ver=$("mods-ver").value.trim();
+  if(!ns||!name){toast("Author and package name required","bad");return;}
+  $("mods-add").classList.add("loading");
+  try{await jf("/api/mods/install",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({mods:[{full_name:ns+"-"+name,version:ver||null}],restart:true})});
+    toast("Installed","ok");$("mods-ns").value=$("mods-name").value=$("mods-ver").value="";setTimeout(vhMods,4000);}
+  catch(e){toast(e.message,"bad");}
+  $("mods-add").classList.remove("loading");
+};
 async function vhLog(){
   try{const d=await jf("/api/valheim/log?n=300");$("vh-log").textContent=d.log||"—";$("vh-log").scrollTop=$("vh-log").scrollHeight;}
   catch(e){$("vh-log").textContent=e.message;}

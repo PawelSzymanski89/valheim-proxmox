@@ -137,7 +137,8 @@ def _ts(s):
         return None
 
 
-VH_LOG_FILTER = "grep -E 'Got connection|Got handshake|Closing socket|ZDOID|Connections [0-9]|Valheim version'"
+VH_LOG_FILTER = ("grep -E 'Got connection|Got handshake|Closing socket|ZDOID|Connections [0-9]|"
+                 "Valheim version|join code'")
 VH_STATUS_SH = f"""
 echo '@state'; systemctl is-active valheim
 date +%s
@@ -193,6 +194,10 @@ def _events(lines):
         m = re.search(r"Connections (\d+)", rest)
         if m:
             yield t, "count", m.group(1)
+            continue
+        m = re.search(r"join code (\w+)", rest)
+        if m:
+            yield t, "joincode", m.group(1)
 
 
 def _scan(lines):
@@ -206,12 +211,12 @@ def _scan(lines):
     line carries no player id. Valheim has no RCON; without a server-side mod this is
     as precise as it gets.
     """
-    conns, hist, count, count_ts, version = [], [], None, None, None
+    conns, hist, count, count_ts, version, joincode = [], [], None, None, None, None
     for t, kind, val in _events(lines):
         if kind == "boot":
             for c in conns:
                 hist.append((t, "leave", c))
-            conns, version = [], val
+            conns, version, joincode = [], val, None
         elif kind == "join":
             c = {"id": val, "name": None, "since": t}
             conns.append(c)
@@ -228,7 +233,9 @@ def _scan(lines):
                 hist.append((t, "name", c))
         elif kind == "count":
             count, count_ts = int(val), t
-    return conns, hist, count, count_ts, version
+        elif kind == "joincode":
+            joincode = val
+    return conns, hist, count, count_ts, version, joincode
 
 
 def _history(hist):
@@ -343,13 +350,13 @@ def status():
                    "uptime": int(float(m[4]))}
     except Exception:
         pass
-    conns, hist, count, count_ts, version = _scan(sec.get("log", []))
+    conns, hist, count, count_ts, version, joincode = _scan(sec.get("log", []))
     settings = _parse_env(sec.get("env", []))
     panel_cfg = _env_file(VH_PANEL_ENV)
     settings["panel_port"] = int(panel_cfg.get("PANEL_PORT") or 2460)
     settings["panel_user"] = panel_cfg.get("PANEL_USER", "admin")  # password never leaves the box
     return {"active": active, "uptime": uptime, "version": version,
-            "players": len(conns), "online": conns,
+            "players": len(conns), "online": conns, "joincode": joincode,
             "connections": {"count": count, "ts": count_ts},
             "history": _history(hist), "lists": lists, "settings": settings,
             "worlds": worlds, "backups": [b["name"] for b in backups], "backups_full": backups,
@@ -716,4 +723,193 @@ def timer(name: str, state: str):
     if not unit or state not in ("on", "off"):
         raise HTTPException(400, "Unknown timer or state")
     _sh_ok(f"systemctl {'enable --now' if state == 'on' else 'disable --now'} {unit}")
+    return {"ok": True}
+
+
+# ---------- mods (Thunderstore) ----------
+# The share code from Thunderstore Mod Manager / r2modman is a profile id. Thunderstore
+# hands the profile back over the legacyprofile API, so no mod manager is involved here —
+# and the versions in the code are exactly the versions the players already run, which is
+# the whole point: a mismatched version bounces the player at the door.
+TS = "https://thunderstore.io"
+VH_SERVER = f"{VH_DIR}/server"
+VH_PLUGINS = f"{VH_SERVER}/BepInEx/plugins"
+VH_MODS_JSON = Path(f"{VH_DIR}/mods.json")
+BEPINEX = ("denikson", "BepInExPack_Valheim")
+MOD_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
+MOD_VER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+
+
+def _mods_state():
+    try:
+        return json.loads(VH_MODS_JSON.read_text())
+    except Exception:
+        return {"profile_code": None, "profile_name": None, "mods": {}}
+
+
+def _mods_save(st):
+    VH_MODS_JSON.write_text(json.dumps(st, indent=1))
+
+
+def _ts_get(url, timeout=30):
+    req = urllib.request.Request(url, headers={"User-Agent": "valheim-proxmox-panel"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
+
+def _ts_package(ns, name):
+    try:
+        return json.loads(_ts_get(f"{TS}/api/experimental/package/{ns}/{name}/"))
+    except Exception as e:
+        raise HTTPException(404, f"Thunderstore does not know {ns}/{name} ({e})")
+
+
+def _unpack(data, dest, strip=None):
+    """Unpack a Thunderstore zip. `strip` drops a leading folder the package wraps itself in."""
+    import zipfile
+    import io
+    dest = Path(dest)
+    skip = {"manifest.json", "icon.png", "readme.md", "changelog.md", "license", "license.txt"}
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        for info in z.infolist():
+            if info.is_dir():
+                continue
+            name = info.filename
+            if strip and name.startswith(strip):
+                name = name[len(strip):]
+            if not name or name.split("/")[-1].lower() in skip and "/" not in name:
+                continue
+            # a package that ships a plugins/ folder means "put my content there"
+            if name.startswith("plugins/"):
+                name = name[len("plugins/"):]
+            out = dest / name
+            if not str(out.resolve()).startswith(str(dest.resolve())):
+                raise HTTPException(400, f"Package tries to escape its directory: {info.filename}")
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_bytes(z.read(info))
+
+
+def _install_bepinex():
+    pkg = _ts_package(*BEPINEX)
+    ver = pkg["latest"]["version_number"]
+    data = _ts_get(pkg["latest"]["download_url"], timeout=180)
+    _unpack(data, VH_SERVER, strip="BepInExPack_Valheim/")
+    _sh(f"chown -R valheim:valheim {VH_SERVER}/BepInEx {VH_SERVER}/doorstop_libs "
+        f"{VH_SERVER}/unstripped_corlib 2>/dev/null; chmod -R u+rwX {VH_SERVER}/BepInEx")
+    return ver
+
+
+def _install_mod(ns, name, version=None):
+    if not (MOD_NAME_RE.match(ns) and MOD_NAME_RE.match(name)):
+        raise HTTPException(400, f"Odd package name: {ns}/{name}")
+    # the experimental package endpoint only carries the latest version, and the download
+    # URL is a stable pattern — so an explicit version needs no lookup at all
+    if version:
+        if not MOD_VER_RE.match(version):
+            raise HTTPException(400, f"Odd version: {version}")
+        url = f"{TS}/package/download/{ns}/{name}/{version}/"
+    else:
+        latest = _ts_package(ns, name)["latest"]
+        version, url = latest["version_number"], latest["download_url"]
+    full = f"{ns}-{name}"
+    try:
+        data = _ts_get(url, timeout=180)
+    except Exception as e:
+        raise HTTPException(404, f"{ns}/{name} {version} could not be downloaded ({e})")
+    target = Path(VH_PLUGINS) / full
+    _sh(f"rm -rf {shlex.quote(str(target))}")
+    _unpack(data, target)
+    _sh(f"chown -R valheim:valheim {shlex.quote(str(target))}")
+    return {"full_name": full, "version": version, "size": len(data)}
+
+
+def _profile(code):
+    """Expand a Thunderstore Mod Manager share code into a mod list."""
+    import base64 as _b
+    import zipfile
+    import io
+    import yaml
+    if not re.match(r"^[A-Za-z0-9-]{8,64}$", code or ""):
+        raise HTTPException(400, "That does not look like a share code")
+    try:
+        raw = _ts_get(f"{TS}/api/experimental/legacyprofile/get/{code}/", timeout=60).decode()
+    except Exception as e:
+        raise HTTPException(404, f"Thunderstore has no profile under that code ({e})")
+    body = raw.split("\n", 1)[1] if raw.startswith("#") else raw
+    with zipfile.ZipFile(io.BytesIO(_b.b64decode(body))) as z:
+        r2x = yaml.safe_load(z.read("export.r2x"))
+    mods = []
+    for m in r2x.get("mods") or []:
+        v = m.get("versionNumber") or m.get("version") or {}
+        mods.append({"full_name": m["name"],
+                     "version": f"{v.get('major', 0)}.{v.get('minor', 0)}.{v.get('patch', 0)}",
+                     "enabled": m.get("enabled", True)})
+    return {"name": r2x.get("profileName") or "profile", "code": code, "mods": mods}
+
+
+@app.get("/api/mods")
+def mods_state():
+    st = _mods_state()
+    installed = _sh(f"ls -1 {VH_PLUGINS} 2>/dev/null").stdout.split()
+    return {"bepinex": _sh(f"test -d {VH_SERVER}/BepInEx && echo yes").stdout.strip() == "yes",
+            "bepinex_version": st.get("bepinex_version"),
+            "profile_code": st.get("profile_code"), "profile_name": st.get("profile_name"),
+            "mods": [{"full_name": d, **st.get("mods", {}).get(d, {})} for d in sorted(installed)]}
+
+
+@app.get("/api/mods/profile/{code}")
+def mods_profile(code: str):
+    return _profile(code)
+
+
+class ModPick(BaseModel):
+    code: str = ""
+    mods: list = []          # ["ns-Name" ...] or [{"full_name":..,"version":..}]
+    restart: bool = True
+
+
+@app.post("/api/mods/install")
+def mods_install(p: ModPick):
+    st = _mods_state()
+    # mods can corrupt a save for good, so the world goes into a backup before the first one
+    if not st.get("mods"):
+        _sh_ok(f"{VH_DIR}/backup.sh", timeout=120)
+    report = {"backup": not st.get("mods"), "installed": [], "failed": []}
+    if not Path(f"{VH_SERVER}/BepInEx").exists():
+        st["bepinex_version"] = _install_bepinex()
+        report["bepinex"] = st["bepinex_version"]
+    for m in p.mods:
+        full, ver = (m, None) if isinstance(m, str) else (m.get("full_name"), m.get("version"))
+        ns, _, name = (full or "").partition("-")
+        try:
+            got = _install_mod(ns, name, ver)
+            st.setdefault("mods", {})[got["full_name"]] = {"version": got["version"]}
+            report["installed"].append(got)
+        except HTTPException as e:
+            report["failed"].append({"full_name": full, "error": e.detail})
+    if p.code:
+        prof = None
+        try:
+            prof = _profile(p.code)
+        except HTTPException:
+            pass
+        st["profile_code"] = p.code
+        st["profile_name"] = prof["name"] if prof else None
+    _mods_save(st)
+    if p.restart:
+        _sh_ok("systemctl restart valheim", timeout=180)
+    report["restarted"] = p.restart
+    return report
+
+
+@app.delete("/api/mods/{full_name}")
+def mods_remove(full_name: str, restart: bool = True):
+    if not re.match(r"^[A-Za-z0-9_-]{1,80}$", full_name):
+        raise HTTPException(400, "Odd package name")
+    _sh_ok(f"rm -rf {shlex.quote(VH_PLUGINS + '/' + full_name)}")
+    st = _mods_state()
+    st.get("mods", {}).pop(full_name, None)
+    _mods_save(st)
+    if restart:
+        _sh_ok("systemctl restart valheim", timeout=180)
     return {"ok": True}
