@@ -59,7 +59,8 @@
 </head>
 <body>
 <div class="wrap">
-  <h1>Valheim — server admin</h1>
+  <div class="row"><h1>Valheim — server admin</h1>
+    <div id="lang" style="display:flex;gap:4px"></div></div>
   <div class="sub">Everything a server admin can control. In-game commands (kick, spawn, weather)
     live in the F5 console — add yourself to <b>Admins</b> below and use it there.</div>
 
@@ -192,6 +193,86 @@
 <div id="toast"></div>
 
 <script>
+// ---- język ----
+// Źródłem jest angielski; słownik tłumaczy dokładne napisy na polski, a MutationObserver
+// łapie też to, co JS dorysowuje później. Przełączenie przeładowuje stronę — dzięki temu
+// nie trzeba trzymać mapy w drugą stronę.
+const I18N={
+ "Valheim — server admin":"Valheim — panel serwera",
+ "Everything a server admin can control. In-game commands (kick, spawn, weather)":"Wszystko, czym steruje admin serwera. Komendy w grze (kick, spawn, pogoda)",
+ "live in the F5 console — add yourself to":"są w konsoli F5 — dopisz się do",
+ "and use it there.":"i używaj ich tam.",
+ "Admins":"Adminów",
+ "Summary":"Podsumowanie","Players":"Gracze","Access & bans":"Dostęp i bany","World":"Świat",
+ "Backups":"Kopie","Settings":"Ustawienia","Mods":"Mody","Log":"Log",
+ "Start":"Start","Stop":"Stop","Restart":"Restart","Back up now":"Kopia teraz","Check update":"Sprawdź aktualizację",
+ "Running":"Działa","Stopped":"Zatrzymany","connecting…":"łączę…",
+ "Connectivity checks":"Testy łączności","Run checks again":"Sprawdź ponownie",
+ "Check":"Test","Result":"Wynik","Detail":"Szczegóły",
+ "works":"działa","problem":"problem","not checked":"nie sprawdzano",
+ "checking… (asking Steam takes a moment)":"sprawdzam… (pytanie do Steama chwilę trwa)",
+ "Join from this network":"Wejście z tej sieci","same house / same LAN":"ten sam dom / ta sama sieć",
+ "Join from the internet":"Wejście z internetu","Game password":"Hasło do gry",
+ "This panel":"Ten panel","keep it off the internet":"trzymaj poza internetem",
+ "Crossplay join code":"Kod dołączenia (crossplay)",
+ "changes every time the server restarts":"zmienia się przy każdym restarcie serwera",
+ "Mod profile share code":"Kod udostępniania profilu modów",
+ "players paste this into Thunderstore Mod Manager to get the same mods":"gracze wklejają go w Thunderstore Mod Managerze, żeby mieć te same mody",
+ "copy":"kopiuj","Copied":"Skopiowane","Copy failed":"Nie udało się skopiować",
+ "Online now":"Teraz na serwerze","Login history":"Historia logowań",
+ "Player":"Gracz","Id":"Identyfikator","Joined":"Wszedł","Session":"Czas sesji","Actions":"Akcje",
+ "First seen":"Pierwszy raz","Last seen":"Ostatnio","Joins":"Wejść",
+ "ban":"zbanuj","unban":"odbanuj","remove":"usuń","add":"dodaj","empty":"pusto",
+ "nobody is playing":"nikt teraz nie gra","nobody has logged in yet":"nikt się jeszcze nie logował",
+ "(name not known yet)":"(nick jeszcze nieznany)",
+ "Admins (in-game console)":"Admini (konsola w grze)","Banned":"Zbanowani","Allowlist":"Whitelista",
+ "The server reloads these files on its own — no restart needed.":"Serwer sam przeładowuje te pliki — restart niepotrzebny.",
+ "An admin can use the in-game console (F5):":"Admin może użyć konsoli w grze (F5):",
+ "weather, god mode.":"pogoda, tryb boga.",
+ "Size":"Rozmiar","Last save":"Ostatni zapis","activate":"aktywuj","download":"pobierz","delete":"usuń",
+ "active":"aktywny","no worlds yet":"brak światów","Upload world":"Wgraj świat",
+ "New world: just type a name in Settings — the server generates it on the next start.":"Nowy świat: wpisz nazwę w Ustawieniach — serwer wygeneruje go przy starcie.",
+ "Backup":"Kopia","Date":"Data","restore":"przywróć","none":"brak","no backups yet":"brak kopii",
+ "Server name":"Nazwa serwera","Password (5+ chars)":"Hasło (min. 5 znaków)",
+ "Game port (uses port…port+2)":"Port gry (zajmuje port…port+2)","Panel port (restarts the panel)":"Port panelu (restartuje panel)",
+ "Server list":"Lista serwerów","public (needs a password)":"publiczny (wymaga hasła)",
+ "Crossplay":"Crossplay","enabled":"włączony","World preset":"Preset świata","World toggles":"Przełączniki świata",
+ "Combat difficulty":"Trudność walki","Death penalty":"Kara za śmierć","Resources":"Surowce",
+ "Base raids":"Najazdy na bazę","Portals":"Portale",
+ "— default —":"— domyślne —","very easy":"bardzo łatwo","easy":"łatwo","hard":"trudno","very hard":"bardzo trudno",
+ "casual":"swobodnie","much less":"dużo mniej","less":"mniej","more":"więcej","much more":"dużo więcej","most":"najwięcej",
+ "build without resources":"budowanie bez surowców","raids only near players":"najazdy tylko przy graczach",
+ "mobs never attack":"moby nie atakują","no map":"bez mapy",
+ "Save":"Zapisz","Save & restart":"Zapisz i zrestartuj","Saving…":"Zapisuję…","Settings saved":"Ustawienia zapisane","Not saved":"Nie zapisano",
+ "Panel login — the installer generated a random password, change it here":"Logowanie do panelu — instalator wylosował hasło, tutaj je zmienisz",
+ "user":"login","new password (8+ chars)":"nowe hasło (min. 8 znaków)","Change login":"Zmień logowanie","Login changed":"Logowanie zmienione","Not changed":"Nie zmieniono",
+ "Server events (PlayFab keepalive noise filtered out)":"Zdarzenia serwera (bez szumu keepalive PlayFaba)","Refresh":"Odśwież",
+ "Thunderstore Mod Manager share code":"Kod udostępniania z Thunderstore Mod Managera","Look up":"Sprawdź",
+ "Installed on the server":"Zainstalowane na serwerze","Package":"Paczka","Version":"Wersja",
+ "no mods installed":"brak modów","Install single package":"Zainstaluj pojedynczą paczkę",
+ "Install selected":"Zainstaluj zaznaczone","installing…":"instaluję…","author":"autor","version (optional)":"wersja (opcjonalnie)",
+ "BepInEx installed":"BepInEx zainstalowany","BepInEx missing — installed automatically with the first mod":"Brak BepInEx — doinstaluje się z pierwszym modem",
+ "Installed":"Zainstalowane","Removed":"Usunięte","Added":"Dodane","Saved":"Zapisano","Deleted":"Usunięte","Restored":"Przywrócone",
+ "Banned":"Zbanowany","Unbanned":"Odbanowany","Restoring…":"Przywracam…","World uploaded":"Świat wgrany",
+ "Cancel":"Anuluj","Confirm":"Potwierdź","Switch":"Przełącz","Install":"Zainstaluj","Remove":"Usuń","Restore":"Przywróć","Delete":"Usuń","Ban":"Zbanuj","Unban":"Odbanuj",
+ "Machine":"Maszyna","RAM":"RAM","Disk":"Dysk","Ports":"Porty","Listing":"Widoczność",
+ "public":"publiczny","not listed":"niepubliczny","free":"wolne","used":"zajęte","cores":"rdzeni",
+ "Public address of your connection":"Publiczny adres Twojego łącza",
+ "Game server process":"Proces serwera gry","How players join":"Jak wchodzą gracze",
+ "Ports open inside the container":"Porty otwarte w kontenerze",
+ "Listed in the Steam server browser":"Widoczny w przeglądarce serwerów Steam",
+ "Router forward (inbound reachability)":"Przekierowanie na routerze (dostępność z zewnątrz)",
+};
+let LANG=localStorage.getItem("vhLang")||((navigator.language||"").startsWith("pl")?"pl":"en");
+const t=s=>(LANG==="pl"&&I18N[s])||s;
+function applyLang(root){
+  if(LANG!=="pl")return;
+  const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),n=[];
+  while(w.nextNode())n.push(w.currentNode);
+  n.forEach(x=>{const k=x.nodeValue.trim();if(k&&I18N[k])x.nodeValue=x.nodeValue.replace(k,I18N[k]);});
+  if(root.querySelectorAll)root.querySelectorAll("[placeholder]").forEach(e=>{if(I18N[e.placeholder])e.placeholder=I18N[e.placeholder];});
+}
+function setLang(l){localStorage.setItem("vhLang",l);location.reload();}
 const $=id=>document.getElementById(id);
 const fmtBytes=b=>{b=+b||0;const u=["B","KB","MB","GB","TB"];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}return b.toFixed(b<10&&i>0?1:0)+u[i]};
 const fmtDur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
@@ -542,6 +623,13 @@ $("vh-wup-btn").onclick=async()=>{
   catch(e){toast(e.message,"bad");}
   $("vh-wup-btn").disabled=false;$("vh-wup-btn").classList.remove("loading");
 };
+$("lang").innerHTML=["pl","en"].map(l=>`<button class="mini" data-lang="${l}" ${l===LANG?'style="border-color:var(--acc)"':""}>${l.toUpperCase()}</button>`).join("");
+$("lang").querySelectorAll("[data-lang]").forEach(b=>b.onclick=()=>setLang(b.dataset.lang));
+applyLang(document.body);
+// wszystko, co JS dorysuje później, też przechodzi przez słownik
+new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{
+  if(n.nodeType===1)applyLang(n); else if(n.nodeType===3){const k=(n.nodeValue||"").trim();if(LANG==="pl"&&I18N[k])n.nodeValue=n.nodeValue.replace(k,I18N[k]);}
+}))).observe(document.body,{childList:true,subtree:true});
 load();vhSummary();setInterval(load,20000);setInterval(vhTick,1000);
 </script>
 </body></html>

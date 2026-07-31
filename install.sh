@@ -23,6 +23,52 @@ SERVER_NAME=${SERVER_NAME:-Valheim}
 WORLD_NAME=${WORLD_NAME:-Dedicated}
 SERVER_PASS=${SERVER_PASS:-}
 
+usage() {
+  cat <<USAGE
+Valheim on Proxmox — creates an LXC and installs the server + admin panel.
+
+  --ctid N            container id            (default: next free)
+  --hostname NAME     container hostname      (default: $HOSTNAME_)
+  --cores N           cpu cores               (default: $CORES)
+  --ram MB            memory cap in MB        (default: $RAM)
+  --disk GB           rootfs size in GB       (default: $DISK)
+  --storage NAME      proxmox storage         (default: first one taking a rootfs)
+  --bridge NAME       network bridge          (default: $BRIDGE)
+  --ip ADDR           static address, e.g. 192.168.89.21/24 (default: dhcp)
+  --gw ADDR           gateway for a static address
+  --game-port N       game port, uses N..N+2  (default: $GAME_PORT)
+  --panel-port N      panel port              (default: $PANEL_PORT)
+  --server-name NAME  name in the server list (default: $SERVER_NAME)
+  --world NAME        world name              (default: $WORLD_NAME)
+  --password PASS     game password           (default: generated)
+  -h, --help          this text
+
+Every flag also works as an environment variable (CTID=250 RAM=8192 …).
+USAGE
+  exit 0
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --ctid) CTID=$2; shift 2;;
+    --hostname) HOSTNAME_=$2; shift 2;;
+    --cores) CORES=$2; shift 2;;
+    --ram) RAM=$2; shift 2;;
+    --disk) DISK=$2; shift 2;;
+    --storage) STORAGE=$2; shift 2;;
+    --bridge) BRIDGE=$2; shift 2;;
+    --ip) IP=$2; shift 2;;
+    --gw) GW=$2; shift 2;;
+    --game-port) GAME_PORT=$2; shift 2;;
+    --panel-port) PANEL_PORT=$2; shift 2;;
+    --server-name) SERVER_NAME=$2; shift 2;;
+    --world) WORLD_NAME=$2; shift 2;;
+    --password) SERVER_PASS=$2; shift 2;;
+    -h|--help) usage;;
+    *) echo "Unknown option: $1 (try --help)" >&2; exit 1;;
+  esac
+done
+
 msg() { echo -e "\033[1;32m==>\033[0m $*"; }
 die() { echo -e "\033[1;31mError:\033[0m $*" >&2; exit 1; }
 trap 'echo -e "\033[1;31mInstall failed at line $LINENO\033[0m" >&2' ERR

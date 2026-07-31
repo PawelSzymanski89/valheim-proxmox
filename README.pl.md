@@ -126,6 +126,16 @@ bash -c "$(curl -fsSL .../install.sh)"
 | `SERVER_NAME` / `WORLD_NAME` | `Valheim` / `Dedicated` | |
 | `SERVER_PASS` | losowe 10 znaków | hasło do gry (min. 5 znaków i **nie może zawierać** nazwy serwera ani świata — gra to odrzuca) |
 
+### Flagi
+
+Wszystko powyżej działa też jako flaga — czytelniej wygląda w jednolinijkowcu, który się gdzieś zapisuje:
+
+```bash
+bash -c "$(curl -fsSL .../install.sh)" -- --ram 12288 --disk 40 --ip 192.168.89.21/24 --gw 192.168.89.1
+```
+
+`--help` wypisze listę razem z aktualnymi domyślnymi wartościami.
+
 ## Instalacja bez Proxmoxa
 
 `setup.sh` działa samodzielnie na dowolnym Debianie 12:
