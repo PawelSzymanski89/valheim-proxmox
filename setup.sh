@@ -25,6 +25,9 @@ randstr() { local s; s=$(head -c 48 /dev/urandom | base64 | tr -dc "$1"); echo "
 
 say "Installing packages (32-bit Steam libs, Python)"
 export DEBIAN_FRONTEND=noninteractive
+# ssh/pct hand us the caller's LANG and LC_*, which the fresh container has no locales
+# for — that alone produces a screen of perl and apt-listchanges warnings.
+export LANG=C.UTF-8 LC_ALL=C.UTF-8
 dpkg --add-architecture i386
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
@@ -39,12 +42,12 @@ chown -R valheim:valheim "$VH_DIR"
 
 say "Fetching SteamCMD"
 # runuser, not sudo — sudo is not in the stock Debian container image
-runuser -u valheim -- bash -c "cd $VH_DIR/steamcmd && curl -sqL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar zxf -"
+runuser -u valheim -- env HOME="$VH_DIR" bash -c "cd $VH_DIR/steamcmd && curl -sqL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar zxf -"
 info "done"
 
 say "Downloading the Valheim server (~1.5 GB, this is the slow part)"
 set +e
-runuser -u valheim -- "$VH_DIR/steamcmd/steamcmd.sh" +force_install_dir "$VH_DIR/server" \
+runuser -u valheim -- env HOME="$VH_DIR" "$VH_DIR/steamcmd/steamcmd.sh" +force_install_dir "$VH_DIR/server" \
   +login anonymous +app_update $APPID validate +quit 2>&1 \
   | tee "$VH_DIR/steam-install.log" | tr '\r' '\n' \
   | grep --line-buffered -E 'Update state|Success! App|ERROR!' | sed -u 's/^/      /'
@@ -102,13 +105,13 @@ cat >"$VH_DIR/update.sh" <<'EOF'
 APP=896660
 MANIFEST=/opt/valheim/server/steamapps/appmanifest_$APP.acf
 installed=$(awk -F\" "/\"buildid\"/{print \$4; exit}" "$MANIFEST" 2>/dev/null)
-latest=$(runuser -u valheim -- /opt/valheim/steamcmd/steamcmd.sh +login anonymous +app_info_update 1 +app_info_print $APP +quit 2>/dev/null \
+latest=$(runuser -u valheim -- env HOME=/opt/valheim /opt/valheim/steamcmd/steamcmd.sh +login anonymous +app_info_update 1 +app_info_print $APP +quit 2>/dev/null \
   | sed -n "/\"branches\"/,/^}/p" | sed -n "/\"public\"/,/}/p" | grep -m1 "\"buildid\"" | grep -oE "[0-9]+")
 if [ -z "$latest" ]; then echo "no latest buildid (skipping, no restart)"; exit 0; fi
 if [ "$installed" = "$latest" ]; then echo "up to date (build $installed)"; exit 0; fi
 echo "UPDATE $installed -> $latest"
 systemctl stop valheim
-runuser -u valheim -- /opt/valheim/steamcmd/steamcmd.sh +force_install_dir /opt/valheim/server +login anonymous +app_update $APP validate +quit >/opt/valheim/steam-update.log 2>&1
+runuser -u valheim -- env HOME=/opt/valheim /opt/valheim/steamcmd/steamcmd.sh +force_install_dir /opt/valheim/server +login anonymous +app_update $APP validate +quit >/opt/valheim/steam-update.log 2>&1
 systemctl start valheim
 echo "updated to $latest and started"
 EOF
