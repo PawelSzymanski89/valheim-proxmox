@@ -54,6 +54,24 @@ change it.
 > **Installation** is [at the top of this page](#install) — either on a Proxmox host, which
 > creates the container, or straight into a Debian 12/13 system you already have.
 
+## The public page
+
+The login address is the only page strangers ever see, so it doubles as a **status page**:
+server up or down, uptime, how many are playing, and how to join — with the login form beside it.
+
+It is **minimal on purpose**. Every field is off until you turn it on in **Settings → Public page**,
+because this is visible to the whole internet: a version number narrows down what to try against
+the server, a mod list and a load chart tell a stranger what runs there and when nobody is
+watching. What you can switch on: player count, their names, the mod list with the share code
+(handy — players get everything they need before asking), load charts, server version, port and
+whether a password is required. Plus a free line of your own, e.g. when the server restarts.
+
+**The game password is never exposed, at any setting.** Nor is anything else the panel knows:
+disk, logs, checks and settings all sit behind the login, and `/api/public` is the only route
+that answers without one.
+
+![Public page](docs/public.png)
+
 ## What it looks like
 
 The panel keeps its own dark norse skin — stone, soot and dimmed gold — on the login screen
@@ -336,6 +354,23 @@ MIT — see [LICENSE](LICENSE).
 
 > **Instalacja** jest opisana [na samej górze](#install) — w dwóch wariantach: na hoście
 > Proxmoxa (tworzy kontener) albo wprost w istniejącym Debianie 12/13.
+
+## Strona publiczna
+
+Adres logowania to jedyna strona, którą obcy w ogóle zobaczą, więc jest zarazem **stroną
+statusu**: czy serwer działa, od kiedy, ilu gra i jak wejść — a obok formularz logowania.
+
+Jest **celowo minimalna**. Każde pole jest wyłączone, dopóki go nie włączysz w
+**Ustawieniach → Strona publiczna**, bo to widzi cały internet: numer wersji zawęża listę rzeczy
+do wypróbowania przeciw serwerowi, a lista modów i wykres obciążenia mówią obcemu, co tam chodzi
+i kiedy nikt nie patrzy. Do włączenia: liczba graczy, ich nicki, lista modów z kodem udostępniania
+(wygodne — gracz ma wszystko, zanim zapyta), wykresy obciążenia, wersja serwera, port i to, czy
+potrzebne jest hasło. Plus własne zdanie, np. o której serwer się restartuje.
+
+**Hasło do gry nie pojawia się przy żadnym ustawieniu.** Ani nic innego, co panel wie: dysk, logi,
+testy i ustawienia siedzą za logowaniem, a `/api/public` to jedyna trasa odpowiadająca bez niego.
+
+![Strona publiczna](docs/public.png)
 
 ## Jak to wygląda
 
