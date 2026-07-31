@@ -134,6 +134,14 @@ Profiles carry client-side mods too (UI, maps, sounds). They are usually harmles
 but a few throw on load, so untick what the server has no use for. The world is backed up
 before the first mod is ever installed — mods can wreck a save for good.
 
+Installing stops the server first and starts it again when it is done — writing into
+`BepInEx/plugins` under a running server leaves the old assemblies loaded, which looks
+exactly like "the mod did not install".
+
+**Remove all mods** puts the world in a backup, stops the server, deletes BepInEx and every
+plugin, and then asks whether to start clean or stay down while you install a different set.
+The world file is untouched, but anything a mod added inside it stops existing.
+
 Installed mods live in `server/BepInEx/plugins/<author>-<Package>/`, and `start.sh` turns on
 the doorstop loader by itself once `BepInEx/` exists.
 

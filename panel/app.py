@@ -960,7 +960,13 @@ def mods_install(p: ModPick):
     # mods can corrupt a save for good, so the world goes into a backup before the first one
     if not st.get("mods"):
         _sh_ok(f"{VH_DIR}/backup.sh", timeout=120)
-    report = {"backup": not st.get("mods"), "installed": [], "failed": []}
+    # The server is stopped for the whole operation: writing into BepInEx/plugins under a
+    # running server leaves the old assemblies loaded, which looks exactly like "the mod
+    # did not install".
+    was_running = _sh("systemctl is-active valheim").stdout.strip() == "active"
+    if was_running:
+        _sh_ok("systemctl stop valheim", timeout=180)
+    report = {"backup": not st.get("mods"), "stopped": was_running, "installed": [], "failed": []}
     if not Path(f"{VH_SERVER}/BepInEx").exists():
         st["bepinex_version"] = _install_bepinex()
         report["bepinex"] = st["bepinex_version"]
@@ -982,10 +988,29 @@ def mods_install(p: ModPick):
         st["profile_code"] = p.code
         st["profile_name"] = prof["name"] if prof else None
     _mods_save(st)
-    if p.restart:
-        _sh_ok("systemctl restart valheim", timeout=180)
-    report["restarted"] = p.restart
+    if p.restart or was_running:
+        _sh_ok("systemctl start valheim", timeout=180)
+        report["restarted"] = True
     return report
+
+
+class ModClear(BaseModel):
+    start: bool = True
+
+
+@app.post("/api/mods/clear")
+def mods_clear(c: ModClear):
+    """Back to vanilla: snapshot the world, stop, wipe BepInEx and every plugin."""
+    _sh_ok(f"{VH_DIR}/backup.sh", timeout=120)
+    _sh_ok("systemctl stop valheim", timeout=180)
+    _sh_ok(f"cd {VH_SERVER} && rm -rf BepInEx doorstop_libs unstripped_corlib "
+           f"doorstop_config.ini start_game_bepinex.sh start_server_bepinex.sh .doorstop_version")
+    st = _mods_state()
+    st["mods"], st["profile_code"], st["profile_name"], st["bepinex_version"] = {}, None, None, None
+    _mods_save(st)
+    if c.start:
+        _sh_ok("systemctl start valheim", timeout=180)
+    return {"ok": True, "started": c.start}
 
 
 @app.delete("/api/mods/{full_name}")
