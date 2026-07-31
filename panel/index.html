@@ -64,6 +64,11 @@
   <div class="sub">Everything a server admin can control. In-game commands (kick, spawn, weather)
     live in the F5 console — add yourself to <b>Admins</b> below and use it there.</div>
 
+  <div id="warn-default" class="card" style="display:none;border-color:var(--bad);margin-bottom:14px">
+    <b>The panel still uses the password it was installed with.</b>
+    <span class="muted">Everyone who has seen this project knows it. Change it in Settings → Panel login.</span>
+  </div>
+
   <div class="card">
     <div class="row">
       <div>
@@ -137,7 +142,7 @@
     <div class="pane" id="t-settings">
       <div id="vh-set"></div>
       <div class="stat" style="margin-top:14px">
-        <div class="muted">Panel login — the installer generated a random password, change it here</div>
+        <div class="muted">Panel login — the password is the same on every install, change it here</div>
         <div class="add" style="margin-top:8px">
           <input id="vh-au-user" placeholder="user" autocomplete="username">
           <input id="vh-au-pass" type="password" placeholder="new password (8+ chars)" autocomplete="new-password">
@@ -244,7 +249,9 @@ const I18N={
  "build without resources":"budowanie bez surowców","raids only near players":"najazdy tylko przy graczach",
  "mobs never attack":"moby nie atakują","no map":"bez mapy",
  "Save":"Zapisz","Save & restart":"Zapisz i zrestartuj","Saving…":"Zapisuję…","Settings saved":"Ustawienia zapisane","Not saved":"Nie zapisano",
- "Panel login — the installer generated a random password, change it here":"Logowanie do panelu — instalator wylosował hasło, tutaj je zmienisz",
+ "Panel login — the password is the same on every install, change it here":"Logowanie do panelu — hasło startowe jest takie samo w każdej instalacji, tutaj je zmienisz",
+ "The panel still uses the password it was installed with.":"Panel wciąż działa na haśle z instalacji.",
+ "Everyone who has seen this project knows it. Change it in Settings → Panel login.":"Zna je każdy, kto widział to repo. Zmień je w Ustawieniach → Logowanie do panelu.",
  "user":"login","new password (8+ chars)":"nowe hasło (min. 8 znaków)","Change login":"Zmień logowanie","Login changed":"Logowanie zmienione","Not changed":"Nie zmieniono",
  "Server events (PlayFab keepalive noise filtered out)":"Zdarzenia serwera (bez szumu keepalive PlayFaba)","Refresh":"Odśwież",
  "Thunderstore Mod Manager share code":"Kod udostępniania z Thunderstore Mod Managera","Look up":"Sprawdź",
@@ -325,6 +332,7 @@ async function load(){
     if(v.settings)b.push("world: "+v.settings.world,"port "+v.settings.port,v.settings.public?"public":"not listed");
     if(v.disk)b.push("disk: "+fmtBytes(v.disk.used)+" used / "+fmtBytes(v.disk.avail)+" free");
     $("vh-meta").textContent=b.join(" · ");
+    $("warn-default").style.display=(v.settings||{}).panel_default_pass?"block":"none";
     vhOnline(v);vhHistory(v);vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
     $("vh-err").textContent="";
   }catch(e){$("vh-err").textContent=e.message;}

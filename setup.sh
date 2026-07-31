@@ -6,6 +6,9 @@ set -euo pipefail
 
 VH_DIR=${VH_DIR:-/opt/valheim}
 PANEL_PORT=${PANEL_PORT:-2460}
+PANEL_USER=${PANEL_USER:-admin}
+PANEL_PASS=${PANEL_PASS:-valheim}   # always the same on a fresh install, on purpose — you
+                                    # change it in the panel and the panel nags until you do
 GAME_PORT=${GAME_PORT:-2456}
 SERVER_NAME=${SERVER_NAME:-Valheim}
 WORLD_NAME=${WORLD_NAME:-Dedicated}
@@ -161,17 +164,34 @@ python3 -m venv "$VH_DIR/panel/.venv"
 "$VH_DIR/panel/.venv/bin/pip" install -q --upgrade pip
 "$VH_DIR/panel/.venv/bin/pip" install -q fastapi "uvicorn[standard]" pyyaml
 
-# A fixed default password would be the same on every install on the planet, so the
-# password is generated here and printed once. Change it later from the panel.
+# The first password is fixed and printed, so there is never a "what was it again" moment.
+# It is the same on every install of this repo, which is exactly why the panel keeps warning
+# until it is changed — and why the panel has no business being on the internet before that.
 if [ ! -f "$VH_DIR/panel.env" ]; then
-  PANEL_PASS=$(randstr 'A-Za-z0-9' 16)
   cat >"$VH_DIR/panel.env" <<EOF
-PANEL_USER='admin'
+PANEL_USER='$PANEL_USER'
 PANEL_PASS='$PANEL_PASS'
 PANEL_PORT='$PANEL_PORT'
 EOF
   chmod 600 "$VH_DIR/panel.env"
 fi
+
+# password recovery: no reset dance, just set a new one from the host
+cat >"$VH_DIR/panel-passwd.sh" <<'EOF'
+#!/bin/bash
+# Reset the panel login without the panel. Run inside the container:
+#   /opt/valheim/panel-passwd.sh [user] <password>
+set -eu
+ENV=/opt/valheim/panel.env
+[ $# -ge 1 ] || { echo "usage: $0 [user] <password>"; exit 1; }
+if [ $# -ge 2 ]; then USER_=$1; PASS=$2; else USER_=$(grep -oP "PANEL_USER='\K[^']*" $ENV || echo admin); PASS=$1; fi
+[ ${#PASS} -ge 8 ] || { echo "password must be at least 8 characters"; exit 1; }
+PORT=$(grep -oP "PANEL_PORT='\K[^']*" $ENV 2>/dev/null || echo 2460)
+printf "PANEL_USER='%s'\nPANEL_PASS='%s'\nPANEL_PORT='%s'\n" "$USER_" "$PASS" "$PORT" >$ENV
+chmod 600 $ENV
+echo "panel login is now $USER_ / $PASS (no restart needed)"
+EOF
+chmod +x "$VH_DIR/panel-passwd.sh"
 
 # ---------- systemd ----------
 cat >/etc/systemd/system/valheim.service <<'EOF'
@@ -257,7 +277,7 @@ info "the world is generated on first start, give it ~30 s"
 echo
 echo "  Panel:    http://$(hostname -I | awk '{print $1}'):$(grep -oP "PANEL_PORT='\K[0-9]+" "$VH_DIR/panel.env")"
 echo "  User:     $(grep -oP "PANEL_USER='\K[^']+" "$VH_DIR/panel.env")"
-echo "  Password: $(grep -oP "PANEL_PASS='\K[^']+" "$VH_DIR/panel.env")   <- shown once, change it in the panel"
+echo "  Password: $(grep -oP "PANEL_PASS='\K[^']+" "$VH_DIR/panel.env")   <- same on every install, change it in Settings"
 echo
 echo "  Game:     $(hostname -I | awk '{print $1}'):$GAME_PORT   password: $SERVER_PASS"
 echo

@@ -32,6 +32,7 @@ VH_PANEL_ENV = f"{VH_DIR}/panel.env"
 VH_STORE = Path(os.environ.get("VH_STORE", f"{VH_DIR}/players.json"))
 HERE = Path(__file__).resolve().parent
 
+PANEL_DEFAULT_PASS = "valheim"   # the installer's starting password; the UI nags until changed
 VH_LISTS = {"admin": "adminlist.txt", "banned": "bannedlist.txt", "permitted": "permittedlist.txt"}
 VH_TIMERS = {"backup": "valheim-backup.timer", "update": "valheim-update.timer"}
 # What the game server (0.221) actually accepts. Nothing outside these sets reaches
@@ -105,6 +106,8 @@ def panel_auth(a: Auth):
         raise HTTPException(400, "User: 3-32 chars, letters, digits, _ . -")
     if len(a.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
+    if a.password == PANEL_DEFAULT_PASS:
+        raise HTTPException(400, "That is the default password — pick another one")
     cfg = _env_file(VH_PANEL_ENV)
     cfg["PANEL_USER"], cfg["PANEL_PASS"] = a.user, a.password
     _save_panel_env(cfg)
@@ -355,6 +358,7 @@ def status():
     panel_cfg = _env_file(VH_PANEL_ENV)
     settings["panel_port"] = int(panel_cfg.get("PANEL_PORT") or 2460)
     settings["panel_user"] = panel_cfg.get("PANEL_USER", "admin")  # password never leaves the box
+    settings["panel_default_pass"] = panel_cfg.get("PANEL_PASS") == PANEL_DEFAULT_PASS
     return {"active": active, "uptime": uptime, "version": version,
             "players": len(conns), "online": conns, "joincode": joincode,
             "connections": {"count": count, "ts": count_ts},

@@ -41,14 +41,22 @@ Trwa kilka minut — prawie całość to pobieranie ~1,5 GB ze Steama.
 
 Plus Start / Stop / Restart / Backup teraz / Sprawdź update.
 
-### Logowanie
+### Logowanie do panelu i odzyskiwanie dostępu
 
-Instalator losuje 16-znakowe hasło i wypisuje je **raz**. Sztywnego domyślnego hasła
-świadomie nie ma — byłoby identyczne w każdej instalacji z tego repo. Login i hasło
-zmienia się w **Settings → Panel login**; dane czytane są przy każdym zapytaniu, więc
-zmiana działa od razu, bez restartu.
+Pierwsze logowanie jest **zawsze takie samo, celowo**: **`admin` / `valheim`**. Żadnego
+szukania wylosowanego ciągu w wyjściu instalatora. Panel pokazuje czerwony baner, dopóki
+hasła nie zmienisz w **Ustawieniach → Logowanie do panelu**, i nie pozwoli ustawić
+domyślnego z powrotem.
 
-Leżą w `/opt/valheim/panel.env` (600, właściciel root).
+Zablokowałeś się? Nie ma żadnej procedury resetu — ustawiasz nowe hasło z hosta Proxmoxa:
+
+```bash
+pct exec <CTID> -- /opt/valheim/panel-passwd.sh 'nowe-haslo-min-8-znakow'
+pct exec <CTID> -- /opt/valheim/panel-passwd.sh nowyuser 'nowe-haslo'   # razem z loginem
+```
+
+Skrypt zapisuje `/opt/valheim/panel.env` (600, root) i działa od następnego zapytania —
+bez restartu. Login możesz też podać przy instalacji: `--panel-user` / `--panel-pass`.
 
 ### Porty
 
