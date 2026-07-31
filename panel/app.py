@@ -1473,7 +1473,7 @@ ALERTS_DEFAULT = {
     "events": {k: k not in ("player_leave",) for k in ALERT_EVENTS},
     "schedule": {"restart_at": "", "only_when_empty": True, "defer_minutes": 30,
                  "update_when_empty": True, "disk_warn_gb": 3,
-                 "link_minutes": 60, "link_speed_hours": 6},
+                 "link_minutes": 60, "link_speed_hours": 6, "link_when_empty": True},
 }
 
 
@@ -1673,7 +1673,7 @@ def alerts_set(body: dict = Body(...)):
         if s["restart_at"] and not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", s["restart_at"]):
             raise HTTPException(400, "Restart time must be HH:MM")
         cfg["schedule"]["restart_at"] = s["restart_at"]
-    for k in ("only_when_empty", "update_when_empty"):
+    for k in ("only_when_empty", "update_when_empty", "link_when_empty"):
         if k in s:
             cfg["schedule"][k] = bool(s[k])
     for k in ("defer_minutes", "disk_warn_gb", "link_minutes", "link_speed_hours"):
@@ -1750,8 +1750,16 @@ def link_status():
 
 
 @app.post("/api/valheim/link/test")
-def link_test():
-    """Measure now, regardless of the schedule — the button in the panel."""
+def link_test(force: bool = False):
+    """Measure now, regardless of the schedule — the button in the panel. Still refuses while
+    people are playing unless you say force, because it pushes 200 MB through their line."""
+    if not force:
+        sec = _sections(_sh(VH_STATUS_SH, timeout=90).stdout)
+        conns, *_ = _scan(sec.get("log", []))
+        if conns:
+            raise HTTPException(409, f"{len(conns)} playing — a throughput test moves 200 MB "
+                                     "through the same line. Retry when the server is empty, "
+                                     "or force it if you know what you are doing.")
     st = _link_state()
     st["ping"], st["last_ping"] = _ping(), int(time.time())
     st["speed"], st["last_speed"] = _speedtest(), int(time.time())
@@ -1822,11 +1830,14 @@ def _tick():
     except Exception:
         pass
 
-    # link quality: latency hourly, throughput rarely and only on an empty server
+    # link quality — by default nothing is measured while anyone is playing. A ping is five
+    # packets and would not disturb a soul, but the setting says "leave the line alone", and a
+    # measurement nobody asked for is not worth arguing about.
     try:
         link = _link_state()
         sch = cfg["schedule"]
-        if now - link.get("last_ping", 0) >= sch.get("link_minutes", 60) * 60:
+        busy = bool(now_on) and sch.get("link_when_empty", True)
+        if not busy and now - link.get("last_ping", 0) >= sch.get("link_minutes", 60) * 60:
             p = _ping()
             link["ping"], link["last_ping"] = p, now
             if p and ((p.get("loss") or 0) > 10 or p["avg"] > 150):

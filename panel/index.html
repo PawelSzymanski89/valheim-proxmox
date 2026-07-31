@@ -470,6 +470,8 @@ const I18N={
  "Checked":"Zmierzono",
  "measuring — this moves 35 MB, a few seconds":"mierzę — przechodzi 35 MB, kilka sekund",
  "not measured yet — the first check runs within the hour":"jeszcze nie mierzone — pierwszy pomiar w ciągu godziny",
+ "Measure anyway?":"Zmierzyć mimo to?",
+ "Measure":"Zmierz",
  "Link quality (latency, loss, speed)":"Jakość łącza (opóźnienie, straty, prędkość)",
  "Connection degraded":"Łącze się pogorszyło",
  "Valheim — server admin":"Valheim — panel serwera",
@@ -642,7 +644,16 @@ async function vhLink(run){
   const el=$("sum-link-box");if(!el)return;
   if(run)el.innerHTML=`<div class="stat muted">${t("measuring — this moves 35 MB, a few seconds")}</div>`;
   try{
-    const d=await jf("/api/valheim/link"+(run?"/test":""),run?{method:"POST"}:undefined);
+    let d;
+    try{
+      d=await jf("/api/valheim/link"+(run?"/test":""),run?{method:"POST"}:undefined);
+    }catch(err){
+      if(!run||!/playing/i.test(err.message))throw err;
+      // ktoś gra — pomiar przepycha 200 MB tym samym łączem, więc pytamy wprost
+      if(!await confirmModal(t("Measure anyway?"),esc(err.message),t("Measure")))
+        {el.innerHTML="";return vhLink(false);}
+      d=await jf("/api/valheim/link/test?force=1",{method:"POST"});
+    }
     const p=d.ping,s=d.speed;
     el.innerHTML=p?
       `<div class="stat"><div class="muted">${t("Latency")}</div><div>${p.avg} ms</div>
@@ -1412,7 +1423,16 @@ async function vhLink(run){
   const el=$("sum-link-box");if(!el)return;
   if(run)el.innerHTML=`<div class="stat muted">${t("measuring — this moves 35 MB, a few seconds")}</div>`;
   try{
-    const d=await jf("/api/valheim/link"+(run?"/test":""),run?{method:"POST"}:undefined);
+    let d;
+    try{
+      d=await jf("/api/valheim/link"+(run?"/test":""),run?{method:"POST"}:undefined);
+    }catch(err){
+      if(!run||!/playing/i.test(err.message))throw err;
+      // ktoś gra — pomiar przepycha 200 MB tym samym łączem, więc pytamy wprost
+      if(!await confirmModal(t("Measure anyway?"),esc(err.message),t("Measure")))
+        {el.innerHTML="";return vhLink(false);}
+      d=await jf("/api/valheim/link/test?force=1",{method:"POST"});
+    }
     const p=d.ping,s=d.speed;
     el.innerHTML=p?
       `<div class="stat"><div class="muted">${t("Latency")}</div><div>${p.avg} ms</div>

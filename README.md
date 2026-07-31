@@ -157,9 +157,11 @@ nothing is asked of the players.
 ## Link quality
 
 For a game server the line matters more than the CPU — Valheim is UDP, so latency and packet
-loss decide how it feels. The watcher pings hourly and records the average, the jitter and the
-loss; **throughput is measured rarely** (every six hours by default) and **only when nobody is
-playing**, because it means actually moving data.
+loss decide how it feels. **Nothing is measured while anyone is playing** — not the throughput, which moves 200 MB, and not
+even the ping. Five packets would disturb nobody, but the line belongs to whoever is on it. With
+an empty server the watcher pings hourly and records the average, the jitter and the loss, and
+measures throughput every six hours. All three intervals, and the leave-them-alone rule itself,
+are settings.
 
 The numbers are honest because the method is: **four parallel streams, summed**. Measured on a
 1000/600 line, a single 25 MB download reported 551 Mbit/s and a single 100 MB upload 492 — on a
@@ -167,7 +169,7 @@ The numbers are honest because the method is: **four parallel streams, summed**.
 size reported **890–923 down and 618–637 up**, which is the line. 25 MB per stream is also the
 practical ceiling: Cloudflare answers 403 above 100 MB.
 
-A test moves about 200 MB. **Test the link now** in the panel runs it on demand; a bad result
+A test moves about 200 MB. **Test the link now** in the panel runs it on demand — and refuses while people are playing unless you insist; a bad result
 (over 10 % loss or above 150 ms) raises an alert, because that is the point at which players start
 blaming the server.
 
@@ -587,9 +589,11 @@ dodatkowego nie chodzi i nikt niczego nie musi instalować.
 ## Jakość łącza
 
 Dla serwera gry łącze znaczy więcej niż procesor — Valheim chodzi po UDP, więc o odczuciu decydują
-opóźnienie i utrata pakietów. Obserwator pinguje co godzinę i zapisuje średnią, wahania oraz
-straty; **przepustowość mierzy rzadko** (domyślnie co sześć godzin) i **tylko gdy nikt nie gra**,
-bo to oznacza realne przepchnięcie danych.
+opóźnienie i utrata pakietów. **Dopóki ktokolwiek gra, nie mierzy się nic** — ani przepustowości, która przepycha 200 MB, ani
+nawet pinga. Pięć pakietów nikomu by nie przeszkodziło, ale łącze należy do tego, kto na nim
+siedzi. Na pustym serwerze obserwator pinguje co godzinę i zapisuje średnią, wahania i straty, a
+przepustowość mierzy co sześć godzin. Wszystkie trzy interwały i sama zasada „nie ruszaj, gdy
+grają" to ustawienia.
 
 Liczby są uczciwe, bo metoda jest uczciwa: **cztery równoległe strumienie, zsumowane**. Zmierzone
 na łączu 1000/600: pojedyncze pobranie 25 MB pokazało 551 Mbit/s, a pojedyncza wysyłka 100 MB —
@@ -597,7 +601,7 @@ na łączu 1000/600: pojedyncze pobranie 25 MB pokazało 551 Mbit/s, a pojedyncz
 strumienie tej samej wielkości dały **890–923 w dół i 618–637 w górę**, czyli tyle, ile łącze ma.
 25 MB na strumień to też praktyczny sufit: Cloudflare powyżej 100 MB odpowiada 403.
 
-Jeden pomiar przepuszcza około 200 MB. **Zmierz łącze teraz** w panelu robi to na żądanie, a zły
+Jeden pomiar przepuszcza około 200 MB. **Zmierz łącze teraz** w panelu robi to na żądanie i odmawia, gdy ktoś gra, dopóki nie potwierdzisz, a zły
 wynik (ponad 10 % strat albo powyżej 150 ms) podnosi alert — bo to moment, w którym gracze zaczynają
 obwiniać serwer.
 
