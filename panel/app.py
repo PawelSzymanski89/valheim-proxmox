@@ -160,6 +160,7 @@ class Login(BaseModel):
 def login(l: Login, request: Request, response: Response):
     if not _check_login(l.user, l.password):
         raise HTTPException(401, "Wrong user or password")
+    _notify("panel_login", "Panel sign-in", f"{l.user} signed in to the panel.", tags="key")
     exp = int(time.time()) + SESSION_DAYS * 86400
     response.set_cookie("vh_session", f"{l.user}|{exp}|{_sign(l.user, exp)}",
                         max_age=SESSION_DAYS * 86400, httponly=True, samesite="lax",
@@ -1051,6 +1052,9 @@ def mods_install(p: ModPick):
     if p.restart or was_running:
         _sh_ok("systemctl start valheim", timeout=180)
         report["restarted"] = True
+    if report["failed"]:
+        _notify("mod_failed", "Mod install failed",
+                ", ".join(f["full_name"] for f in report["failed"]), priority="high", tags="x")
     _log("mods.install", ok=not report["failed"], code=p.code or None,
          installed=[m["full_name"] + " " + m["version"] for m in report["installed"]],
          failed=report["failed"] or None, bepinex=report.get("bepinex"))
@@ -1240,3 +1244,269 @@ def mod_config_restore(name: str, stamp: int, restart: bool = False):
     if restart:
         _sh_ok("systemctl restart valheim", timeout=180)
     return {"ok": True, "restarted": restart}
+
+
+# ---------- alerts (ntfy) + maintenance window ----------
+# Until now the panel only looked at the server when someone opened the page. This is the
+# background watcher: it polls once a minute, pushes what changed to ntfy, and owns the
+# "restart only when nobody is playing" window.
+VH_ALERTS = Path(os.environ.get("VH_ALERTS", f"{VH_DIR}/alerts.json"))
+VH_COUNT = Path(f"{VH_DIR}/players.count")   # read by update.sh so it can hold off too
+ALERT_EVENTS = {
+    "server_down": "Server stopped",
+    "server_up": "Server is up",
+    "player_join": "Player joined",
+    "player_leave": "Player left",
+    "backup_failed": "Backup failed",
+    "disk_low": "Disk almost full",
+    "update_available": "Game update available",
+    "panel_login": "Someone signed in to the panel",
+    "mod_failed": "Mod install failed",
+    "maintenance": "Scheduled restart",
+}
+ALERTS_DEFAULT = {
+    "enabled": True,
+    "events": {k: k not in ("player_leave",) for k in ALERT_EVENTS},
+    "schedule": {"restart_at": "", "only_when_empty": True, "defer_minutes": 30,
+                 "update_when_empty": True, "disk_warn_gb": 3},
+}
+
+
+def _ensure_topic():
+    """ntfy needs no account — publishing to a name creates it. So the panel picks an
+    unguessable one at install time and you only subscribe to it in the app. Anyone who
+    learns the name receives the alerts, which is exactly why it is random and not "valheim"."""
+    env = _env_file(VH_PANEL_ENV)
+    if env.get("NTFY_TOPIC"):
+        return env["NTFY_TOPIC"]
+    topic = "valheim-" + secrets.token_hex(5)
+    env["NTFY_TOPIC"] = topic
+    _save_panel_env(env)
+    _log("alerts.topic_generated", topic=topic)
+    return topic
+
+
+def _alerts_cfg():
+    """Same split as the faktury app on this homelab: the topic and server are secrets and
+    live in panel.env (600), while what to send and when lives in alerts.json."""
+    cfg = json.loads(json.dumps(ALERTS_DEFAULT))
+    try:
+        saved = json.loads(VH_ALERTS.read_text())
+        for k, v in saved.items():
+            if isinstance(v, dict) and k in cfg:
+                cfg[k].update(v)
+            else:
+                cfg[k] = v
+    except Exception:
+        pass
+    env = _env_file(VH_PANEL_ENV)
+    cfg["ntfy"] = {"server": env.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/"),
+                   "topic": env.get("NTFY_TOPIC") or _ensure_topic(), "token": env.get("NTFY_TOKEN", "")}
+    return cfg
+
+
+def _notify(event, title, message, priority="default", tags=""):
+    """ntfy, published as JSON rather than through HTTP headers.
+
+    notify.py in the faktury app puts the title into the body precisely because HTTP headers
+    cannot carry UTF-8 and Polish text came out mangled. The JSON endpoint fixes the same
+    problem without giving up the title, priority and tags, so the phone still shows a proper
+    notification headline instead of two lines of body text.
+    """
+    cfg = _alerts_cfg()
+    if not cfg["ntfy"]["topic"] or (event != "__test__" and
+                                    (not cfg.get("enabled") or not cfg["events"].get(event, False))):
+        return False
+    payload = {"topic": cfg["ntfy"]["topic"], "title": title, "message": message,
+               "priority": {"default": 3, "high": 4, "urgent": 5, "low": 2}.get(priority, 3)}
+    if tags:
+        payload["tags"] = [t for t in tags.split(",") if t]
+    req = urllib.request.Request(cfg["ntfy"]["server"], method="POST",
+                                 data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                                 headers={"Content-Type": "application/json; charset=utf-8"})
+    if cfg["ntfy"]["token"]:
+        req.add_header("Authorization", "Bearer " + cfg["ntfy"]["token"])
+    try:
+        urllib.request.urlopen(req, timeout=8).read()
+        _log("alert.sent", event=event, title=title)
+        return True
+    except Exception as e:
+        _log("alert.failed", ok=False, event=event, error=str(e)[:200])
+        return False
+
+
+@app.post("/api/alerts/topic")
+def alerts_new_topic():
+    """New name, e.g. after sharing the old one by accident."""
+    env = _env_file(VH_PANEL_ENV)
+    env["NTFY_TOPIC"] = "valheim-" + secrets.token_hex(5)
+    _save_panel_env(env)
+    _log("alerts.topic_generated", topic=env["NTFY_TOPIC"])
+    return {"ok": True, "topic": env["NTFY_TOPIC"]}
+
+
+@app.get("/api/alerts")
+def alerts_get():
+    cfg = _alerts_cfg()
+    cfg["subscribe_url"] = f"{cfg['ntfy']['server']}/{cfg['ntfy']['topic']}"
+    cfg["ntfy"]["token"] = "***" if cfg["ntfy"].get("token") else ""     # never echoed back
+    cfg["labels"] = ALERT_EVENTS
+    return cfg
+
+
+@app.post("/api/alerts")
+def alerts_set(body: dict = Body(...)):
+    cfg = json.loads(json.dumps(ALERTS_DEFAULT))
+    try:
+        cfg.update({k: v for k, v in json.loads(VH_ALERTS.read_text()).items() if k in cfg})
+    except Exception:
+        pass
+    n = body.get("ntfy") or {}
+    env = _env_file(VH_PANEL_ENV)
+    if n.get("server"):
+        if not re.match(r"^https?://[\w.-]+(:\d+)?/?$", n["server"]):
+            raise HTTPException(400, "ntfy server must be a plain http(s) URL, no path")
+        env["NTFY_SERVER"] = n["server"].rstrip("/")
+    if "topic" in n:
+        if n["topic"] and not re.match(r"^[\w.-]{1,64}$", n["topic"]):
+            raise HTTPException(400, "Topic: letters, digits, _ . - only")
+        env["NTFY_TOPIC"] = n["topic"]
+    if n.get("token") and n["token"] != "***":
+        env["NTFY_TOKEN"] = n["token"]
+    _save_panel_env(env)
+
+    if "enabled" in body:
+        cfg["enabled"] = bool(body["enabled"])
+    for k, v in (body.get("events") or {}).items():
+        if k in ALERT_EVENTS:
+            cfg["events"][k] = bool(v)
+    s = body.get("schedule") or {}
+    if "restart_at" in s:
+        if s["restart_at"] and not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", s["restart_at"]):
+            raise HTTPException(400, "Restart time must be HH:MM")
+        cfg["schedule"]["restart_at"] = s["restart_at"]
+    for k in ("only_when_empty", "update_when_empty"):
+        if k in s:
+            cfg["schedule"][k] = bool(s[k])
+    for k in ("defer_minutes", "disk_warn_gb"):
+        if k in s:
+            cfg["schedule"][k] = max(1, min(720, int(s[k])))
+    VH_ALERTS.write_text(json.dumps(cfg, indent=1))
+    _log("alerts.save", topic=env.get("NTFY_TOPIC") or None, enabled=cfg["enabled"],
+         on=[k for k, v in cfg["events"].items() if v], schedule=cfg["schedule"])
+    return {"ok": True}
+
+
+@app.post("/api/alerts/test")
+def alerts_test():
+    cfg = _alerts_cfg()
+    if not cfg["ntfy"].get("topic"):
+        raise HTTPException(400, "Set a topic first")
+    ok = _notify("__test__", "Valheim — panel serwera",
+                 "Testowe powiadomienie. Jeśli to widzisz, alerty działają. ąćęłńóśżź",
+                 tags="white_check_mark")
+    if not ok:
+        raise HTTPException(502, "ntfy did not accept the message — check the server, topic and token")
+    return {"ok": True}
+
+
+# ---------- background watcher ----------
+WATCH = {"active": None, "online": {}, "disk_warned": 0, "build_checked": 0,
+         "restart_done": "", "deferred_until": 0}
+
+
+def _steam_latest_build():
+    out = _sh("runuser -u valheim -- env HOME=/opt/valheim /opt/valheim/steamcmd/steamcmd.sh "
+              "+login anonymous +app_info_update 1 +app_info_print 896660 +quit 2>/dev/null | "
+              "sed -n '/\"branches\"/,/^}/p' | sed -n '/\"public\"/,/}/p' | grep -m1 '\"buildid\"' | "
+              "grep -oE '[0-9]+'", timeout=120).stdout.strip()
+    installed = _sh("awk -F'\"' '/\"buildid\"/{print $4; exit}' "
+                    "/opt/valheim/server/steamapps/appmanifest_896660.acf 2>/dev/null").stdout.strip()
+    return installed, out
+
+
+def _tick():
+    cfg = _alerts_cfg()
+    s = status()
+    now = int(time.time())
+
+    # the game server going away, and coming back
+    if WATCH["active"] is not None and s["active"] != WATCH["active"]:
+        if s["active"]:
+            _notify("server_up", "Valheim is up", f"World {s['settings']['world']} is running again.",
+                    tags="green_circle")
+        else:
+            _notify("server_down", "Valheim stopped", "The game server is not running.",
+                    priority="high", tags="red_circle")
+    WATCH["active"] = s["active"]
+
+    # who came and went since the last look
+    now_on = {c["id"]: (c.get("name") or c["id"]) for c in s["online"]}
+    for pid, name in now_on.items():
+        if pid not in WATCH["online"]:
+            _notify("player_join", "Player joined", f"{name} is on {s['settings']['name']}.",
+                    tags="video_game")
+    for pid, name in WATCH["online"].items():
+        if pid not in now_on:
+            _notify("player_leave", "Player left", f"{name} left.", tags="wave")
+    WATCH["online"] = now_on
+    try:
+        VH_COUNT.write_text(str(len(now_on)))     # update.sh reads this to hold off
+    except Exception:
+        pass
+
+    # disk, warned once a day at most
+    d = s.get("disk") or {}
+    warn_gb = cfg["schedule"].get("disk_warn_gb", 3)
+    if d and d["avail"] < warn_gb * 2**30 and now - WATCH["disk_warned"] > 86400:
+        WATCH["disk_warned"] = now
+        _notify("disk_low", "Disk almost full",
+                f"{round(d['avail'] / 2**30, 1)} GB left. Backups stop being written long before it hits zero.",
+                priority="high", tags="warning")
+
+    # steam build check, every six hours - it costs a steamcmd round trip
+    if now - WATCH["build_checked"] > 6 * 3600:
+        WATCH["build_checked"] = now
+        try:
+            installed, latest = _steam_latest_build()
+            if latest and installed and installed != latest:
+                _notify("update_available", "Valheim update available",
+                        f"Steam has build {latest}, the server runs {installed}.", tags="arrow_up")
+        except Exception:
+            pass
+
+    # maintenance window
+    at = cfg["schedule"].get("restart_at")
+    if at:
+        stamp = datetime.now().strftime("%Y-%m-%d") + " " + at
+        due = datetime.now().strftime("%H:%M") == at and WATCH["restart_done"] != stamp
+        deferred_due = WATCH["deferred_until"] and now >= WATCH["deferred_until"]
+        if due or deferred_due:
+            empty = len(now_on) == 0
+            if empty or not cfg["schedule"].get("only_when_empty", True):
+                WATCH["restart_done"], WATCH["deferred_until"] = stamp, 0
+                _notify("maintenance", "Scheduled restart", "Restarting the server now.", tags="repeat")
+                _log("maintenance.restart", players=len(now_on))
+                _sh("systemctl restart valheim", timeout=180)
+            else:
+                mins = cfg["schedule"].get("defer_minutes", 30)
+                WATCH["deferred_until"] = now + mins * 60
+                if due:
+                    WATCH["restart_done"] = stamp
+                    _notify("maintenance", "Restart put off",
+                            f"{len(now_on)} playing, trying again in {mins} min.", tags="hourglass")
+                _log("maintenance.deferred", players=len(now_on), minutes=mins)
+
+
+@app.on_event("startup")
+async def _start_watcher():
+    async def run():
+        import asyncio
+        while True:
+            try:
+                _tick()
+            except Exception as e:
+                _log("watch.error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
+            await asyncio.sleep(60)
+    import asyncio
+    asyncio.create_task(run())
