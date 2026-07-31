@@ -41,14 +41,21 @@ Takes a few minutes — most of it is Steam pulling ~1.5 GB.
 
 Plus Start / Stop / Restart / Back up now / Check update.
 
-### Login
+### Panel login and getting back in
 
-The installer generates a random 16-character password and prints it **once**. There is
-no fixed default on purpose — a shipped default password would be identical on every
-install of this repo. Change the user and password in **Settings → Panel login**;
-credentials are read per request, so the change is immediate, no restart.
+The first login is always the same, deliberately: **`admin` / `valheim`**. No hunting through
+install output for a generated string. The panel shows a red banner until you change it in
+**Settings → Panel login**, and refuses to let you set the default back.
 
-They live in `/opt/valheim/panel.env` (mode 600, root-owned).
+Locked out? There is no reset dance — set a new password from the Proxmox host:
+
+```bash
+pct exec <CTID> -- /opt/valheim/panel-passwd.sh 'new-password-8-chars'
+pct exec <CTID> -- /opt/valheim/panel-passwd.sh newuser 'new-password'   # user too
+```
+
+It writes `/opt/valheim/panel.env` (mode 600, root) and takes effect on the next request —
+no restart. Pick the login at install time with `--panel-user` / `--panel-pass`.
 
 ### Ports
 

@@ -22,6 +22,8 @@ PANEL_PORT=${PANEL_PORT:-2460}
 SERVER_NAME=${SERVER_NAME:-Valheim}
 WORLD_NAME=${WORLD_NAME:-Dedicated}
 SERVER_PASS=${SERVER_PASS:-}
+PANEL_USER=${PANEL_USER:-admin}
+PANEL_PASS=${PANEL_PASS:-valheim}
 
 usage() {
   cat <<USAGE
@@ -41,6 +43,8 @@ Valheim on Proxmox — creates an LXC and installs the server + admin panel.
   --server-name NAME  name in the server list (default: $SERVER_NAME)
   --world NAME        world name              (default: $WORLD_NAME)
   --password PASS     game password           (default: generated)
+  --panel-user NAME   panel login             (default: $PANEL_USER)
+  --panel-pass PASS   panel password          (default: $PANEL_PASS, change it in the panel)
   -h, --help          this text
 
 Every flag also works as an environment variable (CTID=250 RAM=8192 …).
@@ -64,6 +68,8 @@ while [ $# -gt 0 ]; do
     --server-name) SERVER_NAME=$2; shift 2;;
     --world) WORLD_NAME=$2; shift 2;;
     --password) SERVER_PASS=$2; shift 2;;
+    --panel-user) PANEL_USER=$2; shift 2;;
+    --panel-pass) PANEL_PASS=$2; shift 2;;
     -h|--help) usage;;
     *) echo "Unknown option: $1 (try --help)" >&2; exit 1;;
   esac
@@ -135,6 +141,7 @@ else
 fi
 pct exec "$CTID" -- env \
   REPO_RAW="$REPO_RAW" PANEL_PORT="$PANEL_PORT" GAME_PORT="$GAME_PORT" \
+  PANEL_USER="$PANEL_USER" PANEL_PASS="$PANEL_PASS" \
   SERVER_NAME="$SERVER_NAME" WORLD_NAME="$WORLD_NAME" SERVER_PASS="$SERVER_PASS" \
   bash /tmp/setup.sh
 
