@@ -135,6 +135,14 @@ przeszkadzają, ale kilka potrafi rzucić wyjątkiem, więc odznacz to, czego se
 potrzebuje. Przed pierwszym modem świat trafia do kopii — mody potrafią popsuć zapis
 nieodwracalnie.
 
+Instalacja najpierw **zatrzymuje serwer**, a po wgraniu podnosi go z powrotem — pisanie do
+`BepInEx/plugins` pod działającym serwerem zostawia stare assembly w pamięci i wygląda
+dokładnie jak „mod się nie zainstalował".
+
+**Usuń wszystkie mody** wrzuca świat do kopii, zatrzymuje serwer, kasuje BepInEx i wszystkie
+pluginy, a potem pyta, czy podnieść go czystego, czy zostawić wyłączony, żebyś wgrał inny
+zestaw. Plik świata zostaje nietknięty, ale to, co mod do niego dodał, przestaje istnieć.
+
 Zainstalowane mody leżą w `server/BepInEx/plugins/<autor>-<Paczka>/`, a `start.sh` sam włącza
 loader doorstop, gdy tylko pojawi się katalog `BepInEx/`.
 

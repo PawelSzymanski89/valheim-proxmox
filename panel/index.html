@@ -187,7 +187,11 @@
     </div>
 
     <div class="pane" id="t-mods">
-      <div class="row"><div class="muted" id="mods-state">—</div><button class="mini" id="mods-refresh">Refresh</button></div>
+      <div class="row"><div class="muted" id="mods-state">—</div>
+        <div style="display:flex;gap:6px">
+          <button class="mini danger" id="mods-clear">Remove all mods</button>
+          <button class="mini" id="mods-refresh">Refresh</button>
+        </div></div>
       <div class="add" style="margin-top:12px">
         <input id="mods-code" placeholder="Thunderstore Mod Manager share code">
         <button id="mods-preview">Look up</button>
@@ -230,6 +234,17 @@
 // łapie też to, co JS dorysowuje później. Przełączenie przeładowuje stronę — dzięki temu
 // nie trzeba trzymać mapy w drugą stronę.
 const I18N={
+ "Remove all mods":"Usuń wszystkie mody",
+ "Remove all mods?":"Usunąć wszystkie mody?",
+ "The world is backed up, the server stops and BepInEx with every plugin is deleted. The world itself is untouched — but anything a mod added to it stops existing.":"Świat trafi do kopii, serwer się zatrzyma, a BepInEx razem z wszystkimi pluginami zostanie skasowany. Sam świat zostaje — ale wszystko, co dodał do niego mod, przestanie istnieć.",
+ "Start the server afterwards?":"Podnieść serwer po wyczyszczeniu?",
+ "Yes — start it clean, without mods. No — leave it stopped so you can install a different set first.":"Tak — wystartuje czysty, bez modów. Nie — zostanie wyłączony, żebyś mógł najpierw wgrać inny zestaw.",
+ "Start it":"Podnieś",
+ "Removing mods…":"Usuwam mody…",
+ "Mods removed, server running":"Mody usunięte, serwer działa",
+ "Mods removed, server left stopped":"Mody usunięte, serwer zostaje wyłączony",
+ "Install mods?":"Zainstalować mody?",
+ "packages. The world is backed up, the server stops for the install and starts again afterwards.":"paczek. Świat trafi do kopii, serwer zatrzyma się na czas instalacji i wystartuje po niej.",
  "Valheim — server admin":"Valheim — panel serwera",
  "Everything a server admin can control. In-game commands (kick, spawn, weather)":"Wszystko, czym steruje admin serwera. Komendy w grze (kick, spawn, pogoda)",
  "live in the F5 console — add yourself to":"są w konsoli F5 — dopisz się do",
@@ -629,6 +644,22 @@ async function vhMods(){
   }catch(e){$("mods-err").textContent=e.message;}
 }
 $("mods-refresh").onclick=vhMods;
+$("mods-clear").onclick=async()=>{
+  if(!await confirmModal(t("Remove all mods?"),
+      t("The world is backed up, the server stops and BepInEx with every plugin is deleted. The world itself is untouched — but anything a mod added to it stops existing."),
+      t("Remove")))return;
+  // druga decyzja osobno: po wyczyszczeniu serwer bywa potrzebny od razu, a bywa że ma leżeć
+  const start=await confirmModal(t("Start the server afterwards?"),
+      t("Yes — start it clean, without mods. No — leave it stopped so you can install a different set first."),
+      t("Start it"));
+  toast(t("Removing mods…"));
+  try{
+    const r=await jf("/api/mods/clear",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({start})});
+    toast(r.started?t("Mods removed, server running"):t("Mods removed, server left stopped"),"ok");
+    setTimeout(()=>{vhMods();load();},3000);
+  }catch(e){toast(e.message,"bad");}
+};
 $("mods-preview").onclick=async()=>{
   const code=$("mods-code").value.trim();if(!code){toast("Paste a share code first","bad");return;}
   $("mods-preview-box").innerHTML='<span class="muted">asking Thunderstore…</span>';
@@ -645,7 +676,9 @@ $("mods-preview").onclick=async()=>{
       const picked=[...document.querySelectorAll("[data-mod]")].filter(c=>c.checked)
         .map(c=>({full_name:c.dataset.mod,version:c.dataset.ver}));
       if(!picked.length){toast("Nothing selected","bad");return;}
-      if(!await confirmModal("Install mods?",`${picked.length} packages. The world is backed up first and the server restarts.`,"Install"))return;
+      if(!await confirmModal(t("Install mods?"),
+          `${picked.length} ${t("packages. The world is backed up, the server stops for the install and starts again afterwards.")}`,
+          t("Install")))return;
       $("mods-install").classList.add("loading");$("mods-install").textContent="installing…";
       try{
         const r=await jf("/api/mods/install",{method:"POST",headers:{"Content-Type":"application/json"},
