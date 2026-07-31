@@ -61,6 +61,12 @@
   button.copy{width:auto;margin:0;padding:3px 9px;font-size:11px;letter-spacing:.06em}
   .err{color:#e0796f;font-size:13px;min-height:20px;margin-top:12px;text-align:center}
   .foot{margin-top:22px;text-align:center;color:var(--dim);font-size:11px;letter-spacing:.05em}
+  /* Nota o autorstwie i licencji. MIT wymaga jej zachowania - to jedyny ślad, po którym
+     publiczną instancję można w ogóle rozpoznać jako tę, a nie cudzą. */
+  .attrib{margin-top:8px;text-align:center;color:var(--dim);font-size:11px;opacity:.75}
+  .attrib a{color:var(--gold);text-decoration:none;border-bottom:1px solid rgba(201,162,39,.3)}
+  .attrib a:hover{color:var(--gold2)}
+  .attrib .sep{opacity:.4;margin:0 6px}
   svg .ln{fill:none;stroke-width:1.5}
 </style>
 </head>
@@ -113,6 +119,11 @@
   </div>
 
   <div class="foot" id="foot">Brama zamknięta dla nieproszonych</div>
+  <div class="attrib">
+    <a href="https://github.com/PawelSzymanski89/valheim-proxmox" target="_blank" rel="noopener">valheim-proxmox</a>
+    <span class="sep">·</span>© 2026 Paweł Szymański<span class="sep">·</span>
+    <a href="https://github.com/PawelSzymanski89/valheim-proxmox/blob/main/LICENSE" target="_blank" rel="noopener" id="attrib-lic">licencja MIT</a>
+  </div>
 </div>
 
 <script>
@@ -121,9 +132,10 @@ const T=PL?{}:{ "Serwer":"Server","Mody":"Mods","Obciążenie, ostatnie 12 h":"L
  "Panel administratora":"Admin panel","Tylko dla administratora serwera.":"Server admin only.",
  "Login":"User","Hasło":"Password","Wejdź":"Enter","Paczka":"Package","Wersja":"Version",
  "Brama zamknięta dla nieproszonych":"The gate stays shut for the uninvited",
- "Łącze co 10 minut, obciążenie co minutę.":"Link every 10 minutes, load every minute."};
+ "Łącze co 10 minut, obciążenie co minutę.":"Link every 10 minutes, load every minute.",
+ "licencja MIT":"MIT license"};
 const tr=s=>T[s]||s;
-["h-status","h-mods","h-charts","charts-hint","h-login","login-hint","l-user","l-pass","b","th-mod","th-ver","foot"]
+["h-status","h-mods","h-charts","charts-hint","h-login","login-hint","l-user","l-pass","b","th-mod","th-ver","foot","attrib-lic"]
   .forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=tr(el.textContent);});
 
 const fmtDur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
