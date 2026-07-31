@@ -62,7 +62,7 @@ server up or down, uptime, how many are playing, and how to join — with the lo
 It is **minimal on purpose**. Every field is off until you turn it on in **Settings → Public page**,
 because this is visible to the whole internet: a version number narrows down what to try against
 the server, a mod list and a load chart tell a stranger what runs there and when nobody is
-watching. What you can switch on: player count, their names, the mod list with the share code
+watching. What you can switch on: player count, their names, machine specs with a live CPU and memory reading, the mod list with the share code
 (handy — players get everything they need before asking), load charts, server version, port and
 whether a password is required. Plus a free line of your own, e.g. when the server restarts.
 
@@ -363,7 +363,7 @@ statusu**: czy serwer działa, od kiedy, ilu gra i jak wejść — a obok formul
 Jest **celowo minimalna**. Każde pole jest wyłączone, dopóki go nie włączysz w
 **Ustawieniach → Strona publiczna**, bo to widzi cały internet: numer wersji zawęża listę rzeczy
 do wypróbowania przeciw serwerowi, a lista modów i wykres obciążenia mówią obcemu, co tam chodzi
-i kiedy nikt nie patrzy. Do włączenia: liczba graczy, ich nicki, lista modów z kodem udostępniania
+i kiedy nikt nie patrzy. Do włączenia: liczba graczy, ich nicki, parametry maszyny z odczytem CPU i pamięci na żywo, lista modów z kodem udostępniania
 (wygodne — gracz ma wszystko, zanim zapyta), wykresy obciążenia, wersja serwera, port i to, czy
 potrzebne jest hasło. Plus własne zdanie, np. o której serwer się restartuje.
 

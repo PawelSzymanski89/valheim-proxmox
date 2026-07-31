@@ -33,6 +33,7 @@
   .muted{color:var(--dim);font-size:13px}
   .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:14px}
   .cell{background:#10151a;border:1px solid var(--line);border-radius:3px;padding:10px 12px}
+  .cell .muted{font-size:12px}
   .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
   .dot.up{background:var(--ok);box-shadow:0 0 10px rgba(93,122,74,.8)}
   .dot.down{background:var(--bad)}
@@ -82,6 +83,7 @@
 
       <div class="box" id="chart-box" style="margin-top:16px;display:none">
         <h2 id="h-charts">Obciążenie, ostatnie 12 h</h2>
+      <div class="muted" style="margin:-6px 0 12px" id="charts-hint">Gracze, CPU i pamięć — próbka co minutę.</div>
         <div id="charts"></div>
       </div>
     </div>
@@ -106,15 +108,21 @@ const PL=!(navigator.language||"").startsWith("en");
 const T=PL?{}:{ "Serwer":"Server","Mody":"Mods","Obciążenie, ostatnie 12 h":"Load, last 12 h",
  "Panel administratora":"Admin panel","Tylko dla administratora serwera.":"Server admin only.",
  "Login":"User","Hasło":"Password","Wejdź":"Enter","Paczka":"Package","Wersja":"Version",
- "Brama zamknięta dla nieproszonych":"The gate stays shut for the uninvited"};
+ "Brama zamknięta dla nieproszonych":"The gate stays shut for the uninvited",
+ "Gracze, CPU i pamięć — próbka co minutę.":"Players, CPU and memory — sampled every minute."};
 const tr=s=>T[s]||s;
-["h-status","h-mods","h-charts","h-login","login-hint","l-user","l-pass","b","th-mod","th-ver","foot"]
+["h-status","h-mods","h-charts","charts-hint","h-login","login-hint","l-user","l-pass","b","th-mod","th-ver","foot"]
   .forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=tr(el.textContent);});
 
 const fmtDur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
   return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`;};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 function cell(k,v){return `<div class="cell"><div class="muted">${k}</div><div>${v}</div></div>`;}
+function bar(pct){
+  const col=pct>=90?"var(--bad)":pct>=70?"#b8860b":"var(--gold)";
+  return `<span style="display:inline-block;flex:1;min-width:40px;height:6px;background:#0d1114;border-radius:3px;vertical-align:middle;overflow:hidden">
+    <span style="display:block;height:100%;width:${Math.min(100,pct)}%;background:${col}"></span></span>`;
+}
 
 function chart(title,pts,color,unit,max){
   if(!pts.length)return "";
@@ -150,6 +158,13 @@ async function load(){
     if(d.port)c.push(cell(PL?"Port":"Port",d.port+"–"+(d.port+2)+" UDP"));
     if(d.password_required!==undefined)c.push(cell(PL?"Hasło do wejścia":"Password to join",
       d.password_required?(PL?"tak":"yes"):(PL?"nie":"no")));
+    if(d.specs){
+      const gb=b=>b?(b/1073741824).toFixed(b<10*1073741824?1:0)+" GB":"—";
+      c.push(cell(PL?"Maszyna":"Machine",`${d.specs.cores} ${PL?"rdzeni":"cores"} · ${gb(d.specs.ram)} RAM · ${gb(d.specs.disk)}`));
+      if(d.load)c.push(cell(PL?"Obciążenie teraz":"Load right now",
+        `<div style="display:flex;gap:8px;align-items:center"><span class="muted" style="width:34px">CPU</span>${bar(d.load.cpu)}<span>${d.load.cpu}%</span></div>
+         <div style="display:flex;gap:8px;align-items:center;margin-top:4px"><span class="muted" style="width:34px">RAM</span>${bar(d.load.mem)}<span>${d.load.mem}%</span></div>`));
+    }
     document.getElementById("cells").innerHTML=c.join("");
     if(d.note)document.getElementById("note").textContent=d.note;
 
