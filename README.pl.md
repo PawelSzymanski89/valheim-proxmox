@@ -31,7 +31,7 @@ Trwa kilka minut — prawie całość to pobieranie ~1,5 GB ze Steama.
 | Zakładka | Co daje |
 |---|---|
 | **Players** | kto gra teraz — nick, identyfikator, **licznik czasu sesji na żywo** — oraz trwała historia logowań (pierwszy raz / ostatnio / ile wejść) |
-| **Access & bans** | lista adminów, lista banów, whitelista; ban prosto z listy online albo z historii |
+| **Access & bans** | lista adminów, lista banów, whitelista; ban prosto z listy online albo z historii. **Niepusta whitelista wpuszcza wyłącznie wpisanych** — to reguła samego Valheima, nie panelu |
 | **World** | lista światów, przełączanie aktywnego, pobieranie, kasowanie, wgrywanie pary `.db` + `.fwl` |
 | **Backups** | przywróć, pobierz, usuń; przełączniki timerów auto-backup i auto-update |
 | **Settings** | nazwa serwera, świat, hasło, **port gry**, **port panelu**, widoczność na liście serwerów, crossplay, preset i modyfikatory świata (walka, kara za śmierć, surowce, najazdy, portale) oraz przełączniki (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
@@ -125,6 +125,14 @@ systemd: `valheim`, `valheim-panel`, `valheim-backup.timer`, `valheim-update.tim
   rozjadą, panel to pokazuje, zamiast ukrywać.
 - **Panel chodzi jako root** we własnym kontenerze: woła `systemctl` i pisze po
   `/opt/valheim`. Dlatego to osobny kontener i dlatego nie ma go w internecie.
+
+## Na czym sprawdzone
+
+Proxmox VE 8.4, szablon `debian-12-standard`, Valheim dedicated `l-0.221.12`.
+Każda akcja panelu przeszła test na prawdziwym kontenerze: propagacja ustawień aż do
+argumentów działającego procesu, przełączanie/wgrywanie/kasowanie światów, przywracanie
+kopii (suma kontrolna zgodna przed i po), timery, zmiana portu panelu, zmiana logowania.
+Listę graczy i historię pokrywa `panel/test_parse.py`, bo wymagają realnych wejść na serwer.
 
 ## Licencja
 
