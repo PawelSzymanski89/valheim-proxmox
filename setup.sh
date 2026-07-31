@@ -139,6 +139,9 @@ latest=$(runuser -u valheim -- env HOME=/opt/valheim /opt/valheim/steamcmd/steam
   | sed -n "/\"branches\"/,/^}/p" | sed -n "/\"public\"/,/}/p" | grep -m1 "\"buildid\"" | grep -oE "[0-9]+")
 if [ -z "$latest" ]; then echo "no latest buildid (skipping, no restart)"; exit 0; fi
 if [ "$installed" = "$latest" ]; then echo "up to date (build $installed)"; exit 0; fi
+# the panel writes the current player count once a minute; do not drop people mid-raid
+players=$(cat /opt/valheim/players.count 2>/dev/null || echo 0)
+if [ "${players:-0}" -gt 0 ]; then echo "update $latest waiting - $players playing"; exit 0; fi
 echo "UPDATE $installed -> $latest"
 systemctl stop valheim
 runuser -u valheim -- env HOME=/opt/valheim /opt/valheim/steamcmd/steamcmd.sh +force_install_dir /opt/valheim/server +login anonymous +app_update $APP validate +quit >/opt/valheim/steam-update.log 2>&1
@@ -171,6 +174,8 @@ if [ ! -f "$VH_DIR/panel.env" ]; then
 PANEL_USER='$PANEL_USER'
 PANEL_PASS='$PANEL_PASS'
 PANEL_PORT='$PANEL_PORT'
+NTFY_SERVER='https://ntfy.sh'
+NTFY_TOPIC='valheim-$(randstr 'a-z0-9' 10)'
 EOF
   chmod 600 "$VH_DIR/panel.env"
 fi
@@ -279,4 +284,7 @@ echo "  User:     $(grep -oP "PANEL_USER='\K[^']+" "$VH_DIR/panel.env")"
 echo "  Password: $(grep -oP "PANEL_PASS='\K[^']+" "$VH_DIR/panel.env")   <- same on every install, change it in Settings"
 echo
 echo "  Game:     $(hostname -I | awk '{print $1}'):$GAME_PORT   password: $SERVER_PASS"
+echo
+echo "  Alerts:   subscribe in the ntfy app to  $(grep -oP "NTFY_TOPIC='\\K[^']+" "$VH_DIR/panel.env")"
+echo "            (server down, players joining, backups, disk - switch them on in the panel)"
 echo

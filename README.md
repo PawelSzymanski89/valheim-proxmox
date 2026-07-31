@@ -101,7 +101,35 @@ plus the panel login.
 
 Plus Start / Stop / Restart / Back up now / Check update.
 
-### Panel login and getting back in
+### Alerts on your phone, and a restart window
+
+The panel watches the server once a minute on its own — it no longer only looks when someone
+opens the page — and pushes what changed to **[ntfy](https://ntfy.sh)**: an app that needs no
+account, no login and no server of your own.
+
+**Setup is two steps.** The installer generates an unguessable topic name (`valheim-a1b2c3d4e5`)
+and prints it. Install the ntfy app ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) ·
+[F-Droid](https://f-droid.org/packages/io.heckel.ntfy/) ·
+[iOS](https://apps.apple.com/app/ntfy/id1625396347) · [browser](https://ntfy.sh/app)), subscribe
+to that name, press **Send a test** in the panel. Everyone who should get alerts subscribes to the
+same topic; the name is the only secret, which is why it is random and can be regenerated with one
+click if it leaks.
+
+Each alert is a separate switch: **server stopped / came back**, **player joined / left**,
+**backup failed**, **disk almost full**, **game update on Steam**, **someone signed in to the
+panel**, **mod install failed**, **scheduled restart**. A private ntfy server works too — set the
+URL and a token.
+
+The topic and server live in `panel.env` (600) next to the login, the same split the rest of this
+homelab uses: secrets in the env file, "what to send" in `alerts.json`.
+
+**Scheduled restart.** Valheim grows in memory over days, so a nightly restart is ordinary
+hygiene — but not on top of a running raid. Set a time, keep **only when nobody is playing** on,
+and if someone is on at that hour the restart is put off and retried later, with a notification
+either way. `update.sh` reads the same player count, so an automatic game update also waits for
+an empty server.
+
+## Panel login and getting back in
 
 Login happens on the panel's own screen, not the browser's grey box: session cookie, signed
 with a secret **and** the current password hash, so changing the password ends every session.
@@ -433,6 +461,34 @@ również da się cofnąć. Dwadzieścia wersji na plik.
 
 Mody czytają konfigurację przy starcie, dlatego **Zapisz** i **Zapisz i zrestartuj** to osobne
 przyciski.
+
+## Alerty na telefon i okno serwisowe
+
+Panel sam ogląda serwer raz na minutę — już nie tylko wtedy, gdy ktoś otworzy stronę — i wypycha
+zmiany na **[ntfy](https://ntfy.sh)**: apkę, która nie wymaga konta, logowania ani własnego
+serwera.
+
+**Konfiguracja to dwa kroki.** Instalator losuje nieodgadywalną nazwę tematu
+(`valheim-a1b2c3d4e5`) i ją wypisuje. Instalujesz ntfy ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) ·
+[F-Droid](https://f-droid.org/packages/io.heckel.ntfy/) ·
+[iOS](https://apps.apple.com/app/ntfy/id1625396347) · [przeglądarka](https://ntfy.sh/app)),
+subskrybujesz tę nazwę i klikasz **Wyślij testowe**. Każdy, kto ma dostawać alerty, subskrybuje ten
+sam temat; nazwa jest jedynym sekretem — dlatego jest losowa i jednym kliknięciem generujesz nową,
+gdyby wyciekła.
+
+Każdy alert to osobny przełącznik: **serwer padł / wstał**, **gracz wszedł / wyszedł**, **kopia się
+nie udała**, **kończy się dysk**, **jest aktualizacja na Steamie**, **ktoś zalogował się do
+panelu**, **nie udała się instalacja moda**, **zaplanowany restart**. Własny serwer ntfy też
+działa — podajesz adres i token.
+
+Temat i serwer leżą w `panel.env` (600) obok logowania — ten sam podział, co w reszcie tego
+homelaba: sekrety w pliku env, „co wysyłać" w `alerts.json`.
+
+**Zaplanowany restart.** Valheim puchnie w pamięci przez kolejne dni, więc nocny restart to
+zwykła higiena — ale nie w środku najazdu. Ustawiasz godzinę, zostawiasz **tylko gdy nikt nie
+gra**, a jeśli o tej porze ktoś siedzi na serwerze, restart zostaje przełożony i ponowiony
+później; w obu przypadkach dostajesz powiadomienie. `update.sh` czyta ten sam licznik graczy, więc
+automatyczna aktualizacja gry też czeka na pusty serwer.
 
 ## Dziennik panelu
 

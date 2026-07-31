@@ -119,6 +119,7 @@
       <a data-pane="t-backups">Backups</a>
       <a data-pane="t-settings">Settings</a>
       <a data-pane="t-mods">Mods</a>
+      <a data-pane="t-alerts">Alerts</a>
       <a data-pane="t-log">Log</a>
     </div>
 
@@ -212,6 +213,64 @@
       <div class="err" id="mods-err"></div>
     </div>
 
+    <div class="pane" id="t-alerts">
+      <div class="grid">
+        <div class="stat">
+          <div class="muted">ntfy topic — generated for you, subscribe to it in the ntfy app</div>
+          <input id="al-topic" style="margin-top:6px">
+          <div class="row" style="margin-top:6px">
+            <a id="al-sub" href="#" target="_blank" class="muted" style="color:var(--acc2)">open in browser</a>
+            <button class="mini" id="al-new">New topic</button>
+          </div>
+          <div class="muted" style="margin-top:6px">Anyone who knows this name receives your alerts — that is why it is random. Change it if it ever leaks.</div>
+        </div>
+        <div class="stat"><div class="muted">ntfy server</div>
+          <input id="al-server" placeholder="https://ntfy.sh" style="margin-top:6px"></div>
+        <div class="stat"><div class="muted">Token (only for a private server)</div>
+          <input id="al-token" type="password" placeholder="—" style="margin-top:6px"></div>
+        <div class="stat"><div class="muted">Alerts</div>
+          <label style="display:flex;gap:8px;margin-top:6px"><input type="checkbox" id="al-enabled"> on</label></div>
+      </div>
+
+      <div class="stat" style="margin-top:14px">
+        <div class="muted">How to get these on your phone</div>
+        <div style="margin-top:8px">
+          <b>1.</b> Install ntfy —
+          <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" style="color:var(--acc2)">Android</a> ·
+          <a href="https://f-droid.org/packages/io.heckel.ntfy/" target="_blank" style="color:var(--acc2)">F-Droid</a> ·
+          <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" style="color:var(--acc2)">iOS</a> ·
+          <a href="https://ntfy.sh/app" target="_blank" style="color:var(--acc2)">browser</a>
+        </div>
+        <div style="margin-top:4px"><b>2.</b> In the app: <b>+</b> → paste the topic above → subscribe. No account, no login.</div>
+        <div style="margin-top:4px"><b>3.</b> Hit <b>Send a test</b> below. If the phone buzzes, you are done.</div>
+        <div class="muted" style="margin-top:6px">Everyone who should get alerts subscribes to the same topic — add as many phones as you like.</div>
+      </div>
+
+      <div class="muted" style="margin:18px 0 6px">What to send</div>
+      <div class="grid" id="al-events"></div>
+
+      <div class="muted" style="margin:18px 0 6px">Scheduled restart</div>
+      <div class="grid">
+        <div class="stat"><div class="muted">Time (HH:MM, empty = off)</div>
+          <input id="al-at" placeholder="05:00" style="margin-top:6px"></div>
+        <div class="stat"><div class="muted">Only when nobody is playing</div>
+          <label style="display:flex;gap:8px;margin-top:6px"><input type="checkbox" id="al-empty"> wait for an empty server</label></div>
+        <div class="stat"><div class="muted">If someone is playing, retry after (min)</div>
+          <input id="al-defer" type="number" min="1" max="720" style="margin-top:6px"></div>
+        <div class="stat"><div class="muted">Warn when free disk drops below (GB)</div>
+          <input id="al-disk" type="number" min="1" max="720" style="margin-top:6px"></div>
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <div class="muted" id="al-msg"></div>
+        <div style="display:flex;gap:8px">
+          <button id="al-test">Send a test</button>
+          <button class="primary" id="al-save">Save</button>
+        </div>
+      </div>
+      <div class="err" id="al-err"></div>
+    </div>
+
     <div class="pane" id="t-log">
       <div class="row">
         <div style="display:flex;gap:6px;flex-wrap:wrap">
@@ -297,6 +356,39 @@ const I18N={
  "Straight from journalctl, PlayFab keepalive noise filtered out.":"Prosto z journalctl, bez szumu keepalive PlayFaba.",
  "Everything the panel did, newest first":"Wszystko, co zrobił panel — od najnowszego",
  "nothing logged yet":"dziennik jest jeszcze pusty",
+ "Alerts":"Alerty",
+ "Send a test":"Wyślij testowe",
+ "Sent":"Wysłane",
+ "Sent — check your phone":"Wysłane — sprawdź telefon",
+ "Saving…":"Zapisuję…",
+ "Saved":"Zapisano",
+ "Not saved":"Nie zapisano",
+ "Server stopped":"Serwer się zatrzymał",
+ "Server is up":"Serwer wstał",
+ "Player joined":"Gracz wszedł",
+ "Player left":"Gracz wyszedł",
+ "Backup failed":"Kopia się nie udała",
+ "Disk almost full":"Dysk się kończy",
+ "Game update available":"Jest aktualizacja gry",
+ "Someone signed in to the panel":"Ktoś zalogował się do panelu",
+ "Mod install failed":"Instalacja moda się nie udała",
+ "Scheduled restart":"Zaplanowany restart",
+ "What to send":"Co wysyłać",
+ "Scheduled restart":"Zaplanowany restart",
+ "wait for an empty server":"poczekaj aż serwer będzie pusty",
+ "on":"włączone",
+ "open in browser":"otwórz w przeglądarce",
+ "New topic":"Nowy temat",
+ "New topic?":"Nowy temat?",
+ "The old name stops receiving anything — resubscribe in the app to the new one.":"Stara nazwa przestanie cokolwiek dostawać — zasubskrybuj w apce nową.",
+ "Generate":"Wygeneruj",
+ "New topic generated":"Wygenerowano nowy temat",
+ "How to get these on your phone":"Jak dostawać to na telefon",
+ "Install ntfy —":"Zainstaluj ntfy —",
+ "browser":"przeglądarka",
+ "In the app: <b>+</b> → paste the topic above → subscribe. No account, no login.":"W apce: <b>+</b> → wklej temat z góry → subskrybuj. Bez konta, bez logowania.",
+ "Hit <b>Send a test</b> below. If the phone buzzes, you are done.":"Kliknij <b>Wyślij testowe</b> niżej. Jak telefon zabrzęczy, gotowe.",
+ "Everyone who should get alerts subscribes to the same topic — add as many phones as you like.":"Każdy, kto ma dostawać alerty, subskrybuje ten sam temat — telefonów może być ile chcesz.",
  "Valheim — server admin":"Valheim — panel serwera",
  "Everything a server admin can control. In-game commands (kick, spawn, weather)":"Wszystko, czym steruje admin serwera. Komendy w grze (kick, spawn, pogoda)",
  "live in the F5 console — add yourself to":"są w konsoli F5 — dopisz się do",
@@ -753,6 +845,49 @@ $("mods-add").onclick=async()=>{
   $("mods-add").classList.remove("loading");
 };
 let LOGSRC="server";
+// ---- alerty ntfy ----
+let AL=null;
+async function vhAlerts(){
+  try{
+    const a=await jf("/api/alerts");AL=a;
+    $("al-topic").value=a.ntfy.topic||"";$("al-server").value=a.ntfy.server||"https://ntfy.sh";
+    $("al-token").value=a.ntfy.token?"***":"";$("al-enabled").checked=!!a.enabled;
+    $("al-at").value=a.schedule.restart_at||"";$("al-empty").checked=!!a.schedule.only_when_empty;
+    $("al-defer").value=a.schedule.defer_minutes;$("al-disk").value=a.schedule.disk_warn_gb;
+    $("al-sub").href=a.subscribe_url||"#";$("al-sub").textContent=a.subscribe_url||"";
+    $("al-events").innerHTML=Object.entries(a.labels).map(([k,label])=>
+      `<div class="stat"><label style="display:flex;gap:8px;align-items:center">
+        <input type="checkbox" data-ev="${k}" ${a.events[k]?"checked":""}> ${t(label)}</label></div>`).join("");
+    $("al-err").textContent="";
+  }catch(e){$("al-err").textContent=e.message;}
+}
+function alBody(){
+  const events={};document.querySelectorAll("[data-ev]").forEach(c=>events[c.dataset.ev]=c.checked);
+  return {enabled:$("al-enabled").checked,events,
+    ntfy:{topic:$("al-topic").value.trim(),server:$("al-server").value.trim()||"https://ntfy.sh",
+          token:$("al-token").value},
+    schedule:{restart_at:$("al-at").value.trim(),only_when_empty:$("al-empty").checked,
+              defer_minutes:+$("al-defer").value||30,disk_warn_gb:+$("al-disk").value||3}};
+}
+$("al-new").onclick=async()=>{
+  if(!await confirmModal(t("New topic?"),t("The old name stops receiving anything — resubscribe in the app to the new one."),t("Generate")))return;
+  try{const r=await jf("/api/alerts/topic",{method:"POST"});$("al-topic").value=r.topic;vhAlerts();toast(t("New topic generated"),"ok");}
+  catch(e){toast(e.message,"bad");}
+};
+$("al-save").onclick=async()=>{
+  $("al-msg").textContent=t("Saving…");
+  try{await jf("/api/alerts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(alBody())});
+    $("al-msg").textContent=t("Saved");toast(t("Saved"),"ok");vhAlerts();}
+  catch(e){$("al-msg").textContent=e.message;toast(t("Not saved"),"bad");}
+};
+$("al-test").onclick=async()=>{
+  $("al-msg").textContent=t("Saving…");
+  try{
+    await jf("/api/alerts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(alBody())});
+    await jf("/api/alerts/test",{method:"POST"});
+    $("al-msg").textContent=t("Sent — check your phone");toast(t("Sent"),"ok");
+  }catch(e){$("al-msg").textContent=e.message;toast(e.message,"bad");}
+};
 async function vhLog(){
   const server=LOGSRC==="server";
   $("vh-log").style.display=server?"":"none";
@@ -825,6 +960,64 @@ load();vhSummary();setInterval(load,20000);setInterval(vhTick,1000);
         </div>
       </div>
       <div class="err" id="cfg-err"></div>
+    </div>
+
+    <div class="pane" id="t-alerts">
+      <div class="grid">
+        <div class="stat">
+          <div class="muted">ntfy topic — generated for you, subscribe to it in the ntfy app</div>
+          <input id="al-topic" style="margin-top:6px">
+          <div class="row" style="margin-top:6px">
+            <a id="al-sub" href="#" target="_blank" class="muted" style="color:var(--acc2)">open in browser</a>
+            <button class="mini" id="al-new">New topic</button>
+          </div>
+          <div class="muted" style="margin-top:6px">Anyone who knows this name receives your alerts — that is why it is random. Change it if it ever leaks.</div>
+        </div>
+        <div class="stat"><div class="muted">ntfy server</div>
+          <input id="al-server" placeholder="https://ntfy.sh" style="margin-top:6px"></div>
+        <div class="stat"><div class="muted">Token (only for a private server)</div>
+          <input id="al-token" type="password" placeholder="—" style="margin-top:6px"></div>
+        <div class="stat"><div class="muted">Alerts</div>
+          <label style="display:flex;gap:8px;margin-top:6px"><input type="checkbox" id="al-enabled"> on</label></div>
+      </div>
+
+      <div class="stat" style="margin-top:14px">
+        <div class="muted">How to get these on your phone</div>
+        <div style="margin-top:8px">
+          <b>1.</b> Install ntfy —
+          <a href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" style="color:var(--acc2)">Android</a> ·
+          <a href="https://f-droid.org/packages/io.heckel.ntfy/" target="_blank" style="color:var(--acc2)">F-Droid</a> ·
+          <a href="https://apps.apple.com/app/ntfy/id1625396347" target="_blank" style="color:var(--acc2)">iOS</a> ·
+          <a href="https://ntfy.sh/app" target="_blank" style="color:var(--acc2)">browser</a>
+        </div>
+        <div style="margin-top:4px"><b>2.</b> In the app: <b>+</b> → paste the topic above → subscribe. No account, no login.</div>
+        <div style="margin-top:4px"><b>3.</b> Hit <b>Send a test</b> below. If the phone buzzes, you are done.</div>
+        <div class="muted" style="margin-top:6px">Everyone who should get alerts subscribes to the same topic — add as many phones as you like.</div>
+      </div>
+
+      <div class="muted" style="margin:18px 0 6px">What to send</div>
+      <div class="grid" id="al-events"></div>
+
+      <div class="muted" style="margin:18px 0 6px">Scheduled restart</div>
+      <div class="grid">
+        <div class="stat"><div class="muted">Time (HH:MM, empty = off)</div>
+          <input id="al-at" placeholder="05:00" style="margin-top:6px"></div>
+        <div class="stat"><div class="muted">Only when nobody is playing</div>
+          <label style="display:flex;gap:8px;margin-top:6px"><input type="checkbox" id="al-empty"> wait for an empty server</label></div>
+        <div class="stat"><div class="muted">If someone is playing, retry after (min)</div>
+          <input id="al-defer" type="number" min="1" max="720" style="margin-top:6px"></div>
+        <div class="stat"><div class="muted">Warn when free disk drops below (GB)</div>
+          <input id="al-disk" type="number" min="1" max="720" style="margin-top:6px"></div>
+      </div>
+
+      <div class="row" style="margin-top:14px">
+        <div class="muted" id="al-msg"></div>
+        <div style="display:flex;gap:8px">
+          <button id="al-test">Send a test</button>
+          <button class="primary" id="al-save">Save</button>
+        </div>
+      </div>
+      <div class="err" id="al-err"></div>
     </div>
 
     <div class="pane" id="t-log">
@@ -1327,6 +1520,49 @@ $("mods-add").onclick=async()=>{
   $("mods-add").classList.remove("loading");
 };
 let LOGSRC="server";
+// ---- alerty ntfy ----
+let AL=null;
+async function vhAlerts(){
+  try{
+    const a=await jf("/api/alerts");AL=a;
+    $("al-topic").value=a.ntfy.topic||"";$("al-server").value=a.ntfy.server||"https://ntfy.sh";
+    $("al-token").value=a.ntfy.token?"***":"";$("al-enabled").checked=!!a.enabled;
+    $("al-at").value=a.schedule.restart_at||"";$("al-empty").checked=!!a.schedule.only_when_empty;
+    $("al-defer").value=a.schedule.defer_minutes;$("al-disk").value=a.schedule.disk_warn_gb;
+    $("al-sub").href=a.subscribe_url||"#";$("al-sub").textContent=a.subscribe_url||"";
+    $("al-events").innerHTML=Object.entries(a.labels).map(([k,label])=>
+      `<div class="stat"><label style="display:flex;gap:8px;align-items:center">
+        <input type="checkbox" data-ev="${k}" ${a.events[k]?"checked":""}> ${t(label)}</label></div>`).join("");
+    $("al-err").textContent="";
+  }catch(e){$("al-err").textContent=e.message;}
+}
+function alBody(){
+  const events={};document.querySelectorAll("[data-ev]").forEach(c=>events[c.dataset.ev]=c.checked);
+  return {enabled:$("al-enabled").checked,events,
+    ntfy:{topic:$("al-topic").value.trim(),server:$("al-server").value.trim()||"https://ntfy.sh",
+          token:$("al-token").value},
+    schedule:{restart_at:$("al-at").value.trim(),only_when_empty:$("al-empty").checked,
+              defer_minutes:+$("al-defer").value||30,disk_warn_gb:+$("al-disk").value||3}};
+}
+$("al-new").onclick=async()=>{
+  if(!await confirmModal(t("New topic?"),t("The old name stops receiving anything — resubscribe in the app to the new one."),t("Generate")))return;
+  try{const r=await jf("/api/alerts/topic",{method:"POST"});$("al-topic").value=r.topic;vhAlerts();toast(t("New topic generated"),"ok");}
+  catch(e){toast(e.message,"bad");}
+};
+$("al-save").onclick=async()=>{
+  $("al-msg").textContent=t("Saving…");
+  try{await jf("/api/alerts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(alBody())});
+    $("al-msg").textContent=t("Saved");toast(t("Saved"),"ok");vhAlerts();}
+  catch(e){$("al-msg").textContent=e.message;toast(t("Not saved"),"bad");}
+};
+$("al-test").onclick=async()=>{
+  $("al-msg").textContent=t("Saving…");
+  try{
+    await jf("/api/alerts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(alBody())});
+    await jf("/api/alerts/test",{method:"POST"});
+    $("al-msg").textContent=t("Sent — check your phone");toast(t("Sent"),"ok");
+  }catch(e){$("al-msg").textContent=e.message;toast(e.message,"bad");}
+};
 async function vhLog(){
   const server=LOGSRC==="server";
   $("vh-log").style.display=server?"":"none";
