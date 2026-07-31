@@ -23,13 +23,18 @@ SERVER_PASS=${SERVER_PASS:-}
 
 msg() { echo -e "\033[1;32m==>\033[0m $*"; }
 die() { echo -e "\033[1;31mError:\033[0m $*" >&2; exit 1; }
+trap 'echo -e "\033[1;31mInstall failed at line $LINENO\033[0m" >&2' ERR
+
+# No `| head -c N` here: head closing the pipe kills the writer with SIGPIPE, and with
+# `set -o pipefail` that aborts the whole script before it prints anything.
+randstr() { local s; s=$(head -c 48 /dev/urandom | base64 | tr -dc "$1"); echo "${s:0:$2}"; }
 
 command -v pct >/dev/null || die "pct not found — run this on the Proxmox VE host, not inside a container."
 [ "$(id -u)" -eq 0 ] || die "Run as root."
 
 # Valheim needs a password of 5+ characters that does not contain the server or world name.
 if [ -z "$SERVER_PASS" ]; then
-  SERVER_PASS=$(tr -dc 'a-z0-9' </dev/urandom | head -c 10)
+  SERVER_PASS=$(randstr 'a-z0-9' 10)
 fi
 
 # --- pick a container id ---
