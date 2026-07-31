@@ -79,8 +79,8 @@ and inside. Interface in English or Polish, switch in the top right.
 
 | | |
 |---|---|
-| ![Login](docs/login.png) | ![Mods](docs/mods.png) |
-| **Login** — the panel's own screen, not the browser's grey box | **Mods** — paste a Thunderstore share code, pick what to install |
+| ![Mods](docs/mods.png) | ![Mod config](docs/modconfig.png) |
+| **Mods** — paste a share code, pick what to install | **Mod config** — a form built from the file's own metadata |
 
 ![Summary](docs/summary.png)
 
@@ -288,6 +288,25 @@ packages are refused by the update call itself, not just hidden in the UI.
 one code. Players paste it into their mod manager and land on exactly these versions — the same
 mechanism as importing, in the other direction.
 
+### Tested on a real 72-mod pack
+
+The whole flow was run against a real Thunderstore share code carrying 72 packages
+("Januszheim"): preview, install, restart, config edit, save, restart, restore.
+
+- **72 installed, 0 failed**, 1455 MB pulled from Thunderstore; the game came back with
+  **71 plugins loaded** and reached `Game server connected`.
+- The server process settled at **6.7 GB RSS** with that pack — worth knowing before picking
+  `--ram`. The 6 GB default is a vanilla figure.
+- **69 config files** appeared once the mods had run once; `PlantEverything` alone parses into
+  **147 form entries** with their descriptions, types and defaults.
+- A save changed **exactly one line in a 760-line file**, the server restarted with all plugins,
+  and the previous version came back with one click.
+
+Two bugs in the unpacker came out of this run, both from packages zipped on Windows:
+paths carried backslashes, so `plugins\Mod.dll` landed as a single file with a backslash in its
+name, and `plugins\Translations\` was not recognised as a directory entry and became an empty
+*file*, which made every real file under it fail. Both are normalised now.
+
 ## Mod config, without SSH and without breaking it
 
 BepInEx writes one `.cfg` per plugin. The **Mod config** tab reads them and builds a **form**:
@@ -417,8 +436,8 @@ logowania i w środku. Interfejs po polsku albo angielsku, przełącznik w prawy
 
 | | |
 |---|---|
-| ![Logowanie](docs/login.png) | ![Mody](docs/mods.png) |
-| **Logowanie** — własny ekran, nie szare okienko przeglądarki | **Mody** — wklejasz kod z Thunderstore i wybierasz, co zainstalować |
+| ![Mody](docs/mods.png) | ![Konfiguracja](docs/modconfig.png) |
+| **Mody** — wklejasz kod i wybierasz, co zainstalować | **Konfiguracja** — formularz z metadanych samego pliku |
 
 ![Podsumowanie](docs/summary.png)
 
@@ -553,6 +572,25 @@ Przypięte paczki odrzuca samo wywołanie aktualizacji, nie tylko interfejs.
 **Zrób kod udostępniania** zamienia to, co stoi na serwerze, w profil Thunderstore i oddaje jeden
 kod. Gracze wklejają go w swoim managerze i mają dokładnie te wersje — ten sam mechanizm co import,
 tylko w drugą stronę.
+
+### Sprawdzone na prawdziwym zestawie 72 modów
+
+Cały przepływ przeszedł na realnym kodzie udostępniania z 72 paczkami („Januszheim"):
+podgląd, instalacja, restart, edycja konfiguracji, zapis, restart, przywrócenie.
+
+- **72 zainstalowane, 0 nieudanych**, 1455 MB pobrane z Thunderstore; gra wstała z
+  **71 załadowanymi wtyczkami** i doszła do `Game server connected`.
+- Proces serwera ustabilizował się na **6,7 GB RSS** z tym zestawem — warto to wiedzieć przed
+  wyborem `--ram`. Domyślne 6 GB to liczba dla czystej gry.
+- **69 plików konfiguracyjnych** pojawiło się po pierwszym uruchomieniu modów; samo
+  `PlantEverything` rozkłada się na **147 pozycji formularza** z opisami, typami i domyślnymi.
+- Zapis zmienił **dokładnie jedną linię w pliku mającym 760**, serwer wstał z kompletem wtyczek,
+  a poprzednia wersja wróciła jednym kliknięciem.
+
+Ten przebieg wyciągnął dwa błędy w rozpakowywaniu, oba z paczek pakowanych na Windowsie:
+ścieżki miały backslashe, więc `plugins\Mod.dll` lądował jako jeden plik z backslashem w nazwie,
+a `plugins\Translations\` nie było rozpoznane jako katalog i powstawał z tego pusty **plik**,
+przez co każdy prawdziwy plik pod nim się wywracał. Oba przypadki są teraz normalizowane.
 
 ## Konfiguracja modów — bez SSH i bez rozwalania
 

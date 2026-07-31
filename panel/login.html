@@ -182,7 +182,8 @@ async function load(){
         ? (PL?"Do wejścia potrzebujesz tych paczek w tych wersjach.":"You need these packages, in these versions, to join.")
         : (PL?"Serwer bez modów — nic nie musisz instalować.":"Vanilla server — nothing to install.");
       document.getElementById("mods").innerHTML=d.mods.map(m=>
-        `<tr><td>${esc(m.full_name)}</td><td class="muted">${esc(m.version||"?")}</td></tr>`).join("");
+        `<tr><td>${esc(m.name||m.full_name)}<div class="muted" style="font-size:11px">${esc(m.full_name)}</div></td>
+          <td class="muted">${esc(m.version||"?")}</td></tr>`).join("");
       document.getElementById("code-row").innerHTML=d.profile_code
         ? `<div class="cell"><div class="muted">${PL?"Kod do Thunderstore Mod Managera":"Thunderstore Mod Manager code"}</div>
             <div style="display:flex;gap:8px;align-items:center;margin-top:4px">
