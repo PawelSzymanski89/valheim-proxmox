@@ -43,7 +43,7 @@ Plus Start / Stop / Restart / Back up now / Check update.
 
 ### Panel login and getting back in
 
-The first login is always the same, deliberately: **`admin` / `valheim`**. No hunting through
+The first login is always the same, deliberately: **`admin` / `valheim123`**. No hunting through
 install output for a generated string. The panel shows a red banner until you change it in
 **Settings → Panel login**, and refuses to let you set the default back.
 

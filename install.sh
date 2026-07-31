@@ -23,7 +23,7 @@ SERVER_NAME=${SERVER_NAME:-Valheim}
 WORLD_NAME=${WORLD_NAME:-Dedicated}
 SERVER_PASS=${SERVER_PASS:-}
 PANEL_USER=${PANEL_USER:-admin}
-PANEL_PASS=${PANEL_PASS:-valheim}
+PANEL_PASS=${PANEL_PASS:-valheim123}
 
 usage() {
   cat <<USAGE
@@ -44,7 +44,7 @@ Valheim on Proxmox — creates an LXC and installs the server + admin panel.
   --world NAME        world name              (default: $WORLD_NAME)
   --password PASS     game password           (default: generated)
   --panel-user NAME   panel login             (default: $PANEL_USER)
-  --panel-pass PASS   panel password          (default: $PANEL_PASS, change it in the panel)
+  --panel-pass PASS   panel password          (default: valheim123, change it in the panel)
   -h, --help          this text
 
 Every flag also works as an environment variable (CTID=250 RAM=8192 …).
