@@ -154,6 +154,23 @@ sessions, last seen — and a bar per hour of the day showing when people actual
 comes out of the session log the panel already keeps, so nothing extra runs on the game server and
 nothing is asked of the players.
 
+## Link quality
+
+For a game server the line matters more than the CPU — Valheim is UDP, so latency and packet
+loss decide how it feels. The watcher pings hourly and records the average, the jitter and the
+loss; **throughput is measured rarely** (every six hours by default) and **only when nobody is
+playing**, because it means actually moving data.
+
+The numbers are honest because the method is: **four parallel streams, summed**. Measured on a
+1000/600 line, a single 25 MB download reported 551 Mbit/s and a single 100 MB upload 492 — on a
+10 ms path most of a short transfer is TLS and TCP ramp-up, not the line. Four streams of the same
+size reported **890–923 down and 618–637 up**, which is the line. 25 MB per stream is also the
+practical ceiling: Cloudflare answers 403 above 100 MB.
+
+A test moves about 200 MB. **Test the link now** in the panel runs it on demand; a bad result
+(over 10 % loss or above 150 ms) raises an alert, because that is the point at which players start
+blaming the server.
+
 ## Panel login and getting back in
 
 Login happens on the panel's own screen, not the browser's grey box: session cookie, signed
@@ -566,6 +583,23 @@ Zakładka **Gracze** prowadzi ranking — łączny czas gry, najdłuższa pojedy
 ostatnia obecność — oraz słupek na każdą godzinę doby, pokazujący, kiedy ludzie realnie grają.
 Wszystko wychodzi z dziennika sesji, który panel i tak prowadzi, więc na serwerze gry nic
 dodatkowego nie chodzi i nikt niczego nie musi instalować.
+
+## Jakość łącza
+
+Dla serwera gry łącze znaczy więcej niż procesor — Valheim chodzi po UDP, więc o odczuciu decydują
+opóźnienie i utrata pakietów. Obserwator pinguje co godzinę i zapisuje średnią, wahania oraz
+straty; **przepustowość mierzy rzadko** (domyślnie co sześć godzin) i **tylko gdy nikt nie gra**,
+bo to oznacza realne przepchnięcie danych.
+
+Liczby są uczciwe, bo metoda jest uczciwa: **cztery równoległe strumienie, zsumowane**. Zmierzone
+na łączu 1000/600: pojedyncze pobranie 25 MB pokazało 551 Mbit/s, a pojedyncza wysyłka 100 MB —
+492, bo przy 10 ms większość krótkiego transferu to TLS i rozpędzanie TCP, nie łącze. Cztery
+strumienie tej samej wielkości dały **890–923 w dół i 618–637 w górę**, czyli tyle, ile łącze ma.
+25 MB na strumień to też praktyczny sufit: Cloudflare powyżej 100 MB odpowiada 403.
+
+Jeden pomiar przepuszcza około 200 MB. **Zmierz łącze teraz** w panelu robi to na żądanie, a zły
+wynik (ponad 10 % strat albo powyżej 150 ms) podnosi alert — bo to moment, w którym gracze zaczynają
+obwiniać serwer.
 
 ## Dziennik panelu
 

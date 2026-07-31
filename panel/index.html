@@ -127,8 +127,12 @@
       <div class="grid" id="sum-join"></div>
       <div class="row" style="margin:18px 0 6px">
         <div class="muted">Connectivity checks</div>
-        <button class="mini" id="sum-recheck">Run checks again</button>
+        <div style="display:flex;gap:6px">
+          <button class="mini" id="sum-link">Test the link now</button>
+          <button class="mini" id="sum-recheck">Run checks again</button>
+        </div>
       </div>
+      <div id="sum-link-box" class="grid" style="margin-bottom:12px"></div>
       <table><thead><tr><th>Check</th><th>Result</th><th>Detail</th></tr></thead>
       <tbody id="sum-checks"><tr><td colspan="3" class="muted">—</td></tr></tbody></table>
       <div class="grid" id="sum-info" style="margin-top:18px"></div>
@@ -456,6 +460,18 @@ const I18N={
  "Server version":"Wersja serwera",
  "Port and whether a password is needed":"Port i czy potrzebne jest hasło",
  "Machine specs and live load":"Parametry maszyny i obciążenie na żywo",
+ "Test the link now":"Zmierz łącze teraz",
+ "Latency":"Opóźnienie",
+ "jitter":"wahania",
+ "Packet loss":"Utrata pakietów",
+ "what UDP actually cares about":"to, co realnie liczy się w UDP",
+ "Throughput":"Przepustowość",
+ "measured on an empty server":"mierzone na pustym serwerze",
+ "Checked":"Zmierzono",
+ "measuring — this moves 35 MB, a few seconds":"mierzę — przechodzi 35 MB, kilka sekund",
+ "not measured yet — the first check runs within the hour":"jeszcze nie mierzone — pierwszy pomiar w ciągu godziny",
+ "Link quality (latency, loss, speed)":"Jakość łącza (opóźnienie, straty, prędkość)",
+ "Connection degraded":"Łącze się pogorszyło",
  "Valheim — server admin":"Valheim — panel serwera",
  "Everything a server admin can control. In-game commands (kick, spawn, weather)":"Wszystko, czym steruje admin serwera. Komendy w grze (kick, spawn, pogoda)",
  "live in the F5 console — add yourself to":"są w konsoli F5 — dopisz się do",
@@ -622,6 +638,23 @@ function bar(pct,label){
     <div style="height:8px;background:var(--field);border-radius:5px;overflow:hidden;margin:5px 0 3px">
       <div style="height:100%;width:${Math.min(100,pct)}%;background:${col}"></div></div>`;
 }
+async function vhLink(run){
+  const el=$("sum-link-box");if(!el)return;
+  if(run)el.innerHTML=`<div class="stat muted">${t("measuring — this moves 35 MB, a few seconds")}</div>`;
+  try{
+    const d=await jf("/api/valheim/link"+(run?"/test":""),run?{method:"POST"}:undefined);
+    const p=d.ping,s=d.speed;
+    el.innerHTML=p?
+      `<div class="stat"><div class="muted">${t("Latency")}</div><div>${p.avg} ms</div>
+        <div class="muted">${t("jitter")} ${p.jitter} ms · min ${p.min} / max ${p.max}</div></div>`+
+      `<div class="stat"><div class="muted">${t("Packet loss")}</div><div>${p.loss}%</div>
+        <div class="muted">${t("what UDP actually cares about")}</div></div>`+
+      (s?`<div class="stat"><div class="muted">${t("Throughput")}</div><div>${s.down_mbit} / ${s.up_mbit} Mbit/s</div>
+        <div class="muted">${t("measured on an empty server")}</div></div>`:"")+
+      `<div class="stat"><div class="muted">${t("Checked")}</div><div>${fmtTs(d.last_ping)}</div></div>`
+      :`<div class="stat muted">${t("not measured yet — the first check runs within the hour")}</div>`;
+  }catch(e){el.innerHTML=`<div class="stat err">${esc(e.message)}</div>`;}
+}
 function paintMachine(){
   const el=$("sum-info");if(!el||!VH)return;
   const m=VH.machine,d=VH.disk,s=SUM||{},st=VH.settings||{};
@@ -782,7 +815,7 @@ function vhSettings(v){
   if(!$("vh-au-user").value)$("vh-au-user").value=s.panel_user||"admin";
   if(!$("pub-flags").children.length)vhPublic();
 }
-const PUB_LABELS={enabled:"Show the page at all",show_specs:"Machine specs and live load",show_players:"Number of players online",
+const PUB_LABELS={enabled:"Show the page at all",show_link:"Link quality (latency, loss, speed)",show_specs:"Machine specs and live load",show_players:"Number of players online",
   show_names:"Their names",show_mods:"Mod list and share code",show_metrics:"Load charts",
   show_version:"Server version",show_address:"Port and whether a password is needed"};
 async function vhPublic(){
@@ -868,13 +901,14 @@ async function vhSummary(){
     $("sum-checks").innerHTML=s.checks.map(c=>`<tr>
       <td>${esc(c.label)}</td><td>${STATE_ICON[c.state]||c.state}</td>
       <td class="muted">${esc(c.detail||"")}</td></tr>`).join("");
-    SUM=s; paintMachine();
+    SUM=s; paintMachine(); vhLink(false);
     document.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{
       navigator.clipboard.writeText($(b.dataset.copy).textContent).then(()=>toast("Copied","ok"),()=>toast("Copy failed","bad"));});
     $("sum-err").textContent="";
   }catch(e){$("sum-err").textContent=e.message;$("sum-checks").innerHTML='<tr><td colspan="3" class="muted">—</td></tr>';}
 }
 $("sum-recheck").onclick=vhSummary;
+$("sum-link").onclick=()=>vhLink(true);
 // ---- Mods ----
 let MODS=null;
 async function vhMods(check){
@@ -1374,6 +1408,23 @@ function bar(pct,label){
     <div style="height:8px;background:var(--field);border-radius:5px;overflow:hidden;margin:5px 0 3px">
       <div style="height:100%;width:${Math.min(100,pct)}%;background:${col}"></div></div>`;
 }
+async function vhLink(run){
+  const el=$("sum-link-box");if(!el)return;
+  if(run)el.innerHTML=`<div class="stat muted">${t("measuring — this moves 35 MB, a few seconds")}</div>`;
+  try{
+    const d=await jf("/api/valheim/link"+(run?"/test":""),run?{method:"POST"}:undefined);
+    const p=d.ping,s=d.speed;
+    el.innerHTML=p?
+      `<div class="stat"><div class="muted">${t("Latency")}</div><div>${p.avg} ms</div>
+        <div class="muted">${t("jitter")} ${p.jitter} ms · min ${p.min} / max ${p.max}</div></div>`+
+      `<div class="stat"><div class="muted">${t("Packet loss")}</div><div>${p.loss}%</div>
+        <div class="muted">${t("what UDP actually cares about")}</div></div>`+
+      (s?`<div class="stat"><div class="muted">${t("Throughput")}</div><div>${s.down_mbit} / ${s.up_mbit} Mbit/s</div>
+        <div class="muted">${t("measured on an empty server")}</div></div>`:"")+
+      `<div class="stat"><div class="muted">${t("Checked")}</div><div>${fmtTs(d.last_ping)}</div></div>`
+      :`<div class="stat muted">${t("not measured yet — the first check runs within the hour")}</div>`;
+  }catch(e){el.innerHTML=`<div class="stat err">${esc(e.message)}</div>`;}
+}
 function paintMachine(){
   const el=$("sum-info");if(!el||!VH)return;
   const m=VH.machine,d=VH.disk,s=SUM||{},st=VH.settings||{};
@@ -1534,7 +1585,7 @@ function vhSettings(v){
   if(!$("vh-au-user").value)$("vh-au-user").value=s.panel_user||"admin";
   if(!$("pub-flags").children.length)vhPublic();
 }
-const PUB_LABELS={enabled:"Show the page at all",show_specs:"Machine specs and live load",show_players:"Number of players online",
+const PUB_LABELS={enabled:"Show the page at all",show_link:"Link quality (latency, loss, speed)",show_specs:"Machine specs and live load",show_players:"Number of players online",
   show_names:"Their names",show_mods:"Mod list and share code",show_metrics:"Load charts",
   show_version:"Server version",show_address:"Port and whether a password is needed"};
 async function vhPublic(){
@@ -1620,13 +1671,14 @@ async function vhSummary(){
     $("sum-checks").innerHTML=s.checks.map(c=>`<tr>
       <td>${esc(c.label)}</td><td>${STATE_ICON[c.state]||c.state}</td>
       <td class="muted">${esc(c.detail||"")}</td></tr>`).join("");
-    SUM=s; paintMachine();
+    SUM=s; paintMachine(); vhLink(false);
     document.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{
       navigator.clipboard.writeText($(b.dataset.copy).textContent).then(()=>toast("Copied","ok"),()=>toast("Copy failed","bad"));});
     $("sum-err").textContent="";
   }catch(e){$("sum-err").textContent=e.message;$("sum-checks").innerHTML='<tr><td colspan="3" class="muted">—</td></tr>';}
 }
 $("sum-recheck").onclick=vhSummary;
+$("sum-link").onclick=()=>vhLink(true);
 // ---- Mods ----
 let MODS=null;
 async function vhMods(check){

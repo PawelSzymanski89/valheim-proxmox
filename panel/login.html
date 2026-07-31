@@ -158,6 +158,12 @@ async function load(){
     if(d.port)c.push(cell(PL?"Port":"Port",d.port+"–"+(d.port+2)+" UDP"));
     if(d.password_required!==undefined)c.push(cell(PL?"Hasło do wejścia":"Password to join",
       d.password_required?(PL?"tak":"yes"):(PL?"nie":"no")));
+    if(d.link&&d.link.ping){
+      const p=d.link.ping,s=d.link.speed;
+      c.push(cell(PL?"Łącze serwera":"Server link",
+        `${p.avg} ms · ${PL?"wahania":"jitter"} ${p.jitter} ms · ${PL?"straty":"loss"} ${p.loss}%`+
+        (s?`<div class="muted" style="margin-top:3px">${s.down_mbit} / ${s.up_mbit} Mbit/s</div>`:"")));
+    }
     if(d.specs){
       const gb=b=>b?(b/1073741824).toFixed(b<10*1073741824?1:0)+" GB":"—";
       c.push(cell(PL?"Maszyna":"Machine",`${d.specs.cores} ${PL?"rdzeni":"cores"} · ${gb(d.specs.ram)} RAM · ${gb(d.specs.disk)}`));

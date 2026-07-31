@@ -1446,15 +1446,17 @@ def mod_config_restore(name: str, stamp: int, restart: bool = False):
 VH_ALERTS = Path(os.environ.get("VH_ALERTS", f"{VH_DIR}/alerts.json"))
 VH_PUBLIC = Path(f"{VH_DIR}/public.json")
 VH_METRICS = Path(f"{VH_DIR}/metrics.json")
+VH_LINK = Path(f"{VH_DIR}/link.json")
 METRIC_POINTS = 1440          # one a minute = last 24 h
 # Minimal by default. Everything here is visible to the whole internet, so each extra field
 # is opt-in: a version number narrows down what to try against the server, a mod list and a
 # load chart tell a stranger what runs there and when nobody is watching.
 PUBLIC_DEFAULT = {"enabled": True, "show_players": True, "show_names": False,
                   "show_mods": False, "show_metrics": False, "show_version": False,
-                  "show_address": False, "show_specs": False, "note": ""}
+                  "show_address": False, "show_specs": False, "show_link": False, "note": ""}
 VH_COUNT = Path(f"{VH_DIR}/players.count")   # read by update.sh so it can hold off too
 ALERT_EVENTS = {
+    "link_bad": "Connection degraded",
     "server_down": "Server stopped",
     "server_up": "Server is up",
     "player_join": "Player joined",
@@ -1470,7 +1472,8 @@ ALERTS_DEFAULT = {
     "enabled": True,
     "events": {k: k not in ("player_leave",) for k in ALERT_EVENTS},
     "schedule": {"restart_at": "", "only_when_empty": True, "defer_minutes": 30,
-                 "update_when_empty": True, "disk_warn_gb": 3},
+                 "update_when_empty": True, "disk_warn_gb": 3,
+                 "link_minutes": 60, "link_speed_hours": 6},
 }
 
 
@@ -1599,6 +1602,10 @@ def public_status():
                            "mem": round(100 * (1 - avail / total), 1)}
         except Exception:
             pass
+    if cfg.get("show_link"):
+        link = _link_state()
+        out["link"] = {"ping": link.get("ping"), "speed": link.get("speed"),
+                       "checked": link.get("last_ping") or None}
     if cfg.get("show_metrics"):
         try:
             out["metrics"] = json.loads(VH_METRICS.read_text())[-720:]
@@ -1616,7 +1623,7 @@ def public_cfg_get():
 def public_cfg_set(body: dict = Body(...)):
     cfg = _public_cfg()
     for k in ("enabled", "show_players", "show_names", "show_mods", "show_metrics",
-              "show_version", "show_address", "show_specs"):
+              "show_version", "show_address", "show_specs", "show_link"):
         if k in body:
             cfg[k] = bool(body[k])
     if "note" in body:
@@ -1669,7 +1676,7 @@ def alerts_set(body: dict = Body(...)):
     for k in ("only_when_empty", "update_when_empty"):
         if k in s:
             cfg["schedule"][k] = bool(s[k])
-    for k in ("defer_minutes", "disk_warn_gb"):
+    for k in ("defer_minutes", "disk_warn_gb", "link_minutes", "link_speed_hours"):
         if k in s:
             cfg["schedule"][k] = max(1, min(720, int(s[k])))
     VH_ALERTS.write_text(json.dumps(cfg, indent=1))
@@ -1689,6 +1696,70 @@ def alerts_test():
     if not ok:
         raise HTTPException(502, "ntfy did not accept the message — check the server, topic and token")
     return {"ok": True}
+
+
+# ---------- link quality ----------
+# For a game server the line matters more than the CPU: Valheim is UDP, so latency and packet
+# loss decide how it feels. Those are cheap, so they run hourly. Throughput is not cheap — it
+# means actually moving tens of megabytes — so it runs rarely and never while people play.
+def _ping(host="1.1.1.1", count=5):
+    out = _sh(f"ping -c {count} -q -w 15 {host}", timeout=30).stdout
+    loss = re.search(r"([\d.]+)% packet loss", out)
+    rtt = re.search(r"= ([\d.]+)/([\d.]+)/([\d.]+)/([\d.]+)", out)
+    if not rtt:
+        return None
+    return {"host": host, "loss": float(loss.group(1)) if loss else None,
+            "min": float(rtt.group(1)), "avg": float(rtt.group(2)),
+            "max": float(rtt.group(3)), "jitter": float(rtt.group(4))}
+
+
+def _speedtest(streams=4, chunk_mb=25):
+    """Four parallel streams, summed — one is not enough.
+
+    Measured on a 1000/600 line: a single 25 MB download reported 551 Mbit/s and a single
+    100 MB upload 492, because on a 10 ms path most of a short transfer is TLS and TCP
+    ramp-up. Four streams of the same size reported 923 down and 637 up, which is the line.
+    25 MB per stream is also the ceiling that matters: Cloudflare answers 403 above 100 MB.
+    """
+    def _sum(cmd, key):
+        out = _sh(f"for i in $(seq {streams}); do ( {cmd} ) & done > /tmp/.spd; wait; "
+                  f"awk '{{s+=$1}} END{{printf \"%.0f\", s}}' /tmp/.spd", timeout=180).stdout.strip()
+        return float(out) if out else 0.0
+
+    bytes_ = chunk_mb * 1000000
+    down = _sum(f"curl -s -o /dev/null -w '%{{speed_download}}\n' --max-time 60 "
+                f"'https://speed.cloudflare.com/__down?bytes={bytes_}'", "down")
+    up = _sum(f"head -c {bytes_} /dev/zero | curl -s -o /dev/null -X POST --data-binary @- "
+              f"-w '%{{speed_upload}}\n' --max-time 60 https://speed.cloudflare.com/__up", "up")
+    if not down and not up:
+        return None
+    return {"down_mbit": round(down * 8 / 1e6), "up_mbit": round(up * 8 / 1e6),
+            "streams": streams, "moved_mb": streams * chunk_mb * 2}
+
+
+def _link_state():
+    try:
+        return json.loads(VH_LINK.read_text())
+    except Exception:
+        return {"last_ping": 0, "last_speed": 0, "ping": None, "speed": None, "history": []}
+
+
+@app.get("/api/valheim/link")
+def link_status():
+    return _link_state()
+
+
+@app.post("/api/valheim/link/test")
+def link_test():
+    """Measure now, regardless of the schedule — the button in the panel."""
+    st = _link_state()
+    st["ping"], st["last_ping"] = _ping(), int(time.time())
+    st["speed"], st["last_speed"] = _speedtest(), int(time.time())
+    st["history"] = (st.get("history") or [])[-167:] + [{"t": st["last_ping"], **(st["ping"] or {}),
+                                                         **(st["speed"] or {})}]
+    VH_LINK.write_text(json.dumps(st))
+    _log("link.test", ping=st["ping"], speed=st["speed"])
+    return st
 
 
 # ---------- background watcher ----------
@@ -1748,6 +1819,27 @@ def _tick():
                     "cpu": round(100 * m["load"][0] / m["cores"], 1) if m.get("cores") else None,
                     "mem": round(100 * (1 - m["mem_avail"] / m["mem_total"]), 1) if m.get("mem_total") else None})
         VH_METRICS.write_text(json.dumps(pts[-METRIC_POINTS:]))
+    except Exception:
+        pass
+
+    # link quality: latency hourly, throughput rarely and only on an empty server
+    try:
+        link = _link_state()
+        sch = cfg["schedule"]
+        if now - link.get("last_ping", 0) >= sch.get("link_minutes", 60) * 60:
+            p = _ping()
+            link["ping"], link["last_ping"] = p, now
+            if p and ((p.get("loss") or 0) > 10 or p["avg"] > 150):
+                _notify("link_bad", "Connection degraded",
+                        f"{p['avg']} ms, {p.get('loss')}% packet loss — players will feel this.",
+                        priority="high", tags="signal_strength")
+            entry = {"t": now, **(p or {})}
+            if not now_on and now - link.get("last_speed", 0) >= sch.get("link_speed_hours", 6) * 3600:
+                s2 = _speedtest()
+                link["speed"], link["last_speed"] = s2, now
+                entry.update(s2 or {})
+            link["history"] = (link.get("history") or [])[-167:] + [entry]
+            VH_LINK.write_text(json.dumps(link))
     except Exception:
         pass
 
