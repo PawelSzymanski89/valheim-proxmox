@@ -16,6 +16,28 @@ password at the end.
 
 Takes a few minutes — most of it is Steam pulling ~1.5 GB.
 
+## What it looks like
+
+The panel keeps its own dark norse skin — stone, soot and dimmed gold — on the login screen
+and inside. Interface in English or Polish, switch in the top right.
+
+| | |
+|---|---|
+| ![Login](docs/login.png) | ![Mods](docs/mods.png) |
+| **Login** — the panel's own screen, not the browser's grey box | **Mods** — paste a Thunderstore share code, pick what to install |
+
+![Summary](docs/summary.png)
+
+**Summary** — join addresses with copy buttons, live load of the container, and checks that
+say what they prove. Addresses and secrets in these shots are masked by the panel itself:
+open it with `?demo=1` and every IP, password, join code and profile code is replaced with
+a documentation value, so a screenshot never leaks the network it was taken on.
+
+![Settings](docs/settings.png)
+
+**Settings** — server name, world, ports, listing, crossplay, world preset and modifiers,
+plus the panel login.
+
 ## What you get
 
 | | |

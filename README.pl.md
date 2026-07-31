@@ -16,6 +16,28 @@ stawia panel i na koniec wypisuje adres, login oraz wygenerowane hasło.
 
 Trwa kilka minut — prawie całość to pobieranie ~1,5 GB ze Steama.
 
+## Jak to wygląda
+
+Panel ma własną mroczną nordycką skórę — kamień, sadza i przygaszone złoto — na ekranie
+logowania i w środku. Interfejs po polsku albo angielsku, przełącznik w prawym górnym rogu.
+
+| | |
+|---|---|
+| ![Logowanie](docs/login.png) | ![Mody](docs/mods.png) |
+| **Logowanie** — własny ekran, nie szare okienko przeglądarki | **Mody** — wklejasz kod z Thunderstore i wybierasz, co zainstalować |
+
+![Podsumowanie](docs/summary.png)
+
+**Podsumowanie** — adresy do wklejenia z przyciskiem kopiowania, żywe obciążenie kontenera
+i testy, które mówią wprost, czego dowodzą. Adresy i sekrety na tych zrzutach maskuje sam
+panel: otwierasz go z `?demo=1` i każde IP, hasło, kod dołączenia i kod profilu zamienia się
+na wartość przykładową — zrzut nigdy nie wynosi sieci, w której powstał.
+
+![Ustawienia](docs/settings.png)
+
+**Ustawienia** — nazwa serwera, świat, porty, widoczność, crossplay, preset i modyfikatory
+świata oraz logowanie do panelu.
+
 ## Co dostajesz
 
 | | |
