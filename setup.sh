@@ -7,7 +7,7 @@ set -euo pipefail
 VH_DIR=${VH_DIR:-/opt/valheim}
 PANEL_PORT=${PANEL_PORT:-2460}
 PANEL_USER=${PANEL_USER:-admin}
-PANEL_PASS=${PANEL_PASS:-valheim}   # always the same on a fresh install, on purpose — you
+PANEL_PASS=${PANEL_PASS:-valheim123}   # always the same on a fresh install, on purpose — you
                                     # change it in the panel and the panel nags until you do
 GAME_PORT=${GAME_PORT:-2456}
 SERVER_NAME=${SERVER_NAME:-Valheim}

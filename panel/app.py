@@ -32,7 +32,7 @@ VH_PANEL_ENV = f"{VH_DIR}/panel.env"
 VH_STORE = Path(os.environ.get("VH_STORE", f"{VH_DIR}/players.json"))
 HERE = Path(__file__).resolve().parent
 
-PANEL_DEFAULT_PASS = "valheim"   # the installer's starting password; the UI nags until changed
+PANEL_DEFAULT_PASS = "valheim123"   # the installer's starting password; the UI nags until changed
 VH_LISTS = {"admin": "adminlist.txt", "banned": "bannedlist.txt", "permitted": "permittedlist.txt"}
 VH_TIMERS = {"backup": "valheim-backup.timer", "update": "valheim-update.timer"}
 # What the game server (0.221) actually accepts. Nothing outside these sets reaches

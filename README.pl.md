@@ -43,7 +43,7 @@ Plus Start / Stop / Restart / Backup teraz / Sprawdź update.
 
 ### Logowanie do panelu i odzyskiwanie dostępu
 
-Pierwsze logowanie jest **zawsze takie samo, celowo**: **`admin` / `valheim`**. Żadnego
+Pierwsze logowanie jest **zawsze takie samo, celowo**: **`admin` / `valheim123`**. Żadnego
 szukania wylosowanego ciągu w wyjściu instalatora. Panel pokazuje czerwony baner, dopóki
 hasła nie zmienisz w **Ustawieniach → Logowanie do panelu**, i nie pozwoli ustawić
 domyślnego z powrotem.
