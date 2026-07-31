@@ -55,7 +55,12 @@ set +e
 runuser -u valheim -- env HOME="$VH_DIR" "$VH_DIR/steamcmd/steamcmd.sh" +force_install_dir "$VH_DIR/server" \
   +login anonymous +app_update $APPID validate +quit 2>&1 \
   | tee -a "$VH_DIR/steam-install.log" | tr '\r' '\n' \
-  | grep --line-buffered -E 'Update state|Success! App|ERROR!' | sed -u 's/^/      /'
+  | grep --line-buffered -E 'Update state|Success! App|ERROR!' \
+  | awk '{ if (match($0, /progress: [0-9.]+/)) {
+             p = int(substr($0, RSTART + 10, RLENGTH - 10) / 10)   # every ~10%, not every poll
+             if (p == seen) next
+             seen = p }
+           print "      " $0; fflush() }'
 set -e
 [ -x "$VH_DIR/server/valheim_server.x86_64" ] || die "Steam download failed — see $VH_DIR/steam-install.log"
 
