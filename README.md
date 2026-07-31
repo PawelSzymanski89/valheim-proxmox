@@ -1,0 +1,131 @@
+# valheim-proxmox
+
+One command on a Proxmox host gives you a Valheim dedicated server in its own LXC,
+plus a web panel to run it. No RCON gymnastics, no Docker, no game panel to babysit.
+
+🇵🇱 **[Polska wersja tego pliku → README.pl.md](README.pl.md)**
+
+```bash
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/install.sh)"
+```
+
+Run it **on the Proxmox VE host** (as root). It creates an unprivileged Debian 12
+container, installs SteamCMD and the Valheim dedicated server, sets up systemd units and
+timers, installs the admin panel, and prints the address, the login and the generated
+password at the end.
+
+Takes a few minutes — most of it is Steam pulling ~1.5 GB.
+
+## What you get
+
+| | |
+|---|---|
+| **Game server** | Valheim dedicated, systemd unit with a clean stop (`SIGINT`, so the world is saved) |
+| **Panel** | web UI on port **2460**, HTTP Basic auth, password generated at install |
+| **Backups** | world snapshot every 2 h, 30 kept, restore with one click |
+| **Updates** | checks Steam every 2 h and restarts **only** when there is a new build |
+| **Defaults** | 4 cores, 6 GB RAM, 30 GB disk, container starts on boot |
+
+## The panel
+
+| Tab | What it does |
+|---|---|
+| **Players** | who is online right now — name, id, **live session timer** — and a persistent login history (first seen / last seen / number of joins) |
+| **Access & bans** | admin list, ban list, allowlist; ban straight from the online list or the history |
+| **World** | list worlds, switch the active one, download, delete, upload a `.db` + `.fwl` pair |
+| **Backups** | restore, download, delete; toggles for the auto-backup and auto-update timers |
+| **Settings** | server name, world, password, **game port**, **panel port**, public listing, crossplay, world preset and modifiers (combat, death penalty, resources, raids, portals) and the world toggles (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
+| **Log** | server events, with the PlayFab keepalive noise filtered out |
+
+Plus Start / Stop / Restart / Back up now / Check update.
+
+### Login
+
+The installer generates a random 16-character password and prints it **once**. There is
+no fixed default on purpose — a shipped default password would be identical on every
+install of this repo. Change the user and password in **Settings → Panel login**;
+credentials are read per request, so the change is immediate, no restart.
+
+They live in `/opt/valheim/panel.env` (mode 600, root-owned).
+
+### Ports
+
+| Port | What |
+|---|---|
+| `2456-2458/udp` | the game (Valheim always uses three consecutive ports starting at the one you set) |
+| `2460/tcp` | the panel — picked to sit right next to the game ports so it is easy to remember, and clear of the usual suspects (8080, 8000, 9000, 8006…) |
+
+Both are changeable in **Settings**. Changing the panel port restarts the panel through
+`systemd-run`, so the request that changed it still gets an answer. The panel refuses a
+port that would land inside the game's three-port range.
+
+## Playing from the internet
+
+Forward **UDP 2456-2458** to the container on your router. That is all the game needs —
+Valheim is raw UDP, it does not go through a reverse proxy and does not need a certificate.
+
+**Keep the panel off the internet.** It can delete worlds and hand out world downloads.
+LAN or VPN only. If you must expose it, put it behind a reverse proxy with its own auth.
+
+## Options
+
+Every value can be overridden with an environment variable:
+
+```bash
+CTID=250 RAM=8192 CORES=6 DISK=40 GAME_PORT=2456 PANEL_PORT=2460 \
+SERVER_NAME="Klans" WORLD_NAME="Midgard" SERVER_PASS="letmein42" \
+bash -c "$(curl -fsSL .../install.sh)"
+```
+
+| Variable | Default | |
+|---|---|---|
+| `CTID` | next free id | container id |
+| `HOSTNAME_` | `valheim` | container hostname |
+| `CORES` / `RAM` / `DISK` | `4` / `6144` / `30` | cores / MB / GB |
+| `STORAGE` | first storage that takes a rootfs | where the container disk goes |
+| `BRIDGE` | `vmbr0` | network bridge |
+| `GAME_PORT` / `PANEL_PORT` | `2456` / `2460` | |
+| `SERVER_NAME` / `WORLD_NAME` | `Valheim` / `Dedicated` | |
+| `SERVER_PASS` | random 10 chars | game password (5+ chars, must not contain the server or world name — the game rejects that) |
+
+## Installing without Proxmox
+
+`setup.sh` works on any Debian 12 machine on its own:
+
+```bash
+curl -fsSL .../setup.sh -o setup.sh && bash setup.sh
+```
+
+## Layout
+
+```
+/opt/valheim/
+├── server/            game files (SteamCMD)
+├── data/              savedir: worlds_local/, adminlist.txt, bannedlist.txt, permittedlist.txt
+├── backups/           world-YYYYMMDD-HHMMSS.tar.gz, 30 kept
+├── server.env         launch settings — this is what the panel edits
+├── panel.env          panel user, password, port (600)
+├── players.json       login history (the journal rotates, this does not)
+├── start.sh           assembles the launch arguments from server.env
+├── backup.sh          world snapshot + retention
+├── update.sh          Steam build check, restarts only when there is a new build
+└── panel/             app.py, index.html, .venv
+```
+
+systemd: `valheim`, `valheim-panel`, `valheim-backup.timer`, `valheim-update.timer`.
+
+## Honest limitations
+
+- **Valheim has no RCON.** In-game commands (kick, spawn, weather, god mode) are typed in
+  the F5 console by a player whose id is in `adminlist.txt`. The panel manages that list —
+  it cannot type into the game for you. A "kick" here is a ban followed by an unban.
+- **The online player list is a heuristic.** The log line that carries the player name
+  (`Got character ZDOID from …`) does not carry the player id, so names are matched to
+  connections in order of arrival. The authoritative counter (`Connections N`) is printed
+  only every ~10 minutes; when the two disagree the panel says so rather than hiding it.
+- **The panel runs as root** in its own container. It calls `systemctl` and writes into
+  `/opt/valheim`. That is why it is a dedicated container and why it should not face the internet.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
