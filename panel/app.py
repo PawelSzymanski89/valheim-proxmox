@@ -995,12 +995,16 @@ def _unpack(data, dest, strip=None):
     import zipfile
     import io
     dest = Path(dest)
-    skip = {"manifest.json", "icon.png", "readme.md", "changelog.md", "license", "license.txt"}
+    skip = {"icon.png", "readme.md", "changelog.md", "license", "license.txt"}
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         for info in z.infolist():
-            if info.is_dir():
+            # Some packages are zipped on Windows and carry backslashes as separators. Both
+            # checks below must run on the normalised name: is_dir() looks for a trailing "/",
+            # so "plugins\\Translations\\" would otherwise land as an empty *file* named
+            # Translations, and every real file under it then fails with "not a directory".
+            name = info.filename.replace("\\", "/")
+            if name.endswith("/") or info.is_dir():
                 continue
-            name = info.filename
             if strip and name.startswith(strip):
                 name = name[len(strip):]
             if not name or name.split("/")[-1].lower() in skip and "/" not in name:
@@ -1046,7 +1050,14 @@ def _install_mod(ns, name, version=None):
     _sh(f"rm -rf {shlex.quote(str(target))}")
     _unpack(data, target)
     _sh(f"chown -R valheim:valheim {shlex.quote(str(target))}")
-    return {"full_name": full, "version": version, "size": len(data)}
+    meta = {}
+    try:
+        mf = json.loads((target / "manifest.json").read_text())
+        meta = {"name": mf.get("name"), "description": (mf.get("description") or "")[:200],
+                "website": mf.get("website_url") or None}
+    except Exception:
+        pass
+    return {"full_name": full, "version": version, "size": len(data), **meta}
 
 
 def _profile(code):
@@ -1077,16 +1088,28 @@ TS_CACHE = {}          # full_name -> (checked_at, latest_version)
 
 
 def _ts_latest(full_name, max_age=3600):
-    """Newest version on Thunderstore, cached — the index is huge and this runs per package."""
+    """Newest version on Thunderstore, cached — the index is huge and this runs per package.
+    Also fills in the display name and description for packages installed before manifests
+    were kept, so nobody has to re-download 1.4 GB just to get pretty names."""
     hit = TS_CACHE.get(full_name)
     if hit and time.time() - hit[0] < max_age:
         return hit[1]
     ns, _, name = full_name.partition("-")
+    ver, meta = None, {}
     try:
-        ver = _ts_package(ns, name)["latest"]["version_number"]
+        pkg = _ts_package(ns, name)
+        ver = pkg["latest"]["version_number"]
+        meta = {"name": pkg.get("name") or name,
+                "description": (pkg["latest"].get("description") or "")[:200],
+                "website": pkg.get("package_url")}
     except Exception:
-        ver = None
+        pass
     TS_CACHE[full_name] = (time.time(), ver)
+    if meta:
+        st = _mods_state()
+        if full_name in st.get("mods", {}):
+            st["mods"][full_name].update({k: v for k, v in meta.items() if v})
+            _mods_save(st)
     return ver
 
 
@@ -1098,6 +1121,15 @@ def mods_state(check: bool = False):
     for d in sorted(installed):
         rec = dict(st.get("mods", {}).get(d, {}))
         rec["full_name"] = d
+        if not rec.get("name"):
+            try:
+                mf = json.loads((Path(VH_PLUGINS) / d / "manifest.json").read_text())
+                rec["name"] = mf.get("name")
+                rec["description"] = (mf.get("description") or "")[:200]
+                rec.setdefault("version", mf.get("version_number"))
+            except Exception:
+                rec["name"] = d.partition("-")[2] or d
+        rec["author"] = d.partition("-")[0]
         rec["pinned"] = bool(rec.get("pinned"))
         if check:
             rec["latest"] = _ts_latest(d)
@@ -1195,7 +1227,8 @@ def mods_install(p: ModPick):
         ns, _, name = (full or "").partition("-")
         try:
             got = _install_mod(ns, name, ver)
-            st.setdefault("mods", {})[got["full_name"]] = {"version": got["version"]}
+            st.setdefault("mods", {})[got["full_name"]] = {
+                k: v for k, v in got.items() if k in ("version", "name", "description", "website")}
             report["installed"].append(got)
         except HTTPException as e:
             report["failed"].append({"full_name": full, "error": e.detail})
@@ -1239,7 +1272,9 @@ def mods_update(u: ModUpdate):
         ns, _, name = full.partition("-")
         try:
             got = _install_mod(ns, name)          # no version = latest
-            st["mods"][full] = {**st["mods"].get(full, {}), "version": got["version"]}
+            st["mods"][full] = {**st["mods"].get(full, {}),
+                                **{k: v for k, v in got.items()
+                                   if k in ("version", "name", "description", "website")}}
             done.append(got)
         except HTTPException as e:
             failed.append({"full_name": full, "error": e.detail})
@@ -1588,7 +1623,9 @@ def public_status():
         if cfg.get("show_names"):
             out["names"] = [c.get("name") for c in conns if c.get("name")]
     if cfg.get("show_mods"):
-        out["mods"] = [{"full_name": k, "version": v.get("version")} for k, v in sorted(st.get("mods", {}).items())]
+        out["mods"] = [{"full_name": k, "version": v.get("version"), "name": v.get("name")}
+                       for k, v in sorted(st.get("mods", {}).items(),
+                                          key=lambda kv: (kv[1].get("name") or kv[0]).lower())]
         out["profile_code"] = st.get("profile_code")
     if cfg.get("show_specs"):
         m = (_sections(_sh("echo '@machine'; cat /proc/loadavg; nproc; "
