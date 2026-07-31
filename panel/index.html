@@ -455,6 +455,7 @@ const I18N={
  "Load charts":"Wykresy obciążenia",
  "Server version":"Wersja serwera",
  "Port and whether a password is needed":"Port i czy potrzebne jest hasło",
+ "Machine specs and live load":"Parametry maszyny i obciążenie na żywo",
  "Valheim — server admin":"Valheim — panel serwera",
  "Everything a server admin can control. In-game commands (kick, spawn, weather)":"Wszystko, czym steruje admin serwera. Komendy w grze (kick, spawn, pogoda)",
  "live in the F5 console — add yourself to":"są w konsoli F5 — dopisz się do",
@@ -781,7 +782,7 @@ function vhSettings(v){
   if(!$("vh-au-user").value)$("vh-au-user").value=s.panel_user||"admin";
   if(!$("pub-flags").children.length)vhPublic();
 }
-const PUB_LABELS={enabled:"Show the page at all",show_players:"Number of players online",
+const PUB_LABELS={enabled:"Show the page at all",show_specs:"Machine specs and live load",show_players:"Number of players online",
   show_names:"Their names",show_mods:"Mod list and share code",show_metrics:"Load charts",
   show_version:"Server version",show_address:"Port and whether a password is needed"};
 async function vhPublic(){
@@ -1533,7 +1534,7 @@ function vhSettings(v){
   if(!$("vh-au-user").value)$("vh-au-user").value=s.panel_user||"admin";
   if(!$("pub-flags").children.length)vhPublic();
 }
-const PUB_LABELS={enabled:"Show the page at all",show_players:"Number of players online",
+const PUB_LABELS={enabled:"Show the page at all",show_specs:"Machine specs and live load",show_players:"Number of players online",
   show_names:"Their names",show_mods:"Mod list and share code",show_metrics:"Load charts",
   show_version:"Server version",show_address:"Port and whether a password is needed"};
 async function vhPublic(){

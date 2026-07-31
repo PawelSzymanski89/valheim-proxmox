@@ -1408,7 +1408,7 @@ METRIC_POINTS = 1440          # one a minute = last 24 h
 # load chart tell a stranger what runs there and when nobody is watching.
 PUBLIC_DEFAULT = {"enabled": True, "show_players": True, "show_names": False,
                   "show_mods": False, "show_metrics": False, "show_version": False,
-                  "show_address": False, "note": ""}
+                  "show_address": False, "show_specs": False, "note": ""}
 VH_COUNT = Path(f"{VH_DIR}/players.count")   # read by update.sh so it can hold off too
 ALERT_EVENTS = {
     "server_down": "Server stopped",
@@ -1541,6 +1541,20 @@ def public_status():
     if cfg.get("show_mods"):
         out["mods"] = [{"full_name": k, "version": v.get("version")} for k, v in sorted(st.get("mods", {}).items())]
         out["profile_code"] = st.get("profile_code")
+    if cfg.get("show_specs"):
+        m = (_sections(_sh("echo '@machine'; cat /proc/loadavg; nproc; "
+                           "awk '/MemTotal|MemAvailable/{print $2}' /proc/meminfo",
+                           timeout=20).stdout).get("machine") or [])
+        try:
+            la = m[0].split()
+            cores, total, avail = int(m[1]), int(m[2]) * 1024, int(m[3]) * 1024
+            disk = _sh(f"df -B1 --output=used,avail {VH_DIR} | tail -1").stdout.split()
+            out["specs"] = {"cores": cores, "ram": total,
+                            "disk": (int(disk[0]) + int(disk[1])) if len(disk) == 2 else None}
+            out["load"] = {"cpu": round(100 * float(la[0]) / cores, 1),
+                           "mem": round(100 * (1 - avail / total), 1)}
+        except Exception:
+            pass
     if cfg.get("show_metrics"):
         try:
             out["metrics"] = json.loads(VH_METRICS.read_text())[-720:]
@@ -1558,7 +1572,7 @@ def public_cfg_get():
 def public_cfg_set(body: dict = Body(...)):
     cfg = _public_cfg()
     for k in ("enabled", "show_players", "show_names", "show_mods", "show_metrics",
-              "show_version", "show_address"):
+              "show_version", "show_address", "show_specs"):
         if k in body:
             cfg[k] = bool(body[k])
     if "note" in body:
