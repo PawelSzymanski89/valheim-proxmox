@@ -157,11 +157,11 @@ nothing is asked of the players.
 ## Link quality
 
 For a game server the line matters more than the CPU — Valheim is UDP, so latency and packet
-loss decide how it feels. **Nothing is measured while anyone is playing** — not the throughput, which moves 200 MB, and not
-even the ping. Five packets would disturb nobody, but the line belongs to whoever is on it. With
-an empty server the watcher pings hourly and records the average, the jitter and the loss, and
-measures throughput every six hours. All three intervals, and the leave-them-alone rule itself,
-are settings.
+loss decide how it feels. Two costs, two rules. **The ping keeps running while people play** — five packets over four
+seconds, and that is exactly when the evidence is worth having, because *"it was lagging last
+night"* is unanswerable if the graph has a hole in it. **Throughput waits for an empty server**,
+because it pushes 200 MB through the line those same people are using. Hourly and six-hourly by
+default; both intervals and both rules are settings.
 
 The numbers are honest because the method is: **four parallel streams, summed**. Measured on a
 1000/600 line, a single 25 MB download reported 551 Mbit/s and a single 100 MB upload 492 — on a
@@ -589,11 +589,11 @@ dodatkowego nie chodzi i nikt niczego nie musi instalować.
 ## Jakość łącza
 
 Dla serwera gry łącze znaczy więcej niż procesor — Valheim chodzi po UDP, więc o odczuciu decydują
-opóźnienie i utrata pakietów. **Dopóki ktokolwiek gra, nie mierzy się nic** — ani przepustowości, która przepycha 200 MB, ani
-nawet pinga. Pięć pakietów nikomu by nie przeszkodziło, ale łącze należy do tego, kto na nim
-siedzi. Na pustym serwerze obserwator pinguje co godzinę i zapisuje średnią, wahania i straty, a
-przepustowość mierzy co sześć godzin. Wszystkie trzy interwały i sama zasada „nie ruszaj, gdy
-grają" to ustawienia.
+opóźnienie i utrata pakietów. Dwa różne koszty, więc dwie różne zasady. **Ping chodzi także wtedy, gdy ludzie grają** — pięć
+pakietów przez cztery sekundy, a to właśnie wtedy ten pomiar jest coś wart, bo na *„wczoraj
+wieczorem lagowało"* nie ma odpowiedzi, gdy w wykresie jest dziura. **Przepustowość czeka na pusty
+serwer**, bo przepycha 200 MB przez to samo łącze, na którym ci ludzie siedzą. Domyślnie co godzinę
+i co sześć godzin; oba interwały i obie zasady to ustawienia.
 
 Liczby są uczciwe, bo metoda jest uczciwa: **cztery równoległe strumienie, zsumowane**. Zmierzone
 na łączu 1000/600: pojedyncze pobranie 25 MB pokazało 551 Mbit/s, a pojedyncza wysyłka 100 MB —
