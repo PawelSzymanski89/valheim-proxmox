@@ -72,7 +72,7 @@ WORLD='$WORLD_NAME'
 PASSWORD='$SERVER_PASS'
 PORT='$GAME_PORT'
 PUBLIC='0'
-CROSSPLAY='1'
+CROSSPLAY='0'
 PRESET=''
 MODIFIERS=''
 SETKEYS=''
@@ -83,7 +83,7 @@ cat >"$VH_DIR/start.sh" <<'EOF'
 # Settings come from server.env (edited by the panel). This only assembles arguments.
 export LD_LIBRARY_PATH="/opt/valheim/server/linux64:$LD_LIBRARY_PATH"
 export SteamAppId=892970
-NAME=Valheim; WORLD=Dedicated; PASSWORD=; PORT=2456; PUBLIC=0; CROSSPLAY=1; PRESET=; MODIFIERS=; SETKEYS=
+NAME=Valheim; WORLD=Dedicated; PASSWORD=; PORT=2456; PUBLIC=0; CROSSPLAY=0; PRESET=; MODIFIERS=; SETKEYS=
 [ -r /opt/valheim/server.env ] && . /opt/valheim/server.env
 cd /opt/valheim/server
 

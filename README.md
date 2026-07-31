@@ -30,6 +30,7 @@ Takes a few minutes — most of it is Steam pulling ~1.5 GB.
 
 | Tab | What it does |
 |---|---|
+| **Summary** | join addresses for LAN and for the internet (with copy buttons), live load / RAM / disk of the container, and connectivity checks that say what they can and cannot prove |
 | **Players** | who is online right now — name, id, **live session timer** — and a persistent login history (first seen / last seen / number of joins) |
 | **Access & bans** | admin list, ban list, allowlist; ban straight from the online list or the history. **An allowlist that is not empty locks everyone else out** — that is Valheim's own rule, not the panel's |
 | **World** | list worlds, switch the active one, download, delete, upload a `.db` + `.fwl` pair |
@@ -63,6 +64,16 @@ port that would land inside the game's three-port range.
 
 Forward **UDP 2456-2458** to the container on your router. That is all the game needs —
 Valheim is raw UDP, it does not go through a reverse proxy and does not need a certificate.
+
+### Crossplay changes what "port" means
+
+**Measured, not assumed:** with crossplay on the server talks through the PlayFab relay and
+**never binds the game port** — `ss -uln` shows only the query port. Players join from the
+crossplay server list with a join code, and a router forward does exactly nothing.
+
+With crossplay off the server binds `2456` and people connect by address, which is what the
+port forwarding above is for. The installer therefore leaves crossplay **off**; flip it in
+Settings if you would rather have Xbox/Game Pass players and no direct address joins.
 
 **Keep the panel off the internet.** It can delete worlds and hand out world downloads.
 LAN or VPN only. If you must expose it, put it behind a reverse proxy with its own auth.

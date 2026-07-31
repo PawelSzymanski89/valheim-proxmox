@@ -6,12 +6,15 @@ In-game commands (kick, spawn, weather) are done from the F5 console by a player
 listed in adminlist.txt — the panel manages that list.
 """
 import base64
+import ipaddress
 import json
 import os
 import re
 import secrets
 import shlex
+import socket
 import subprocess
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -148,6 +151,7 @@ echo '@timers'; for t in {' '.join(VH_TIMERS.values())}; do \
   n=$(systemctl list-timers --all --no-pager $t 2>/dev/null | awk 'NR==2 && $1!="-"{{print $1,$2,$3,$4}}'); \
   echo "$t $(systemctl is-enabled $t 2>/dev/null) $(systemctl is-active $t 2>/dev/null) $(date -d "$n" +%s 2>/dev/null || echo 0)"; done
 echo '@disk'; df -B1 --output=used,avail {VH_DIR} 2>/dev/null | tail -1
+echo '@machine'; cat /proc/loadavg; nproc; awk '/MemTotal|MemAvailable/{{print $2}}' /proc/meminfo; cut -d' ' -f1 /proc/uptime
 echo '@log'; journalctl -u valheim -o short-iso --no-pager | {VH_LOG_FILTER} | tail -n 4000
 """
 
@@ -330,6 +334,15 @@ def status():
                 timers.append({"name": name, "unit": unit, "enabled": len(f) > 1 and f[1] == "enabled",
                                "active": len(f) > 2 and f[2] == "active", "next": nxt})
     disk = (sec.get("disk") or [""])[0].split()
+    m = sec.get("machine", [])
+    machine = None
+    try:
+        la = m[0].split()
+        machine = {"load": [float(la[0]), float(la[1]), float(la[2])], "procs": la[3],
+                   "cores": int(m[1]), "mem_total": int(m[2]) * 1024, "mem_avail": int(m[3]) * 1024,
+                   "uptime": int(float(m[4]))}
+    except Exception:
+        pass
     conns, hist, count, count_ts, version = _scan(sec.get("log", []))
     settings = _parse_env(sec.get("env", []))
     panel_cfg = _env_file(VH_PANEL_ENV)
@@ -342,7 +355,160 @@ def status():
             "worlds": worlds, "backups": [b["name"] for b in backups], "backups_full": backups,
             "timers": timers,
             "disk": {"used": int(disk[0]), "avail": int(disk[1])} if len(disk) == 2 else None,
+            "machine": machine,
             "options": {"presets": VH_PRESETS, "modifiers": VH_MODIFIERS, "keys": VH_KEYS}}
+
+
+# ---------- summary / connectivity ----------
+# What can honestly be answered from inside the container:
+#  - does the game server answer the Steam query protocol at all (A2S on port+1),
+#  - what the public IP is, and whether it is one a port forward can ever reach,
+#  - whether Steam's master server sees the server at that public IP — that is the
+#    same evidence a player on the internet has, and the only external probe available
+#    without paying a third party to knock on the port.
+# A "port is open" claim based on a local check would be a lie, so it is not made.
+def _a2s_info(host, port, timeout=2.0):
+    req = b"\xff\xff\xff\xffTSource Engine Query\x00"
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.settimeout(timeout)
+        s.sendto(req, (host, port))
+        data, _ = s.recvfrom(4096)
+        if data[4:5] == b"A":  # challenge — resend with the token
+            s.sendto(req + data[5:9], (host, port))
+            data, _ = s.recvfrom(4096)
+        if data[4:5] != b"I":
+            return None
+        i = 6  # 4 bytes header + 'I' + protocol byte
+
+        def take(buf, i):
+            j = buf.index(b"\x00", i)
+            return buf[i:j].decode("utf-8", "replace"), j + 1
+
+        name, i = take(data, i)
+        mapname, i = take(data, i)
+        _folder, i = take(data, i)
+        game, i = take(data, i)
+        i += 2  # app id
+        return {"name": name, "map": mapname, "game": game,
+                "players": data[i], "max": data[i + 1]}
+    except Exception:
+        return None
+    finally:
+        s.close()
+
+
+def _get_json(url, timeout=5):
+    with urllib.request.urlopen(url, timeout=timeout) as r:
+        return json.loads(r.read().decode())
+
+
+def _ip_kind(ip):
+    try:
+        a = ipaddress.ip_address(ip)
+    except ValueError:
+        return "unknown"
+    if a.is_private:
+        return "private"
+    if a in ipaddress.ip_network("100.64.0.0/10"):  # carrier-grade NAT
+        return "cgnat"
+    return "public"
+
+
+@app.get("/api/valheim/summary")
+def summary():
+    env = _parse_env(Path(VH_ENV).read_text().splitlines())
+    game, query, panel_port = env["port"], env["port"] + 1, int(_env_file(VH_PANEL_ENV).get("PANEL_PORT") or 2460)
+    lan = _sh("hostname -I").stdout.split()
+    lan_ip = lan[0] if lan else None
+    hostname = _sh("hostname").stdout.strip()
+    listen = _sh("ss -ulnH; ss -tlnH").stdout
+
+    a2s = _a2s_info("127.0.0.1", query)
+    public_ip = None
+    for url in ("https://api.ipify.org?format=json", "https://ipinfo.io/json"):
+        try:
+            public_ip = _get_json(url).get("ip")
+            break
+        except Exception:
+            continue
+    kind = _ip_kind(public_ip) if public_ip else "unknown"
+
+    # Steam knows about a server because the server registered itself over an outbound
+    # connection. Measured on a container whose port was NOT forwarded: Steam still listed
+    # it. So this says "players can find it in the server list", never "the port is open".
+    steam = {"state": "unknown", "detail": ""}
+    if not env["public"]:
+        steam["detail"] = ("Not listed on purpose (public is off), so Steam has nothing to "
+                           "register. Players join by address, not from the server list.")
+    elif public_ip:
+        try:
+            data = _get_json(f"https://api.steampowered.com/ISteamApps/GetServersAtAddress/v1/?addr={public_ip}")
+            servers = (data.get("response") or {}).get("servers") or []
+            mine = [s for s in servers if str(s.get("gameport")) == str(game)]
+            steam["state"] = "ok" if mine else "bad"
+            steam["detail"] = (f"Steam has it registered at {public_ip}:{game} — it shows up in the "
+                               "server list. This does not prove the port is forwarded."
+                               if mine else
+                               f"Steam has nothing on port {game} at {public_ip}. Registration takes a "
+                               "few minutes after a start; if it stays empty the server cannot reach Steam.")
+        except Exception as e:
+            steam["detail"] = f"Could not ask Steam ({e}). No verdict rather than a guessed one."
+
+    crossplay = env["crossplay"]
+    game_bound = f":{game}" in listen
+    checks = [
+        {"key": "process", "label": "Game server process",
+         "state": "ok" if _sh("systemctl is-active valheim").stdout.strip() == "active" else "bad",
+         "detail": "systemd unit valheim"},
+        {"key": "join_mode", "label": "How players join",
+         "state": "unknown" if crossplay else "ok",
+         "detail": ("Crossplay is on: the server talks through the PlayFab relay and does not "
+                    f"open port {game} at all. Players use the crossplay server list / join code — "
+                    "a router forward changes nothing in this mode. Turn crossplay off in Settings "
+                    "if you want people to connect by address."
+                    if crossplay else
+                    f"Crossplay is off: players connect straight to the address on port {game}.")},
+        {"key": "a2s", "label": f"Server answers queries on {query}",
+         "state": "ok" if a2s else ("unknown" if not env["public"] else "bad"),
+         "detail": (f"replied: {a2s['name']} · {a2s['players']}/{a2s['max']} players" if a2s
+                    else "the query responder only runs when the server is listed publicly"
+                    if not env["public"] else
+                    "no reply — normal for the first ~30 s after a start, otherwise the server is not ready")},
+        {"key": "bind", "label": "Ports open inside the container",
+         "state": "ok" if (f":{panel_port}" in listen and (game_bound or crossplay)) else "bad",
+         "detail": (("game " + str(game) + " bound · " if game_bound else
+                     f"game {game} not bound (expected with crossplay on) · ")
+                    + " ".join(sorted({ln.split()[3] for ln in listen.splitlines()
+                                       if len(ln.split()) > 3 and str(game) in ln.split()[3]
+                                       or len(ln.split()) > 3 and str(panel_port) in ln.split()[3]}))[:200])},
+        {"key": "public_ip", "label": "Public address of your connection",
+         "state": {"public": "ok", "cgnat": "bad", "private": "bad"}.get(kind, "unknown"),
+         "detail": {"public": f"{public_ip} — a forward can reach you here",
+                    "cgnat": f"{public_ip} is carrier NAT (100.64/10) — no forward can ever work, "
+                             "ask your ISP for a public address or use a VPN/tunnel",
+                    "private": f"{public_ip} is a private address — there is another NAT above you",
+                    "unknown": "could not determine the public address"}[kind]},
+        {"key": "steam", "label": "Listed in the Steam server browser",
+         "state": steam["state"], "detail": steam["detail"]},
+        {"key": "forward", "label": "Router forward (inbound reachability)",
+         "state": "unknown",
+         "detail": ("Not applicable while crossplay is on — nothing listens on the game port."
+                    if crossplay else
+                    f"Cannot be proven from inside this network: every probe from here leaves and "
+                    f"comes back through your own NAT. Forward UDP {game}-{game + 2} to {lan_ip} on the "
+                    f"router, then have someone outside connect to {public_ip}:{game} — that is the "
+                    "only honest confirmation.")},
+    ]
+    return {
+        "join": {"lan": f"{lan_ip}:{game}" if lan_ip else None,
+                 "public": f"{public_ip}:{game}" if public_ip else None,
+                 "panel": f"http://{lan_ip}:{panel_port}" if lan_ip else None,
+                 "password": env["password"]},
+        "ports": {"game": [game, game + 1, game + 2], "panel": panel_port, "query": query},
+        "public_listing": env["public"], "crossplay": env["crossplay"],
+        "a2s": a2s, "checks": checks, "hostname": hostname,
+    }
 
 
 @app.post("/api/valheim/action/{action}")

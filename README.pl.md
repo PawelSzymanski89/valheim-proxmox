@@ -30,6 +30,7 @@ Trwa kilka minut — prawie całość to pobieranie ~1,5 GB ze Steama.
 
 | Zakładka | Co daje |
 |---|---|
+| **Summary** | adresy do wklejenia — z LAN-u i z internetu (z kopiowaniem), żywe obciążenie / RAM / dysk kontenera oraz testy łączności, które mówią wprost, czego dowodzą, a czego nie |
 | **Players** | kto gra teraz — nick, identyfikator, **licznik czasu sesji na żywo** — oraz trwała historia logowań (pierwszy raz / ostatnio / ile wejść) |
 | **Access & bans** | lista adminów, lista banów, whitelista; ban prosto z listy online albo z historii. **Niepusta whitelista wpuszcza wyłącznie wpisanych** — to reguła samego Valheima, nie panelu |
 | **World** | lista światów, przełączanie aktywnego, pobieranie, kasowanie, wgrywanie pary `.db` + `.fwl` |
@@ -63,6 +64,16 @@ portu, który wpadłby w trzyportowy zakres gry.
 
 Przekieruj na routerze **UDP 2456-2458** na kontener. Tyle wystarczy — Valheim to goły
 UDP, nie idzie przez reverse proxy i nie potrzebuje certyfikatu.
+
+### Crossplay zmienia znaczenie słowa „port"
+
+**Zmierzone, nie założone:** przy włączonym crossplayu serwer rozmawia przez relay PlayFaba i
+**w ogóle nie otwiera portu gry** — `ss -uln` pokazuje wyłącznie port zapytań. Gracze wchodzą
+z listy crossplay przez kod dołączenia, a przekierowanie portów na routerze nie robi nic.
+
+Przy wyłączonym crossplayu serwer nasłuchuje na `2456` i wchodzi się po adresie — i po to
+właśnie jest forward opisany wyżej. Dlatego instalator zostawia crossplay **wyłączony**;
+włączysz go w Settings, jeśli wolisz graczy z Xboxa/Game Passa zamiast wejścia po adresie.
 
 **Panelu nie wystawiaj na świat.** Umie kasować światy i wydawać je do pobrania. Tylko
 LAN albo VPN. Jeśli musisz — schowaj go za reverse proxy z własną autoryzacją.
