@@ -21,12 +21,19 @@ LOG = [
     L.format("10:09:00", "10:09:00", "Closing socket 76561198000000001"),
 ]
 
-conns, hist, count, count_ts, version = app._scan(LOG)
+conns, hist, count, count_ts, version, code = app._scan(LOG)
 assert version == "l-0.221.12", version
 assert count == 2, count
 assert [c["id"] for c in conns] == ["76561198000000002"], conns
 assert conns[0]["name"] == "Hilda", conns
 assert conns[0]["since"] == app._ts("2026-07-31T10:02:00+0000"), conns
+
+assert code is None, code  # no crossplay line in this log
+
+with_code = LOG + [L.format("10:10:00", "10:10:00", 'Session "X" registered with join code 458673')]
+assert app._scan(with_code)[5] == "458673", app._scan(with_code)[5]
+# a restart starts a new session, so the old code must not linger
+assert app._scan(with_code + [L.format("11:00:00", "11:00:00", "Valheim version: l-0.221.12")])[5] is None
 
 # a server restart drops everyone, even without a "Closing socket" line
 restarted, *_ = app._scan(LOG + [L.format("11:00:00", "11:00:00", "Valheim version: l-0.221.12")])

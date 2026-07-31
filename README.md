@@ -36,6 +36,7 @@ Takes a few minutes — most of it is Steam pulling ~1.5 GB.
 | **World** | list worlds, switch the active one, download, delete, upload a `.db` + `.fwl` pair |
 | **Backups** | restore, download, delete; toggles for the auto-backup and auto-update timers |
 | **Settings** | server name, world, password, **game port**, **panel port**, public listing, crossplay, world preset and modifiers (combat, death penalty, resources, raids, portals) and the world toggles (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
+| **Mods** | paste a Thunderstore Mod Manager / r2modman **share code**: the panel expands it, shows what is inside, and installs the picked packages (BepInEx included, world backed up first). Also installs single packages by name |
 | **Log** | server events, with the PlayFab keepalive noise filtered out |
 
 Plus Start / Stop / Restart / Back up now / Check update.
@@ -74,9 +75,34 @@ crossplay server list with a join code, and a router forward does exactly nothin
 With crossplay off the server binds `2456` and people connect by address, which is what the
 port forwarding above is for. The installer therefore leaves crossplay **off**; flip it in
 Settings if you would rather have Xbox/Game Pass players and no direct address joins.
+**Crossplay needs `libpulse-mainloop-glib0`.** Without it PlayFab Party never initialises,
+the log repeats `begin PlayFab create and join network` every 30 s and the join code comes
+out empty — a server that nobody can reach by any route. The installer pulls it in; the
+diagnosis was `ldd libparty.so`. With crossplay working the panel reads the **join code**
+out of the log and shows it on Summary (it changes on every restart).
+
 
 **Keep the panel off the internet.** It can delete worlds and hand out world downloads.
 LAN or VPN only. If you must expose it, put it behind a reverse proxy with its own auth.
+
+## Mods, from a share code
+
+Export a profile in Thunderstore Mod Manager or r2modman (**Settings → Export profile → as a
+code**) and paste that code into the **Mods** tab. The panel pulls the profile from
+Thunderstore, lists the packages with their exact versions, and installs the ones you keep
+ticked — together with BepInEx if it is not there yet.
+
+The point of going through the code rather than picking mods by hand: the versions in it are
+the versions your players already run, and a version mismatch is what bounces people at the
+door. The code is shown on the **Summary** tab afterwards, so you can hand it back to anyone
+who needs to catch up.
+
+Profiles carry client-side mods too (UI, maps, sounds). They are usually harmless on a server
+but a few throw on load, so untick what the server has no use for. The world is backed up
+before the first mod is ever installed — mods can wreck a save for good.
+
+Installed mods live in `server/BepInEx/plugins/<author>-<Package>/`, and `start.sh` turns on
+the doorstop loader by itself once `BepInEx/` exists.
 
 ## Options
 
