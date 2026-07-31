@@ -132,7 +132,7 @@ def _who(request):
 app = FastAPI(title="Valheim panel")
 
 # The login screen and the login call are the only things reachable without a session.
-OPEN_PATHS = {"/", "/api/login", "/api/logout"}
+OPEN_PATHS = {"/", "/icon.svg", "/api/login", "/api/logout"}
 
 
 @app.middleware("http")
@@ -372,6 +372,11 @@ def _ls(lines):
         if len(f) == 7 and f[0].startswith("-"):
             out.append({"name": f[6], "size": int(f[4]), "mtime": int(f[5])})
     return out
+
+
+@app.get("/icon.svg")
+def icon():
+    return Response((HERE / "icon.svg").read_bytes(), media_type="image/svg+xml")
 
 
 @app.get("/", response_class=HTMLResponse)

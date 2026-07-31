@@ -155,9 +155,9 @@ chown -R valheim:valheim "$VH_DIR"
 # ---------- panel ----------
 say "Installing the admin panel (FastAPI in its own venv)"
 if [ -f "$0" ] && [ -d "$(dirname "$0")/panel" ]; then
-  cp "$(dirname "$0")"/panel/{app.py,index.html,login.html} "$VH_DIR/panel/"
+  cp "$(dirname "$0")"/panel/{app.py,index.html,login.html,icon.svg} "$VH_DIR/panel/"
 else
-  for f in app.py index.html login.html; do curl -fsSL "$REPO_RAW/panel/$f" -o "$VH_DIR/panel/$f"; done
+  for f in app.py index.html login.html icon.svg; do curl -fsSL "$REPO_RAW/panel/$f" -o "$VH_DIR/panel/$f"; done
 fi
 python3 -m venv "$VH_DIR/panel/.venv"
 "$VH_DIR/panel/.venv/bin/pip" install -q --upgrade pip
