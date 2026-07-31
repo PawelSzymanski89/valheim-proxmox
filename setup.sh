@@ -14,6 +14,11 @@ REPO_RAW=${REPO_RAW:-https://raw.githubusercontent.com/PawelSzymanski89/valheim-
 APPID=896660
 
 say() { echo -e "\033[1;32m==>\033[0m $*"; }
+trap 'echo -e "\033[1;31mSetup failed at line $LINENO\033[0m" >&2' ERR
+
+# No `| head -c N` here: head closing the pipe kills the writer with SIGPIPE, and with
+# `set -o pipefail` that aborts the whole script before it prints anything.
+randstr() { local s; s=$(head -c 48 /dev/urandom | base64 | tr -dc "$1"); echo "${s:0:$2}"; }
 
 say "Packages"
 export DEBIAN_FRONTEND=noninteractive
@@ -118,7 +123,7 @@ python3 -m venv "$VH_DIR/panel/.venv"
 # A fixed default password would be the same on every install on the planet, so the
 # password is generated here and printed once. Change it later from the panel.
 if [ ! -f "$VH_DIR/panel.env" ]; then
-  PANEL_PASS=$(tr -dc 'A-Za-z0-9' </dev/urandom | head -c 16)
+  PANEL_PASS=$(randstr 'A-Za-z0-9' 16)
   cat >"$VH_DIR/panel.env" <<EOF
 PANEL_USER='admin'
 PANEL_PASS='$PANEL_PASS'
