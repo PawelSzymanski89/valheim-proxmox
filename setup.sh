@@ -46,10 +46,15 @@ runuser -u valheim -- env HOME="$VH_DIR" bash -c "cd $VH_DIR/steamcmd && curl -s
 info "done"
 
 say "Downloading the Valheim server (~1.5 GB, this is the slow part)"
+# First run of steamcmd updates steamcmd itself and re-executes, dropping whatever else
+# was on the command line — the app_update then dies with "Missing configuration".
+# So: one warm-up login, then the real download.
+runuser -u valheim -- env HOME="$VH_DIR" "$VH_DIR/steamcmd/steamcmd.sh" \
+  +login anonymous +quit >"$VH_DIR/steam-install.log" 2>&1 || true
 set +e
 runuser -u valheim -- env HOME="$VH_DIR" "$VH_DIR/steamcmd/steamcmd.sh" +force_install_dir "$VH_DIR/server" \
   +login anonymous +app_update $APPID validate +quit 2>&1 \
-  | tee "$VH_DIR/steam-install.log" | tr '\r' '\n' \
+  | tee -a "$VH_DIR/steam-install.log" | tr '\r' '\n' \
   | grep --line-buffered -E 'Update state|Success! App|ERROR!' | sed -u 's/^/      /'
 set -e
 [ -x "$VH_DIR/server/valheim_server.x86_64" ] || die "Steam download failed — see $VH_DIR/steam-install.log"
