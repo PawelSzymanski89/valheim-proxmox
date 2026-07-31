@@ -70,6 +70,10 @@ whether a password is required. Plus a free line of your own, e.g. when the serv
 disk, logs, checks and settings all sit behind the login, and `/api/public` is the only route
 that answers without one.
 
+With a big pack the page rearranges itself: status and login share the top row, the mod list
+takes the full width as a grid of tiles with a search box, and the charts sit below. Seventy-two
+mods in a narrow column next to empty space was the first version, and it looked it.
+
 ![Public page](docs/public.png)
 
 ## What it looks like
@@ -426,6 +430,10 @@ potrzebne jest hasło. Plus własne zdanie, np. o której serwer się restartuje
 
 **Hasło do gry nie pojawia się przy żadnym ustawieniu.** Ani nic innego, co panel wie: dysk, logi,
 testy i ustawienia siedzą za logowaniem, a `/api/public` to jedyna trasa odpowiadająca bez niego.
+
+Przy dużym zestawie strona układa się inaczej: status i logowanie dzielą górny rząd, lista modów
+zajmuje całą szerokość jako siatka kafelków z wyszukiwarką, a wykresy idą pod spód. Siedemdziesiąt
+dwa mody w wąskiej kolumnie obok pustego miejsca to była pierwsza wersja i tak właśnie wyglądała.
 
 ![Strona publiczna](docs/public.png)
 
