@@ -197,6 +197,13 @@ reversible too. Twenty versions per file.
 
 Mods read their config at startup, so **Save** and **Save & restart** are separate buttons.
 
+## Panel log
+
+The panel writes its own log of every action to `/opt/valheim/panel.log` — mod installs with
+what failed and why, config saves with the keys that changed, service actions, world and
+backup operations, login changes (never the password). It sits in the **Log** tab next to the
+game server log, filterable to mods or errors only.
+
 ## Options
 
 Every value can be overridden with an environment variable:
@@ -410,6 +417,29 @@ zestaw. Plik świata zostaje nietknięty, ale to, co mod do niego dodał, przest
 
 Zainstalowane mody leżą w `server/BepInEx/plugins/<autor>-<Paczka>/`, a `start.sh` sam włącza
 loader doorstop, gdy tylko pojawi się katalog `BepInEx/`.
+
+## Konfiguracja modów — bez SSH i bez rozwalania
+
+BepInEx zapisuje po jednym `.cfg` na plugin. Zakładka **Konfiguracja modów** czyta je i buduje
+**formularz**: każdy wpis zachowuje swój opis, typ i wartość domyślną z komentarzy w samym
+pliku, więc `Boolean` to przełącznik, liczba z zakresem to pole liczbowe z granicami, a wpis z
+listą dopuszczalnych wartości to lista rozwijana. Klucze, sekcje i komentarze nie są
+przepisywane — zmienia się wyłącznie wartość, w jej własnej linii. Stąd konfiguracji nie da
+się rozwalić.
+
+**Każdy zapis zostaje.** Pod formularzem jest lista wcześniejszych wersji; jedno kliknięcie
+przywraca dowolną, a stan, który właśnie zastępujesz, też trafia na listę — więc przywracanie
+również da się cofnąć. Dwadzieścia wersji na plik.
+
+Mody czytają konfigurację przy starcie, dlatego **Zapisz** i **Zapisz i zrestartuj** to osobne
+przyciski.
+
+## Dziennik panelu
+
+Panel zapisuje własny dziennik każdej akcji do `/opt/valheim/panel.log` — instalacje modów
+razem z tym, co się nie udało i dlaczego, zapisy konfiguracji z listą zmienionych kluczy,
+akcje usług, operacje na światach i kopiach, zmiany logowania (nigdy hasła). Widać go w
+zakładce **Log** obok logu serwera gry, z filtrem na mody albo same błędy.
 
 ## Opcje
 
