@@ -474,6 +474,10 @@ const I18N={
  "Measure":"Zmierz",
  "Link quality (latency, loss, speed)":"Jakość łącza (opóźnienie, straty, prędkość)",
  "Connection degraded":"Łącze się pogorszyło",
+ "Download":"Pobieranie",
+ "Upload":"Wysyłanie",
+ "now":"teraz",
+ "not measured yet — the first check runs within minutes":"jeszcze nie mierzone — pierwszy pomiar w ciągu kilku minut",
  "Valheim — server admin":"Valheim — panel serwera",
  "Everything a server admin can control. In-game commands (kick, spawn, weather)":"Wszystko, czym steruje admin serwera. Komendy w grze (kick, spawn, pogoda)",
  "live in the F5 console — add yourself to":"są w konsoli F5 — dopisz się do",
@@ -640,6 +644,17 @@ function bar(pct,label){
     <div style="height:8px;background:var(--field);border-radius:5px;overflow:hidden;margin:5px 0 3px">
       <div style="height:100%;width:${Math.min(100,pct)}%;background:${col}"></div></div>`;
 }
+function spark(title,pts,color,unit){
+  if(pts.length<2)return "";
+  const W=520,H=56,top=Math.max(...pts)||1,bot=Math.min(...pts);
+  const y=v=>H-((v-bot)/((top-bot)||1))*H;
+  const d=pts.map((v,i)=>`${i?"L":"M"}${(i/(pts.length-1)*W).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  return `<div class="stat" style="grid-column:1/-1">
+    <div class="muted">${title} — ${t("now")} ${pts[pts.length-1]}${unit} · min ${bot}${unit} · max ${top}${unit}</div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:56px;display:block;margin-top:4px">
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.5"/>
+      <path d="${d}L${W},${H}L0,${H}Z" fill="${color}" opacity=".10"/></svg></div>`;
+}
 async function vhLink(run){
   const el=$("sum-link-box");if(!el)return;
   if(run)el.innerHTML=`<div class="stat muted">${t("measuring — this moves 35 MB, a few seconds")}</div>`;
@@ -662,8 +677,13 @@ async function vhLink(run){
         <div class="muted">${t("what UDP actually cares about")}</div></div>`+
       (s?`<div class="stat"><div class="muted">${t("Throughput")}</div><div>${s.down_mbit} / ${s.up_mbit} Mbit/s</div>
         <div class="muted">${t("measured on an empty server")}</div></div>`:"")+
-      `<div class="stat"><div class="muted">${t("Checked")}</div><div>${fmtTs(d.last_ping)}</div></div>`
-      :`<div class="stat muted">${t("not measured yet — the first check runs within the hour")}</div>`;
+      `<div class="stat"><div class="muted">${t("Checked")}</div><div>${fmtTs(d.last_ping)}</div></div>`+
+      (()=>{const L=d.history||[],pick=k=>L.filter(x=>x[k]!=null);
+        const pg=pick("avg"),dn=pick("down_mbit"),up=pick("up_mbit");
+        return spark(t("Latency"),pg.map(x=>x.avg),"var(--acc)"," ms")+
+               spark(t("Download"),dn.map(x=>x.down_mbit),"#5b8def"," Mbit/s")+
+               spark(t("Upload"),up.map(x=>x.up_mbit),"#5d7a4a"," Mbit/s");})()
+      :`<div class="stat muted">${t("not measured yet — the first check runs within minutes")}</div>`;
   }catch(e){el.innerHTML=`<div class="stat err">${esc(e.message)}</div>`;}
 }
 function paintMachine(){
@@ -1419,6 +1439,17 @@ function bar(pct,label){
     <div style="height:8px;background:var(--field);border-radius:5px;overflow:hidden;margin:5px 0 3px">
       <div style="height:100%;width:${Math.min(100,pct)}%;background:${col}"></div></div>`;
 }
+function spark(title,pts,color,unit){
+  if(pts.length<2)return "";
+  const W=520,H=56,top=Math.max(...pts)||1,bot=Math.min(...pts);
+  const y=v=>H-((v-bot)/((top-bot)||1))*H;
+  const d=pts.map((v,i)=>`${i?"L":"M"}${(i/(pts.length-1)*W).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  return `<div class="stat" style="grid-column:1/-1">
+    <div class="muted">${title} — ${t("now")} ${pts[pts.length-1]}${unit} · min ${bot}${unit} · max ${top}${unit}</div>
+    <svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:56px;display:block;margin-top:4px">
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="1.5"/>
+      <path d="${d}L${W},${H}L0,${H}Z" fill="${color}" opacity=".10"/></svg></div>`;
+}
 async function vhLink(run){
   const el=$("sum-link-box");if(!el)return;
   if(run)el.innerHTML=`<div class="stat muted">${t("measuring — this moves 35 MB, a few seconds")}</div>`;
@@ -1441,8 +1472,13 @@ async function vhLink(run){
         <div class="muted">${t("what UDP actually cares about")}</div></div>`+
       (s?`<div class="stat"><div class="muted">${t("Throughput")}</div><div>${s.down_mbit} / ${s.up_mbit} Mbit/s</div>
         <div class="muted">${t("measured on an empty server")}</div></div>`:"")+
-      `<div class="stat"><div class="muted">${t("Checked")}</div><div>${fmtTs(d.last_ping)}</div></div>`
-      :`<div class="stat muted">${t("not measured yet — the first check runs within the hour")}</div>`;
+      `<div class="stat"><div class="muted">${t("Checked")}</div><div>${fmtTs(d.last_ping)}</div></div>`+
+      (()=>{const L=d.history||[],pick=k=>L.filter(x=>x[k]!=null);
+        const pg=pick("avg"),dn=pick("down_mbit"),up=pick("up_mbit");
+        return spark(t("Latency"),pg.map(x=>x.avg),"var(--acc)"," ms")+
+               spark(t("Download"),dn.map(x=>x.down_mbit),"#5b8def"," Mbit/s")+
+               spark(t("Upload"),up.map(x=>x.up_mbit),"#5d7a4a"," Mbit/s");})()
+      :`<div class="stat muted">${t("not measured yet — the first check runs within minutes")}</div>`;
   }catch(e){el.innerHTML=`<div class="stat err">${esc(e.message)}</div>`;}
 }
 function paintMachine(){

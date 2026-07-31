@@ -160,14 +160,17 @@ For a game server the line matters more than the CPU — Valheim is UDP, so late
 loss decide how it feels. Two costs, two rules. **The ping keeps running while people play** — five packets over four
 seconds, and that is exactly when the evidence is worth having, because *"it was lagging last
 night"* is unanswerable if the graph has a hole in it. **Throughput waits for an empty server**,
-because it pushes 200 MB through the line those same people are using. Hourly and six-hourly by
-default; both intervals and both rules are settings.
+because it pushes 200 MB through the line those same people are using. Every ten minutes and every six hours by default; both intervals and both rules are settings.
 
 The numbers are honest because the method is: **four parallel streams, summed**. Measured on a
 1000/600 line, a single 25 MB download reported 551 Mbit/s and a single 100 MB upload 492 — on a
 10 ms path most of a short transfer is TLS and TCP ramp-up, not the line. Four streams of the same
 size reported **890–923 down and 618–637 up**, which is the line. 25 MB per stream is also the
 practical ceiling: Cloudflare answers 403 above 100 MB.
+
+Latency, download and upload each get their own chart, next to the players, CPU and memory ones —
+same shape, same page. The throughput lines are sparse by design: they only gain a point when the
+server was empty at the six-hour mark.
 
 A test moves about 200 MB. **Test the link now** in the panel runs it on demand — and refuses while people are playing unless you insist; a bad result
 (over 10 % loss or above 150 ms) raises an alert, because that is the point at which players start
@@ -181,7 +184,7 @@ forget about and nothing to clean up by hand:
 | File | Kept | Roughly |
 |---|---|---|
 | `metrics.json` | 1440 points | 24 h of players, CPU and memory, one a minute (~90 KB) |
-| `link.json` | 168 entries | a week of hourly latency and loss (~25 KB) |
+| `link.json` | 1008 entries | a week of latency and loss at ten-minute steps (~150 KB) |
 | `players.json` | 60 sessions per player | totals stay forever, the session list does not |
 | `panel.log` | 4000 lines / 2 MB | trimmed when it crosses the size |
 | `BepInEx/config/.history` | 20 versions per file | older ones are dropped on the next save |
@@ -608,14 +611,17 @@ Dla serwera gry łącze znaczy więcej niż procesor — Valheim chodzi po UDP, 
 opóźnienie i utrata pakietów. Dwa różne koszty, więc dwie różne zasady. **Ping chodzi także wtedy, gdy ludzie grają** — pięć
 pakietów przez cztery sekundy, a to właśnie wtedy ten pomiar jest coś wart, bo na *„wczoraj
 wieczorem lagowało"* nie ma odpowiedzi, gdy w wykresie jest dziura. **Przepustowość czeka na pusty
-serwer**, bo przepycha 200 MB przez to samo łącze, na którym ci ludzie siedzą. Domyślnie co godzinę
-i co sześć godzin; oba interwały i obie zasady to ustawienia.
+serwer**, bo przepycha 200 MB przez to samo łącze, na którym ci ludzie siedzą. Domyślnie co dziesięć minut i co sześć godzin; oba interwały i obie zasady to ustawienia.
 
 Liczby są uczciwe, bo metoda jest uczciwa: **cztery równoległe strumienie, zsumowane**. Zmierzone
 na łączu 1000/600: pojedyncze pobranie 25 MB pokazało 551 Mbit/s, a pojedyncza wysyłka 100 MB —
 492, bo przy 10 ms większość krótkiego transferu to TLS i rozpędzanie TCP, nie łącze. Cztery
 strumienie tej samej wielkości dały **890–923 w dół i 618–637 w górę**, czyli tyle, ile łącze ma.
 25 MB na strumień to też praktyczny sufit: Cloudflare powyżej 100 MB odpowiada 403.
+
+Opóźnienie, pobieranie i wysyłanie mają własne wykresy, obok graczy, CPU i pamięci — ten sam
+kształt, ta sama strona. Linie przepustowości są z założenia rzadkie: dostają punkt tylko wtedy,
+gdy o sześciogodzinnej porze serwer był pusty.
 
 Jeden pomiar przepuszcza około 200 MB. **Zmierz łącze teraz** w panelu robi to na żądanie i odmawia, gdy ktoś gra, dopóki nie potwierdzisz, a zły
 wynik (ponad 10 % strat albo powyżej 150 ms) podnosi alert — bo to moment, w którym gracze zaczynają
@@ -629,7 +635,7 @@ zapomnienia ani niczego do sprzątania ręcznie:
 | Plik | Trzyma | Czyli |
 |---|---|---|
 | `metrics.json` | 1440 punktów | 24 h graczy, CPU i pamięci, po jednym na minutę (~90 KB) |
-| `link.json` | 168 wpisów | tydzień godzinnych pomiarów opóźnienia i strat (~25 KB) |
+| `link.json` | 1008 wpisów | tydzień pomiarów opóźnienia i strat co dziesięć minut (~150 KB) |
 | `players.json` | 60 sesji na gracza | sumy zostają na zawsze, lista sesji nie |
 | `panel.log` | 4000 linii / 2 MB | przycinany po przekroczeniu rozmiaru |
 | `BepInEx/config/.history` | 20 wersji na plik | starsze znikają przy kolejnym zapisie |

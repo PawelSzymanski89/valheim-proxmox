@@ -1447,6 +1447,7 @@ VH_ALERTS = Path(os.environ.get("VH_ALERTS", f"{VH_DIR}/alerts.json"))
 VH_PUBLIC = Path(f"{VH_DIR}/public.json")
 VH_METRICS = Path(f"{VH_DIR}/metrics.json")
 VH_LINK = Path(f"{VH_DIR}/link.json")
+LINK_KEEP = 1008          # a ping every 10 min = a week of history
 METRIC_POINTS = 1440          # one a minute = last 24 h
 # Minimal by default. Everything here is visible to the whole internet, so each extra field
 # is opt-in: a version number narrows down what to try against the server, a mod list and a
@@ -1473,7 +1474,7 @@ ALERTS_DEFAULT = {
     "events": {k: k not in ("player_leave",) for k in ALERT_EVENTS},
     "schedule": {"restart_at": "", "only_when_empty": True, "defer_minutes": 30,
                  "update_when_empty": True, "disk_warn_gb": 3,
-                 "link_minutes": 60, "link_speed_hours": 6,
+                 "link_minutes": 10, "link_speed_hours": 6,
                  "speed_when_empty": True, "ping_when_empty": False},
 }
 
@@ -1607,6 +1608,10 @@ def public_status():
         link = _link_state()
         out["link"] = {"ping": link.get("ping"), "speed": link.get("speed"),
                        "checked": link.get("last_ping") or None}
+        if cfg.get("show_metrics"):
+            out["link"]["history"] = [{k: v for k, v in h.items()
+                                       if k in ("t", "avg", "loss", "down_mbit", "up_mbit")}
+                                      for h in (link.get("history") or [])[-1008:]]
     if cfg.get("show_metrics"):
         try:
             out["metrics"] = json.loads(VH_METRICS.read_text())[-720:]
@@ -1854,7 +1859,7 @@ def _tick():
                 s2 = _speedtest()
                 link["speed"], link["last_speed"] = s2, now
                 entry.update(s2 or {})
-            link["history"] = (link.get("history") or [])[-167:] + [entry]
+            link["history"] = (link.get("history") or [])[-(LINK_KEEP - 1):] + [entry]
             VH_LINK.write_text(json.dumps(link))
     except Exception:
         pass
