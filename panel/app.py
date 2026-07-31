@@ -151,6 +151,45 @@ async def guard(request: Request, call_next):
                         headers={"WWW-Authenticate": "Basic"})
 
 
+# Rate limiting on the login. The panel sits on a public hostname; without this, a script
+# can try passwords as fast as the network allows and nothing anywhere notices.
+LOGIN_FAILS = {}
+LOGIN_MAX = 5           # failures before a lockout
+LOGIN_WINDOW = 900      # ...within this many seconds
+LOGIN_BLOCK = 600       # lockout length, doubling on repeat
+
+
+def _client_ip(request):
+    fwd = request.headers.get("x-forwarded-for", "")
+    return (fwd.split(",")[0].strip() if fwd else None) or (request.client.host if request.client else "?")
+
+
+def _login_guard(ip):
+    rec = LOGIN_FAILS.get(ip)
+    if rec and rec.get("until", 0) > time.time():
+        left = int(rec["until"] - time.time())
+        raise HTTPException(429, f"Too many attempts — try again in {left // 60 + 1} min",
+                            {"Retry-After": str(left)})
+
+
+def _login_failed(ip):
+    now = time.time()
+    rec = LOGIN_FAILS.setdefault(ip, {"count": 0, "first": now, "until": 0, "blocks": 0})
+    if now - rec["first"] > LOGIN_WINDOW:
+        rec.update({"count": 0, "first": now})
+    rec["count"] += 1
+    if rec["count"] >= LOGIN_MAX:
+        rec["blocks"] += 1
+        rec["until"] = now + LOGIN_BLOCK * min(6, rec["blocks"])     # 10, 20, 30 ... up to 60 min
+        rec.update({"count": 0, "first": now})
+        _log("panel.login_blocked", ok=False, ip=ip, minutes=int((rec["until"] - now) / 60))
+        _notify("panel_login", "Panel locked out an address",
+                f"{ip} kept guessing the password — blocked for {int((rec['until'] - now) / 60)} min.",
+                priority="high", tags="lock")
+    else:
+        _log("panel.login_failed", ok=False, ip=ip, attempt=rec["count"])
+
+
 class Login(BaseModel):
     user: str = ""
     password: str = ""
@@ -158,9 +197,14 @@ class Login(BaseModel):
 
 @app.post("/api/login")
 def login(l: Login, request: Request, response: Response):
+    ip = _client_ip(request)
+    _login_guard(ip)
     if not _check_login(l.user, l.password):
+        _login_failed(ip)
+        time.sleep(1)          # a scripted guess costs a second; a human never notices
         raise HTTPException(401, "Wrong user or password")
-    _notify("panel_login", "Panel sign-in", f"{l.user} signed in to the panel.", tags="key")
+    LOGIN_FAILS.pop(ip, None)
+    _notify("panel_login", "Panel sign-in", f"{l.user} signed in from {ip}.", tags="key")
     exp = int(time.time()) + SESSION_DAYS * 86400
     response.set_cookie("vh_session", f"{l.user}|{exp}|{_sign(l.user, exp)}",
                         max_age=SESSION_DAYS * 86400, httponly=True, samesite="lax",
