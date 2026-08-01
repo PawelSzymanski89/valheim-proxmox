@@ -364,6 +364,9 @@
     <div class="pane" id="t-say">
       <div id="at-box" class="grid"></div>
       <div id="say-ui" style="display:none">
+        <div class="row" style="margin:14px 0 6px"><div class="muted">Messages are signed with this name — empty for none</div>
+          <span><input id="say-nick" maxlength="24" style="max-width:160px" placeholder="Odyn">
+          <button class="mini" id="say-nick-save">Save</button></span></div>
         <div class="muted" style="margin:14px 0 6px">Send a message to everyone playing right now</div>
         <div class="add"><input id="say-text" placeholder="It'll be dark soon!" maxlength="200">
           <select id="say-where"><option value="center">middle of the screen</option><option value="side">corner</option></select>
@@ -376,7 +379,8 @@
           <input id="nr-text" placeholder="message text" maxlength="200">
           <select id="nr-when"><option value="before_night">in-game hours before nightfall</option>
             <option value="ingame_at">at in-game hour</option><option value="every">every N real minutes</option>
-            <option value="on_join">when a player joins — leave the text empty for a random Viking greeting</option></select>
+            <option value="on_join">when a player joins — leave the text empty for a random Viking greeting</option>
+            <option value="after_join">N minutes after joining — leave the text empty for a random Valheim joke</option></select>
           <input id="nr-val" type="number" step="0.5" min="0" max="24" value="1" style="max-width:90px">
           <button id="nr-add">Add</button>
         </div>
@@ -518,7 +522,10 @@ const I18N={
  "Playtime":"Czas gry",
  "Total":"Łącznie",
  "Longest":"Najdłuższa",
- "Sessions":"Sesji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli",
+ "Sessions":"Sesji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli","random Valheim joke":"losowy suchar o Valheimie",
+ "min after joining":"min po wejściu",
+ "Messages are signed with this name — empty for none":"Komunikaty podpisujemy tym nickiem — puste pole to brak podpisu",
+ "N minutes after joining — leave the text empty for a random Valheim joke":"N minut po wejściu — puste pole to losowy suchar o Valheimie",
  "when a player joins — leave the text empty for a random Viking greeting":"gdy gracz wchodzi — puste pole to losowe wikińskie powitanie",
  "when a player joins — {name} becomes their name":"gdy gracz wchodzi — {name} zamienia się w jego nick","night":"noc","day":"dzień","changes in":"zmiana za",
  "Admin only tools":"Narzędzia tylko dla admina","installed and reachable":"zainstalowane i odpowiadają",
@@ -900,14 +907,15 @@ async function vhSay(){
         setTimeout(vhSay,9000);}
       catch(e){toast(e.message,"bad");ib.classList.remove("loading");}
     };
-    if(ready){await vhRules();await vhSayHist();}
+    if(ready){await vhRules();await vhSayHist();
+      try{$("say-nick").value=(await jf("/api/valheim/say/settings")).nick||"";}catch(e){}}
   }catch(e){$("at-box").innerHTML=`<div class="stat"><div class="muted">${esc(e.message)}</div></div>`;}
 }
-const WHEN_LABEL={before_night:"in-game h before dark",ingame_at:"at in-game hour",every:"every N min",on_join:"on join, by name"};
+const WHEN_LABEL={before_night:"in-game h before dark",ingame_at:"at in-game hour",every:"every N min",on_join:"on join, by name",after_join:"min after joining"};
 async function vhRules(){
   const r=await jf("/api/valheim/schedule");RULES=r.rules||[];
   $("say-rules").innerHTML=RULES.length?RULES.map((x,i)=>`<tr>
-    <td>${x.text==="{random}"?"<i>"+t("random greeting from the pool")+"</i>":esc(x.text)}</td><td class="muted">${t(WHEN_LABEL[x.when]||x.when)}</td>
+    <td>${x.text==="{random}"?"<i>"+t("random greeting from the pool")+"</i>":x.text==="{joke}"?"<i>"+t("random Valheim joke")+"</i>":esc(x.text)}</td><td class="muted">${t(WHEN_LABEL[x.when]||x.when)}</td>
     <td class="r">${x.value}</td><td class="muted">${x.where==="side"?t("corner"):t("middle")}</td>
     <td class="r"><input type="checkbox" data-ri="${i}" ${x.enabled?"checked":""}></td>
     <td class="r"><button class="mini danger" data-rd="${i}">remove</button></td></tr>`).join("")
@@ -931,6 +939,11 @@ async function vhSayHist(){
       ||`<tr><td colspan="4" class="muted">${t("nothing sent yet")}</td></tr>`;
   }catch(e){}
 }
+$("say-nick-save").onclick=async()=>{
+  try{await jf("/api/valheim/say/settings",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({nick:$("say-nick").value.trim()})});toast(t("Saved"),"ok");}
+  catch(e){toast(e.message,"bad");}
+};
 $("say-send").onclick=async()=>{
   const txt=$("say-text").value.trim();if(!txt)return;
   try{await jf("/api/valheim/say",{method:"POST",headers:{"Content-Type":"application/json"},
@@ -941,7 +954,7 @@ $("say-send").onclick=async()=>{
 $("nr-add").onclick=()=>{
   const when=$("nr-when").value;
   // an empty text on a join rule means "surprise them" - 200 greetings per language
-  const txt=$("nr-text").value.trim()||(when==="on_join"?"{random}":"");
+  const txt=$("nr-text").value.trim()||(when==="on_join"?"{random}":when==="after_join"?"{joke}":"");
   if(!txt)return toast(t("Nothing to say"),"bad");
   RULES.push({text:txt,when,value:+$("nr-val").value||0,where:"center",enabled:true});
   $("nr-text").value="";saveRules();
