@@ -604,6 +604,7 @@ const I18N={
  "https://valheim-map.world/... — shared pins, view link":"https://valheim-map.world/... — wspólne pinezki, link do podglądu",
  "...edit link":"...link do edycji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli","random Valheim joke":"losowy suchar o Valheimie","nobody is playing":"nikt nie gra","height":"wysokość","show on the terrain map":"pokaż na mapie terenu","centre the frame here":"wyśrodkuj ramkę tutaj",
  "Show the terrain map here":"Pokaż tu mapę terenu","Hide it":"Ukryj","No seed yet":"Brak seeda",
+ "The frame opens your lobby, so everyone\'s pins are on it.":"Ramka otwiera Twoje lobby, więc są na niej pinezki całej ekipy.",
  "The terrain map can sit right here — it renders in your browser, so it only loads when you ask.":"Mapa terenu może być tutaj — renderuje się w Twojej przeglądarce, więc ładuje się dopiero na żądanie.",
  "Pick an image first":"Najpierw wybierz obrazek","The uploaded map was made for a different seed":"Wgrana mapa jest dla innego seeda",
  "Use this as the map background":"Użyj jako tła mapy","Remove it":"Usuń","Save the lobby links":"Zapisz linki do lobby",
@@ -1107,7 +1108,22 @@ async function vhMap(){
     const MAPVER="0.221.10";
     const mapUrl=(x,z,zoom)=>"https://valheim-map.world/?seed="+encodeURIComponent(d.seed)
       +"&offset="+encodeURIComponent(x+","+z)+"&zoom="+zoom+"&view=0&ver="+MAPVER;
-    MAPURL=mapUrl;                       // the buttons below reuse it
+    // With a lobby saved, the frame opens that instead - same map, plus whatever pins the
+    // group has put on it. Its own parameters are kept and only the view is moved, because
+    // the lobby id is in there somewhere and guessing which part it is would be a good way
+    // to open an empty map.
+    MAPURL=(x,z,zoom)=>{
+      if(!cfg.lobby_view)return mapUrl(x,z,zoom);
+      try{
+        const u=new URL(cfg.lobby_view);
+        u.searchParams.set("offset",x+","+z);
+        u.searchParams.set("zoom",zoom);
+        return u.toString();
+      }catch(e){return mapUrl(x,z,zoom);}
+    };
+    $("frame-note").textContent=cfg.lobby_view
+      ? t("The frame opens your lobby, so everyone's pins are on it.")
+      : t("The terrain map can sit right here — it renders in your browser, so it only loads when you ask.");
     // Only ever point the frame somewhere new on request. The map refresh runs every twenty
     // seconds and this thing redraws an entire world when its src changes.
     if($("frame-wrap").style.display!=="none"&&!$("frame-map").src&&d.seed)$("frame-map").src=mapUrl(0,0,"0.600");
