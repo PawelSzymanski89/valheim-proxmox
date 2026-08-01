@@ -1257,7 +1257,8 @@ def rules_set(body: dict = Body(...)):
         text = str(r.get("text") or "").strip()[:200]
         if not text:
             continue
-        when = r.get("when") if r.get("when") in ("before_night", "ingame_at", "every") else "before_night"
+        when = r.get("when") if r.get("when") in ("before_night", "ingame_at", "every", "on_join") \
+            else "before_night"
         out.append({"id": str(r.get("id") or secrets.token_hex(4))[:16], "text": text,
                     "where": "side" if r.get("where") == "side" else "center",
                     "when": when, "value": max(0, float(r.get("value") or 0)),
@@ -1267,12 +1268,91 @@ def rules_set(body: dict = Body(...)):
     return {"ok": True, "rules": out}
 
 
+GREETED = {}
+VH_LANG = Path(f"{VH_DIR}/panel-lang")     # the panel is a browser tab; greetings are not
+GREETINGS = HERE / "greetings.json"
+
+
+def _lang():
+    try:
+        v = VH_LANG.read_text().strip()
+        return v if v in ("pl", "en") else "en"
+    except Exception:
+        return "en"
+
+
+@app.get("/api/panel/lang")
+def lang_get():
+    return {"lang": _lang()}
+
+
+@app.post("/api/panel/lang")
+def lang_set(body: dict = Body(...)):
+    v = body.get("lang")
+    if v not in ("pl", "en"):
+        raise HTTPException(400, "pl or en")
+    VH_LANG.write_text(v)
+    return {"ok": True, "lang": v}
+
+
+def _greeting(name):
+    """A line from the pool in the panel's own language. The language lives in the browser,
+    so the panel posts it here - a greeting is written by the server, hours after anyone had
+    a tab open. Never the same line twice in a row for the same player."""
+    try:
+        pool = json.loads(GREETINGS.read_text())[_lang()]
+    except Exception:
+        return None
+    last = GREETED.get("last")
+    pick = secrets.choice(pool)
+    if len(pool) > 1 and pick == last:
+        pick = secrets.choice([g for g in pool if g != last])
+    GREETED["last"] = pick
+    return pick.replace("{name}", name)
+
+
+def _greet_tick():
+    """Greet by name, which needs two things the joining line alone does not give.
+
+    The name arrives seconds after the connection - the server logs the id first and the
+    character second - so a greeting has to wait for it. And it has to be quick, or it lands
+    when the player is already off the boat, which is why this reads the tail of the journal
+    every ten seconds instead of waiting for the once-a-minute pass over the whole thing.
+    """
+    rules = [r for r in _rules() if r.get("enabled") and r.get("when") == "on_join"]
+    if not rules:
+        return
+    out = _sh(f"journalctl -u valheim -o short-iso --no-pager -n 400 | {VH_LOG_FILTER}", timeout=20)
+    conns, *_ = _scan(out.stdout.splitlines())
+    here = {c["id"]: c for c in conns}
+    for pid in list(GREETED):
+        if pid not in here:
+            GREETED.pop(pid, None)          # left - greet them again next time they come back
+    for pid, c in here.items():
+        name = c.get("name")
+        if not name or pid in GREETED:
+            continue
+        GREETED[pid] = int(time.time())
+        for r in rules:
+            text = _greeting(name) if r["text"].strip() == "{random}" \
+                else r["text"].replace("{name}", name)
+            if not text:
+                continue
+            try:
+                _rcon(f"message {name} {r['where']} {text}")
+                _say_log({"t": int(time.time()), "text": text, "where": r["where"],
+                          "to": name, "by": r["id"]})
+                _log("say.greeting", player=name, rule=r["id"])
+            except Exception as e:
+                _log("say.failed", ok=False, rule=r["id"], error=f"{type(e).__name__}: {e}"[:120])
+
+
 def _rules_tick():
     """Called from the ten-second sampler: fine enough for a clock where an in-game hour is
     75 real seconds, and cheap because it only reads two small files."""
     if not WATCH.get("online"):
         return                                    # nobody to read it
-    rules = [r for r in _rules() if r.get("enabled")]
+    rules = [r for r in _rules() if r.get("enabled") and r.get("when") != "on_join"]
     if not rules:
         return
     card = _world_card()
@@ -2349,10 +2429,11 @@ def _live_tick():
     LIVE["ping"] = _ping(count=3) or LIVE["ping"]
     LIVE["t"] = int(time.time())
     _load_watch()
-    try:
-        _rules_tick()
-    except Exception as e:
-        _log("schedule.error", ok=False, error=f"{type(e).__name__}: {e}"[:160])
+    for fn in (_rules_tick, _greet_tick):
+        try:
+            fn()
+        except Exception as e:
+            _log("schedule.error", ok=False, error=f"{fn.__name__}: {type(e).__name__}: {e}"[:160])
 
 
 def _load_watch():

@@ -375,7 +375,8 @@
         <div class="add" style="margin-top:8px">
           <input id="nr-text" placeholder="message text" maxlength="200">
           <select id="nr-when"><option value="before_night">in-game hours before nightfall</option>
-            <option value="ingame_at">at in-game hour</option><option value="every">every N real minutes</option></select>
+            <option value="ingame_at">at in-game hour</option><option value="every">every N real minutes</option>
+            <option value="on_join">when a player joins — leave the text empty for a random Viking greeting</option></select>
           <input id="nr-val" type="number" step="0.5" min="0" max="24" value="1" style="max-width:90px">
           <button id="nr-add">Add</button>
         </div>
@@ -517,7 +518,9 @@ const I18N={
  "Playtime":"Czas gry",
  "Total":"Łącznie",
  "Longest":"Najdłuższa",
- "Sessions":"Sesji","Time in game":"Godzina w grze","night":"noc","day":"dzień","changes in":"zmiana za",
+ "Sessions":"Sesji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli",
+ "when a player joins — leave the text empty for a random Viking greeting":"gdy gracz wchodzi — puste pole to losowe wikińskie powitanie",
+ "when a player joins — {name} becomes their name":"gdy gracz wchodzi — {name} zamienia się w jego nick","night":"noc","day":"dzień","changes in":"zmiana za",
  "Admin only tools":"Narzędzia tylko dla admina","installed and reachable":"zainstalowane i odpowiadają",
  "Not installed. These three server-side mods let the panel talk to the running game — players install nothing.":"Niezainstalowane. Te trzy mody serwerowe pozwalają panelowi rozmawiać z działającą grą — gracze nie instalują nic.",
  "Install them":"Zainstaluj","Install the admin tools?":"Zainstalować narzędzia admina?",
@@ -672,7 +675,12 @@ function applyLang(root){
   n.forEach(x=>{const k=x.nodeValue.trim();if(k&&I18N[k])x.nodeValue=x.nodeValue.replace(k,I18N[k]);});
   if(root.querySelectorAll)root.querySelectorAll("[placeholder]").forEach(e=>{if(I18N[e.placeholder])e.placeholder=I18N[e.placeholder];});
 }
-function setLang(l){localStorage.setItem("vhLang",l);location.reload();}
+function setLang(l){
+  localStorage.setItem("vhLang",l);
+  // the server writes the greetings and has no browser to ask - so tell it
+  fetch("/api/panel/lang",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({lang:l})}).finally(()=>location.reload());
+}
 const $=id=>document.getElementById(id);
 const fmtBytes=b=>{b=+b||0;const u=["B","KB","MB","GB","TB"];let i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}return b.toFixed(b<10&&i>0?1:0)+u[i]};
 const fmtDur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
@@ -895,11 +903,11 @@ async function vhSay(){
     if(ready){await vhRules();await vhSayHist();}
   }catch(e){$("at-box").innerHTML=`<div class="stat"><div class="muted">${esc(e.message)}</div></div>`;}
 }
-const WHEN_LABEL={before_night:"in-game h before dark",ingame_at:"at in-game hour",every:"every N min"};
+const WHEN_LABEL={before_night:"in-game h before dark",ingame_at:"at in-game hour",every:"every N min",on_join:"on join, by name"};
 async function vhRules(){
   const r=await jf("/api/valheim/schedule");RULES=r.rules||[];
   $("say-rules").innerHTML=RULES.length?RULES.map((x,i)=>`<tr>
-    <td>${esc(x.text)}</td><td class="muted">${t(WHEN_LABEL[x.when]||x.when)}</td>
+    <td>${x.text==="{random}"?"<i>"+t("random greeting from the pool")+"</i>":esc(x.text)}</td><td class="muted">${t(WHEN_LABEL[x.when]||x.when)}</td>
     <td class="r">${x.value}</td><td class="muted">${x.where==="side"?t("corner"):t("middle")}</td>
     <td class="r"><input type="checkbox" data-ri="${i}" ${x.enabled?"checked":""}></td>
     <td class="r"><button class="mini danger" data-rd="${i}">remove</button></td></tr>`).join("")
@@ -931,8 +939,11 @@ $("say-send").onclick=async()=>{
   catch(e){toast(e.message,"bad");}
 };
 $("nr-add").onclick=()=>{
-  const txt=$("nr-text").value.trim();if(!txt)return toast(t("Nothing to say"),"bad");
-  RULES.push({text:txt,when:$("nr-when").value,value:+$("nr-val").value||0,where:"center",enabled:true});
+  const when=$("nr-when").value;
+  // an empty text on a join rule means "surprise them" - 200 greetings per language
+  const txt=$("nr-text").value.trim()||(when==="on_join"?"{random}":"");
+  if(!txt)return toast(t("Nothing to say"),"bad");
+  RULES.push({text:txt,when,value:+$("nr-val").value||0,where:"center",enabled:true});
   $("nr-text").value="";saveRules();
 };
 async function vhCard(){
