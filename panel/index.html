@@ -18,7 +18,8 @@
       repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
       var(--bg);
     background-attachment:fixed}
-  .wrap{max-width:1100px;margin:0 auto;padding:24px 16px 60px}
+  .wrap{width:min(92vw,1760px);margin:0 auto;padding:24px 20px 60px}
+  @media(max-width:900px){.wrap{width:100%;padding:16px 12px 48px}}
   h1{margin:0 0 2px;font:600 26px/1.1 Georgia,"Times New Roman",serif;letter-spacing:.2em;
     text-transform:uppercase;color:var(--acc2);text-shadow:0 2px 18px rgba(201,162,39,.22)}
   h1:after{content:"ᚠ ᚢ ᚦ ᚨ ᚱ ᚲ";display:block;font:400 11px/1 system-ui;letter-spacing:.5em;
@@ -40,7 +41,10 @@
   .attrib .sep{opacity:.4;margin:0 6px}
   .big{font-size:26px;font-weight:700}
   .r{text-align:right}
-  .grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
+  .grid{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
+  /* rows are scanned, not read - a little air and a hover line help more than any colour */
+  tbody tr:hover{background:#12171c}
+  td,th{padding:8px 10px}
   .stat{background:#10151a;border:1px solid var(--line);border-radius:3px;padding:11px 13px}
   .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
   .dot.run{background:var(--ok)}.dot.stop{background:var(--bad)}
@@ -67,11 +71,18 @@
   .log{background:var(--field);border:1px solid var(--line);border-radius:3px;padding:12px;font-size:12px;
        max-height:420px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:0}
   /* tabs — 6 lines of JS below, no framework */
-  .tabs{display:flex;gap:4px;flex-wrap:wrap;border-bottom:1px solid var(--line);margin:16px 0 0}
-  .tabs a{padding:8px 14px;color:var(--dim);text-decoration:none;font-size:14px;border-bottom:2px solid transparent;cursor:pointer}
-  .tabs a.on{color:var(--acc2);border-bottom-color:var(--acc)}
-  .tabs a{text-transform:uppercase;letter-spacing:.1em;font-size:12px}
-  .pane{display:none;padding-top:16px}.pane.on{display:block}
+  /* Sticky, because half these tabs open a list long enough to lose the header, and the
+     pane you are in should still be readable when you are at the bottom of it. */
+  .tabs{position:sticky;top:0;z-index:20;display:flex;gap:6px;flex-wrap:wrap;
+    border-bottom:1px solid var(--line);margin:18px 0 0;padding:6px 0;
+    background:linear-gradient(180deg,rgba(11,13,15,.97),rgba(11,13,15,.82));
+    backdrop-filter:blur(6px)}
+  .tabs a{padding:9px 15px;color:#a89f90;text-decoration:none;cursor:pointer;border-radius:3px;
+    font:600 13px/1 system-ui;letter-spacing:.04em;border:1px solid transparent;transition:.15s}
+  .tabs a:hover{color:var(--tx);background:#151b21;border-color:var(--line)}
+  .tabs a.on{color:var(--acc2);background:linear-gradient(180deg,#232b33,#181e24);
+    border-color:var(--acc);box-shadow:0 0 18px rgba(201,162,39,.13)}
+  .pane{display:none;padding-top:20px}.pane.on{display:block}
   /* edytor konfiguracji modów */
   .edit{display:grid;grid-template-columns:260px 1fr;gap:14px;align-items:start}
   @media(max-width:820px){.edit{grid-template-columns:1fr}}
@@ -538,7 +549,35 @@ const I18N={
  "Playtime":"Czas gry",
  "Total":"Łącznie",
  "Longest":"Najdłuższa",
- "Sessions":"Sesji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli","random Valheim joke":"losowy suchar o Valheimie","nobody is playing":"nikt nie gra","height":"wysokość","show on the terrain map":"pokaż na mapie terenu",
+ "Sessions":"Sesji",
+ ") and paste the code here. Everyone ends up on the same versions, which is what stops the “incompatible version” bounce at join time.":") i wklej kod tutaj. Wszyscy lądują na tych samych wersjach, a to właśnie ucina wyrzucanie z powodu „niezgodnej wersji”.",
+ "Anyone who knows this name receives your alerts — that is why it is random. Change it if it ever leaks.":"Każdy, kto zna tę nazwę, dostaje Twoje powiadomienia — dlatego jest losowa. Zmień ją, jeśli kiedykolwiek wycieknie.",
+ "Everything a server admin can control. In-game commands (kick, spawn, weather) live in the F5 console — add yourself to":"Wszystko, czym admin może sterować. Komendy w grze (kick, spawn, pogoda) siedzą w konsoli F5 — dopisz się do",
+ "below and use it there.":"poniżej i używaj ich tam.",
+ "Access & bans":"Dostęp i bany","Mods & config":"Mody i konfiguracja","Save & restart":"Zapisz i zrestartuj",
+ "The server reloads these files on its own — no restart needed. An admin can use the in-game console (F5):":"Serwer sam przeładowuje te pliki — restart niepotrzebny. Admin może użyć konsoli w grze (F5):",
+ ", weather, god mode.":", pogoda, tryb boga.",
+ "Upload a matching pair":"Wgraj pasującą parę plików",
+ ". New world: just type a name in Settings — the server generates it on the next start.":". Nowy świat: wpisz nazwę w Ustawieniach — serwer wygeneruje go przy najbliższym starcie.",
+ "Export a profile in Thunderstore Mod Manager / r2modman (":"Wyeksportuj profil w Thunderstore Mod Managerze / r2modman (",
+ "Settings → Export profile → as a code":"Settings → Export profile → as a code",
+ "ntfy topic — generated for you, subscribe to it in the ntfy app":"Temat ntfy — wygenerowany dla Ciebie, zasubskrybuj go w aplikacji ntfy",
+ "ntfy server":"Serwer ntfy","Token (only for a private server)":"Token (tylko dla prywatnego serwera)",
+ "In the app:":"W aplikacji:","Hit":"Kliknij",
+ "→ paste the topic above → subscribe. No account, no login.":"→ wklej temat powyżej → subskrybuj. Bez konta, bez logowania.",
+ "below. If the phone buzzes, you are done.":"poniżej. Jeśli telefon zawibruje, gotowe.",
+ "Time (HH:MM, empty = off)":"Godzina (HH:MM, puste = wyłączone)",
+ "Only when nobody is playing":"Tylko gdy nikt nie gra",
+ "If someone is playing, retry after (min)":"Jeśli ktoś gra, spróbuj ponownie za (min)",
+ "Warn when free disk drops below (GB)":"Ostrzeż, gdy wolnego miejsca będzie mniej niż (GB)",
+ "middle of the screen":"środek ekranu","corner":"róg ekranu",
+ "Send":"Wyślij","Add":"Dodaj","Text":"Treść","Value":"Wartość","Where":"Gdzie","When":"Kiedy","On":"Wł.",
+ "in-game hours before nightfall":"godzin w grze przed zmierzchem","at in-game hour":"o godzinie w grze",
+ "every N real minutes":"co N realnych minut",
+ "Sent":"Wysłane","Remove it":"Usuń mapę",
+ "message text":"treść komunikatu","It\'ll be dark soon!":"Zaraz będzie ciemno!","ModName":"NazwaModa",
+ "https://valheim-map.world/... — shared pins, view link":"https://valheim-map.world/... — wspólne pinezki, link do podglądu",
+ "...edit link":"...link do edycji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli","random Valheim joke":"losowy suchar o Valheimie","nobody is playing":"nikt nie gra","height":"wysokość","show on the terrain map":"pokaż na mapie terenu",
  "Pick an image first":"Najpierw wybierz obrazek","The uploaded map was made for a different seed":"Wgrana mapa jest dla innego seeda",
  "Use this as the map background":"Użyj jako tła mapy","Remove it":"Usuń","Save the lobby links":"Zapisz linki do lobby",
  "Open the terrain map above, hit Download Map there, and drop the image here — the dots then sit on real ground. The site renders in the browser, so the panel cannot fetch it for you.":"Otwórz mapę terenu powyżej, kliknij tam Download Map i wrzuć obrazek tutaj — kropki usiądą wtedy na prawdziwym terenie. Serwis renderuje w przeglądarce, więc panel nie pobierze tego za Ciebie.",
@@ -753,9 +792,36 @@ const ASK={start:["Start the server?","Start"],stop:["Stop the server? The world
   backup:["Back up the world now?","Back up"],update:["Check for an update? If there is one, the server restarts itself.","Check"]};
 let VH=null;
 
+// Cache first, then the truth. Every panel is a dozen separate calls and the slowest of
+// them is a shell round trip on the game host, so a cold render used to unfold in pieces
+// over a couple of seconds. This paints the last known answer immediately - the layout is
+// then already the right shape - and repaints when the real one lands. Cached under the
+// panel's own origin, in the admin's browser; nothing here is a secret the panel would not
+// show that browser anyway.
+const CK=u=>"vhc:"+u;
+function cached(url){
+  try{return JSON.parse(sessionStorage.getItem(CK(url))||"null");}catch(e){return null;}
+}
+function keep(url,data){
+  try{sessionStorage.setItem(CK(url),JSON.stringify(data));}catch(e){}
+}
+async function jfc(url,render){
+  const c=cached(url);
+  if(c!==null){try{render(c,true);}catch(e){}}
+  const d=await jf(url);
+  keep(url,d);
+  render(d,false);
+  return d;
+}
+
 async function load(){
   try{
-    const v=await jf("/api/valheim");VH=v;
+    const v=await jfc("/api/valheim",paintStatus);
+    $("vh-err").textContent="";
+  }catch(e){$("vh-err").textContent=e.message;}
+}
+function paintStatus(v){
+    VH=v;
     $("vh-state").textContent=v.active?"Running":"Stopped";
     const b=[];
     if(v.active){b.push(`${v.online.length} online`);if(v.uptime)b.push("uptime "+fmtDur(v.uptime));}
@@ -766,8 +832,6 @@ async function load(){
     $("warn-default").style.display=(v.settings||{}).panel_default_pass?"block":"none";
     vhOnline(v);vhHistory(v);vhStats();vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
     vhCard();vhHealth();vhSay();vhMap();
-    $("vh-err").textContent="";
-  }catch(e){$("vh-err").textContent=e.message;}
 }
 let SUM=null;
 function bar(pct,label){
@@ -863,7 +927,11 @@ function vhHistory(v){
 }
 async function vhStats(){
   try{
-    const s=await jf("/api/valheim/players/stats");
+    await jfc("/api/valheim/players/stats",paintStats);
+  }catch(e){}
+}
+function paintStats(s){
+  try{
     $("st-sum").innerHTML=
       `<div class="stat"><div class="muted">${t("Time played, everyone")}</div><div>${fmtDur(s.total_seconds)}</div></div>`+
       `<div class="stat"><div class="muted">${t("Players seen")}</div><div>${s.players.length}</div></div>`+
@@ -953,7 +1021,10 @@ async function saveRules(){
   catch(e){toast(e.message,"bad");}
 }
 async function vhSayHist(){
-  try{const h=await jf("/api/valheim/say/history");
+  try{await jfc("/api/valheim/say/history",paintSayHist);}catch(e){}
+}
+function paintSayHist(h){
+  try{
     $("say-hist").innerHTML=(h.messages||[]).slice(0,30).map(m=>`<tr>
       <td class="muted">${fmtTs(m.t)}</td><td>${esc(m.text)}</td>
       <td class="muted">${m.where==="side"?t("corner"):t("middle")}</td>
@@ -982,8 +1053,11 @@ $("nr-add").onclick=()=>{
   $("nr-text").value="";saveRules();
 };
 async function vhCard(){
+  try{await jfc("/api/valheim/world/card",paintCard);}
+  catch(e){$("vh-card").innerHTML=`<div class="stat"><div class="muted">${esc(e.message)}</div></div>`;}
+}
+function paintCard(c){
   try{
-    const c=await jf("/api/valheim/world/card");
     const f=c.fwl||{},d=c.db||{};
     $("vh-card").innerHTML=c.error
       ?`<div class="stat"><div class="muted">${t("World")}</div><div class="muted">${esc(c.error)}</div></div>`
@@ -1061,8 +1135,10 @@ $("lobby-save").onclick=async()=>{
   catch(e){toast(e.message,"bad");}
 };
 async function vhHealth(){
+  try{await jfc("/api/valheim/health",paintHealth);}catch(e){}
+}
+function paintHealth(h){
   try{
-    const h=await jf("/api/valheim/health");
     const b=h.backup;
     if(b)$("vh-verify-msg").innerHTML=b.ok
       ? `${t("Newest backup opened and read")}: <code>${esc(b.file)}</code> — ${t("day")} ${b.day}, ${fmtBytes(b.size||0)}, ${fmtTs(b.at)}`
