@@ -148,6 +148,22 @@ async def _unhandled(request: Request, exc: Exception):
 async def guard(request: Request, call_next):
     if request.url.path in OPEN_PATHS or _who(request):
         return await call_next(request)
+    # A rejected Basic header is a guess like any other, and until now it was the one door
+    # nobody was counting: no rate limit, no log line. A request with no credentials at all
+    # is just an unauthenticated browser and is left alone.
+    h = request.headers.get("authorization", "")
+    if h.startswith("Basic "):
+        ip = _client_ip(request)
+        rec = LOGIN_FAILS.get(ip)
+        if rec and rec.get("until", 0) > time.time():
+            left = int(rec["until"] - time.time())
+            return JSONResponse({"detail": f"Too many attempts — try again in {left // 60 + 1} min"},
+                                status_code=429, headers={"Retry-After": str(left)})
+        try:
+            u, _, pw = base64.b64decode(h[6:]).decode().partition(":")
+        except Exception:
+            u, pw = "", ""
+        _login_failed(ip, u, pw, how="basic")
     return JSONResponse({"detail": "Bad credentials"}, status_code=401,
                         headers={"WWW-Authenticate": "Basic"})
 
@@ -173,7 +189,21 @@ def _login_guard(ip):
                             {"Retry-After": str(left)})
 
 
-def _login_failed(ip):
+def _attempted(user, password):
+    """What was typed at a failed login, for the log.
+
+    Two things are deliberate. The real password is never written down even when it arrives
+    with the wrong user name - the most common failed login is the admin's own typo, and this
+    log is displayed in the panel's own browser tab. And the value is capped, because the
+    field accepts far more than anyone types by hand.
+    """
+    env = _env_file(VH_PANEL_ENV)
+    shown = "<the real one — not logged>" if password and password == env.get("PANEL_PASS") \
+        else (password[:64] or "<empty>")
+    return {"tried_user": (user or "")[:64] or "<empty>", "tried_pass": shown}
+
+
+def _login_failed(ip, user="", password="", how="form"):
     now = time.time()
     rec = LOGIN_FAILS.setdefault(ip, {"count": 0, "first": now, "until": 0, "blocks": 0})
     if now - rec["first"] > LOGIN_WINDOW:
@@ -183,12 +213,14 @@ def _login_failed(ip):
         rec["blocks"] += 1
         rec["until"] = now + LOGIN_BLOCK * min(6, rec["blocks"])     # 10, 20, 30 ... up to 60 min
         rec.update({"count": 0, "first": now})
-        _log("panel.login_blocked", ok=False, ip=ip, minutes=int((rec["until"] - now) / 60))
+        _log("panel.login_blocked", ok=False, ip=ip, how=how,
+             minutes=int((rec["until"] - now) / 60), **_attempted(user, password))
         _notify("panel_login", "Panel locked out an address",
                 f"{ip} kept guessing the password — blocked for {int((rec['until'] - now) / 60)} min.",
                 priority="high", tags="lock")
     else:
-        _log("panel.login_failed", ok=False, ip=ip, attempt=rec["count"])
+        _log("panel.login_failed", ok=False, ip=ip, attempt=rec["count"], how=how,
+             **_attempted(user, password))
 
 
 class Login(BaseModel):
@@ -201,7 +233,7 @@ def login(l: Login, request: Request, response: Response):
     ip = _client_ip(request)
     _login_guard(ip)
     if not _check_login(l.user, l.password):
-        _login_failed(ip)
+        _login_failed(ip, l.user, l.password)
         time.sleep(1)          # a scripted guess costs a second; a human never notices
         raise HTTPException(401, "Wrong user or password")
     LOGIN_FAILS.pop(ip, None)
