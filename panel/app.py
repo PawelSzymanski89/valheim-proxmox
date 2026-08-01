@@ -1465,6 +1465,36 @@ def say_history():
         return {"messages": []}
 
 
+# The world is a disc a little over 10 km across; the edge is where the sea stops being
+# survivable. Coordinates come back as x, z, y - z is the north-south axis and y is height,
+# which is not the order anyone expects.
+WORLD_RADIUS = 10500
+PLAYER_POS_RE = re.compile(r"(\S+)/(.+?)/(\S+)\s+\((-?\d+),\s*(-?\d+),\s*(-?\d+)\)")
+
+
+@app.get("/api/valheim/players/positions")
+def player_positions():
+    """Where everyone is standing, straight from the game rather than from the log.
+
+    Admin side only, and deliberately not on the public page: a live position feed is the
+    one thing on this server that could get somebody raided in their sleep.
+    """
+    out = {"radius": WORLD_RADIUS, "players": [], "seed": None, "error": None}
+    try:
+        card = _world_card()
+        out["seed"] = (card.get("fwl") or {}).get("seed_name")
+        raw = _rcon("playerlist")
+        for m in PLAYER_POS_RE.finditer(raw):
+            pid, name, _cid, x, z, y = m.groups()
+            out["players"].append({"id": pid, "name": name.strip(),
+                                   "x": int(x), "z": int(z), "y": int(y)})
+    except HTTPException:
+        out["error"] = "admin tools are not installed"
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"[:120]
+    return out
+
+
 @app.get("/api/valheim/world/card")
 def world_card(world: str = ""):
     if world and not VH_NAME_RE.match(world):
