@@ -211,6 +211,15 @@
       <div class="row" style="margin:14px 0 6px"><div class="muted" id="map-note">Where everyone is right now — admin side only, never on the public page.</div>
         <a id="map-link" class="mini" target="_blank" rel="noopener" style="text-decoration:none">Terrain map for this seed</a></div>
       <div id="vh-map"></div>
+      <div class="row" style="margin-top:10px">
+        <div class="muted" id="frame-note">The terrain map can sit right here — it renders in your browser, so it only loads when you ask.</div>
+        <span style="display:flex;gap:8px"><button class="mini" id="frame-open">Show the terrain map here</button>
+        <button class="mini" id="frame-close" style="display:none">Hide it</button></span>
+      </div>
+      <div id="frame-wrap" style="display:none;margin-top:10px">
+        <iframe id="frame-map" title="Terrain map" loading="lazy" referrerpolicy="no-referrer"
+          style="width:100%;height:70vh;min-height:420px;border:1px solid var(--line);border-radius:4px;background:#0d1114"></iframe>
+      </div>
       <table style="margin-top:10px"><tbody id="map-where"></tbody></table>
       <div class="add" style="margin-top:12px">
         <input type="file" id="map-file" accept="image/png,image/jpeg">
@@ -593,7 +602,9 @@ const I18N={
  "Sent":"Wysłane","Remove it":"Usuń mapę",
  "message text":"treść komunikatu","It\'ll be dark soon!":"Zaraz będzie ciemno!","ModName":"NazwaModa",
  "https://valheim-map.world/... — shared pins, view link":"https://valheim-map.world/... — wspólne pinezki, link do podglądu",
- "...edit link":"...link do edycji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli","random Valheim joke":"losowy suchar o Valheimie","nobody is playing":"nikt nie gra","height":"wysokość","show on the terrain map":"pokaż na mapie terenu",
+ "...edit link":"...link do edycji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli","random Valheim joke":"losowy suchar o Valheimie","nobody is playing":"nikt nie gra","height":"wysokość","show on the terrain map":"pokaż na mapie terenu","centre the frame here":"wyśrodkuj ramkę tutaj",
+ "Show the terrain map here":"Pokaż tu mapę terenu","Hide it":"Ukryj","No seed yet":"Brak seeda",
+ "The terrain map can sit right here — it renders in your browser, so it only loads when you ask.":"Mapa terenu może być tutaj — renderuje się w Twojej przeglądarce, więc ładuje się dopiero na żądanie.",
  "Pick an image first":"Najpierw wybierz obrazek","The uploaded map was made for a different seed":"Wgrana mapa jest dla innego seeda",
  "Use this as the map background":"Użyj jako tła mapy","Remove it":"Usuń","Save the lobby links":"Zapisz linki do lobby",
  "Open the terrain map above, hit Download Map there, and drop the image here — the dots then sit on real ground. The site renders in the browser, so the panel cannot fetch it for you.":"Otwórz mapę terenu powyżej, kliknij tam Download Map i wrzuć obrazek tutaj — kropki usiądą wtedy na prawdziwym terenie. Serwis renderuje w przeglądarce, więc panel nie pobierze tego za Ciebie.",
@@ -1096,6 +1107,10 @@ async function vhMap(){
     const MAPVER="0.221.10";
     const mapUrl=(x,z,zoom)=>"https://valheim-map.world/?seed="+encodeURIComponent(d.seed)
       +"&offset="+encodeURIComponent(x+","+z)+"&zoom="+zoom+"&view=0&ver="+MAPVER;
+    MAPURL=mapUrl;                       // the buttons below reuse it
+    // Only ever point the frame somewhere new on request. The map refresh runs every twenty
+    // seconds and this thing redraws an entire world when its src changes.
+    if($("frame-wrap").style.display!=="none"&&!$("frame-map").src&&d.seed)$("frame-map").src=mapUrl(0,0,"0.600");
     const link=$("map-link");
     if(d.seed){link.href=mapUrl(0,0,"0.600");link.style.display="";}
     else link.style.display="none";
@@ -1109,7 +1124,8 @@ async function vhMap(){
       ? (d.players||[]).map(p=>`<tr><td>${esc(p.name)}</td>
           <td class="muted">x ${p.x} · z ${p.z} · ${t("height")} ${p.y}</td>
           <td class="r"><a class="mini" target="_blank" rel="noopener" style="text-decoration:none"
-            href="${mapUrl(p.x,p.z,"2.000")}">${t("show on the terrain map")}</a></td></tr>`).join("")
+            href="${mapUrl(p.x,p.z,"2.000")}">${t("show on the terrain map")}</a>
+            <button class="mini" data-here="${p.x},${p.z}">${t("centre the frame here")}</button></td></tr>`).join("")
       : "";
     let cfg={};
     try{cfg=await jf("/api/valheim/world/links");}catch(e){}
@@ -1131,6 +1147,24 @@ async function vhMap(){
         </svg>`;
   }catch(e){$("vh-map").innerHTML=`<div class="muted">${esc(e.message)}</div>`;}
 }
+let MAPURL=null;
+$("frame-open").onclick=()=>{
+  if(!MAPURL)return toast(t("No seed yet"),"bad");
+  $("frame-map").src=MAPURL(0,0,"0.600");
+  $("frame-wrap").style.display="";$("frame-open").style.display="none";$("frame-close").style.display="";
+};
+$("frame-close").onclick=()=>{
+  $("frame-wrap").style.display="none";$("frame-map").src="about:blank";
+  $("frame-open").style.display="";$("frame-close").style.display="none";
+};
+document.addEventListener("click",e=>{
+  const b=e.target.closest("[data-here]");
+  if(!b||!MAPURL)return;
+  const [x,z]=b.dataset.here.split(",");
+  $("frame-wrap").style.display="";$("frame-open").style.display="none";$("frame-close").style.display="";
+  $("frame-map").src=MAPURL(+x,+z,"2.000");
+  $("frame-map").scrollIntoView({behavior:"smooth",block:"nearest"});
+});
 $("map-up").onclick=async()=>{
   const f=$("map-file").files[0];
   if(!f)return toast(t("Pick an image first"),"bad");
