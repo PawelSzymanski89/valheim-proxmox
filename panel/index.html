@@ -1701,11 +1701,21 @@ load();vhSummary();setInterval(load,20000);setInterval(vhTick,1000);
     edges = [];
     document.querySelectorAll(".card,.box,.modal").forEach(function(el){
       var r = el.getBoundingClientRect();
-      if (r.bottom > 0 && r.top < H && r.width > 40) edges.push({x: r.left, w: r.width, y: r.top});
+      if (r.bottom <= 0 || r.top >= H || r.width <= 40) return;
+      // A card taller than the window has its top edge off screen, and a drop can never
+      // cross a line at a negative y - which is why rain used to fall straight through the
+      // long panes. The surface is then the top of the window: that is where the card
+      // starts as far as anything visible is concerned.
+      edges.push({x: r.left, w: r.width, y: Math.max(r.top, 0)});
     });
   }
   measure();
-  addEventListener("scroll", function(){ measure(); }, {passive: true});
+  var pending = false;
+  addEventListener("scroll", function(){          // once per frame, not once per scroll event
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(function(){ pending = false; measure(); });
+  }, {passive: true});
   setInterval(measure, 700);
 
   var drops = [], splashes = [], N = Math.round(Math.min(90, W / 14));
