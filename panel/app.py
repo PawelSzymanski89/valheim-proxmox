@@ -1215,9 +1215,9 @@ def say(p: Say):
         raise HTTPException(400, "Keep it under 200 characters")
     where = p.where if p.where in ("center", "side") else "center"
     if p.players.strip():
-        out = _rcon(f'message {p.players.strip()} {where} {_ingame(text)}')
+        out = _rcon(f'message {p.players.strip()} {where} {_ingame(_signed(text))}')
     else:
-        out = _rcon(f"broadcast {where} {_ingame(text)}")
+        out = _rcon(f"broadcast {where} {_ingame(_signed(text))}")
     _say_log({"t": int(time.time()), "text": text, "where": where,
               "to": p.players.strip() or "all", "by": "panel"})
     _log("say", where=where, to=p.players.strip() or "all", chars=len(text))
@@ -1270,8 +1270,8 @@ def rules_set(body: dict = Body(...)):
         text = str(r.get("text") or "").strip()[:200]
         if not text:
             continue
-        when = r.get("when") if r.get("when") in ("before_night", "ingame_at", "every", "on_join") \
-            else "before_night"
+        when = r.get("when") if r.get("when") in \
+            ("before_night", "ingame_at", "every", "on_join", "after_join") else "before_night"
         out.append({"id": str(r.get("id") or secrets.token_hex(4))[:16], "text": text,
                     "where": "side" if r.get("where") == "side" else "center",
                     "when": when, "value": max(0, float(r.get("value") or 0)),
@@ -1284,6 +1284,55 @@ def rules_set(body: dict = Body(...)):
 GREETED = {}
 VH_LANG = Path(f"{VH_DIR}/panel-lang")     # the panel is a browser tab; greetings are not
 GREETINGS = HERE / "greetings.json"
+JOKES = HERE / "jokes.json"
+VH_SAYCFG = Path(f"{VH_DIR}/say.json")
+JOKED = {}
+
+
+def _say_cfg():
+    cfg = {"nick": "Odyn"}
+    try:
+        cfg.update(json.loads(VH_SAYCFG.read_text()))
+    except Exception:
+        pass
+    return cfg
+
+
+@app.get("/api/valheim/say/settings")
+def say_cfg_get():
+    return _say_cfg()
+
+
+@app.post("/api/valheim/say/settings")
+def say_cfg_set(body: dict = Body(...)):
+    nick = str(body.get("nick") or "").strip()[:24]
+    VH_SAYCFG.write_text(json.dumps({"nick": nick}))
+    _log("say.settings", nick=nick or "<none>")
+    return {"ok": True, "nick": nick}
+
+
+def _signed(text):
+    """Screen messages carry no sender, so the name goes in front of the line. An empty
+    nick leaves the message bare - some people want the server to sound like the world
+    itself rather than like somebody typing."""
+    nick = _say_cfg().get("nick", "").strip()
+    return f"{nick}: {text}" if nick else text
+
+
+def _joke():
+    try:
+        pool = json.loads(JOKES.read_text())
+    except Exception:
+        return None
+    if isinstance(pool, dict):                    # room for an English set later
+        pool = pool.get(_lang()) or pool.get("pl") or []
+    if not pool:
+        return None
+    pick = secrets.choice(pool)
+    if len(pool) > 1 and pick == JOKED.get("last"):
+        pick = secrets.choice([j for j in pool if j != pick])
+    JOKED["last"] = pick
+    return pick
 
 
 def _lang():
@@ -1332,7 +1381,7 @@ def _greet_tick():
     when the player is already off the boat, which is why this reads the tail of the journal
     every ten seconds instead of waiting for the once-a-minute pass over the whole thing.
     """
-    rules = [r for r in _rules() if r.get("enabled") and r.get("when") == "on_join"]
+    rules = [r for r in _rules() if r.get("enabled") and r.get("when") in ("on_join", "after_join")]
     if not rules:
         return
     out = _sh(f"journalctl -u valheim -o short-iso --no-pager -n 400 | {VH_LOG_FILTER}", timeout=20)
@@ -1341,21 +1390,32 @@ def _greet_tick():
     for pid in list(GREETED):
         if pid not in here:
             GREETED.pop(pid, None)          # left - greet them again next time they come back
+    for key in [k for k in JOKED if k != "last" and k.split("|")[0] not in here]:
+        JOKED.pop(key, None)                # same for the delayed lines
+    now = int(time.time())
     for pid, c in here.items():
         name = c.get("name")
-        if not name or pid in GREETED:
-            continue
-        GREETED[pid] = int(time.time())
+        if not name:
+            continue                        # the character line has not arrived yet
         for r in rules:
-            text = _greeting(name) if r["text"].strip() == "{random}" \
-                else r["text"].replace("{name}", name)
+            if r["when"] == "on_join":
+                if pid in GREETED:
+                    continue
+                GREETED[pid] = now
+            else:                           # after_join: value is minutes since they joined
+                key = f"{pid}|{r['id']}"
+                if key in JOKED or now - (c.get("since") or now) < r["value"] * 60:
+                    continue
+                JOKED[key] = now
+            body = r["text"].strip()
+            text = _greeting(name) if body == "{random}" else \
+                _joke() if body == "{joke}" else body.replace("{name}", name)
             if not text:
                 continue
             try:
-                _rcon(f"message {name} {r['where']} {_ingame(text)}")
-                _say_log({"t": int(time.time()), "text": text, "where": r["where"],
-                          "to": name, "by": r["id"]})
-                _log("say.greeting", player=name, rule=r["id"])
+                _rcon(f"message {name} {r['where']} {_ingame(_signed(text))}")
+                _say_log({"t": now, "text": text, "where": r["where"], "to": name, "by": r["id"]})
+                _log("say.player", player=name, rule=r["id"], when=r["when"])
             except Exception as e:
                 _log("say.failed", ok=False, rule=r["id"], error=f"{type(e).__name__}: {e}"[:120])
 
@@ -1390,7 +1450,7 @@ def _rules_tick():
             continue
         RULE_FIRED[key + ":stamp"], RULE_FIRED[key] = stamp, now
         try:
-            _rcon(f"broadcast {r['where']} {_ingame(r['text'])}")
+            _rcon(f"broadcast {r['where']} {_ingame(_signed(r['text']))}")
             _say_log({"t": now, "text": r["text"], "where": r["where"], "to": "all", "by": r["id"]})
             _log("say.scheduled", rule=r["id"], when=r["when"])
         except Exception as e:
