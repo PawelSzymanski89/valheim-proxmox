@@ -184,6 +184,7 @@
       <div class="row" style="margin:14px 0 6px"><div class="muted" id="map-note">Where everyone is right now — admin side only, never on the public page.</div>
         <a id="map-link" class="mini" target="_blank" rel="noopener" style="text-decoration:none">Terrain map for this seed</a></div>
       <div id="vh-map"></div>
+      <table style="margin-top:10px"><tbody id="map-where"></tbody></table>
       <table><thead><tr><th>World</th><th>Size</th><th>Last save</th><th class="r">Actions</th></tr></thead>
       <tbody id="vh-worlds"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
       <div class="add" style="margin-top:12px">
@@ -525,7 +526,7 @@ const I18N={
  "Playtime":"Czas gry",
  "Total":"Łącznie",
  "Longest":"Najdłuższa",
- "Sessions":"Sesji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli","random Valheim joke":"losowy suchar o Valheimie","nobody is playing":"nikt nie gra",
+ "Sessions":"Sesji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli","random Valheim joke":"losowy suchar o Valheimie","nobody is playing":"nikt nie gra","height":"wysokość","show on the terrain map":"pokaż na mapie terenu",
  "Where everyone is right now — admin side only, never on the public page.":"Kto gdzie teraz jest — tylko dla admina, nigdy na stronie publicznej.",
  "Terrain map for this seed":"Mapa terenu dla tego seeda",
  "min after joining":"min po wejściu",
@@ -983,14 +984,27 @@ async function vhMap(){
   try{
     const d=await jf("/api/valheim/players/positions");
     const R=d.radius,S=560,c=S/2,k=c/R;
+    // valheim-map.world takes seed, an x,z centre, zoom and the game version it renders
+    // with. It knows up to 0.221.10 and this server runs 0.221.12 - same world generator
+    // (worldgen 2), so the older number renders the identical map.
+    const MAPVER="0.221.10";
+    const mapUrl=(x,z,zoom)=>"https://valheim-map.world/?seed="+encodeURIComponent(d.seed)
+      +"&offset="+encodeURIComponent(x+","+z)+"&zoom="+zoom+"&view=0&ver="+MAPVER;
     const link=$("map-link");
-    if(d.seed){link.href="https://valheim-map.world/?seed="+encodeURIComponent(d.seed);link.style.display="";}
+    if(d.seed){link.href=mapUrl(0,0,"0.600");link.style.display="";}
     else link.style.display="none";
     const dots=(d.players||[]).map(p=>{
       const x=c+p.x*k, y=c-p.z*k;   // z is the north-south axis, and north is up
       return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="5" fill="var(--acc2)"/>
         <text x="${(x+9).toFixed(1)}" y="${(y+4).toFixed(1)}" fill="var(--tx)" font-size="12">${esc(p.name)}</text>`;
     }).join("");
+    // a row per player: exact coordinates, and the terrain map centred on them
+    $("map-where").innerHTML=(d.players||[]).length&&d.seed
+      ? (d.players||[]).map(p=>`<tr><td>${esc(p.name)}</td>
+          <td class="muted">x ${p.x} · z ${p.z} · ${t("height")} ${p.y}</td>
+          <td class="r"><a class="mini" target="_blank" rel="noopener" style="text-decoration:none"
+            href="${mapUrl(p.x,p.z,"2.000")}">${t("show on the terrain map")}</a></td></tr>`).join("")
+      : "";
     $("vh-map").innerHTML=d.error
       ?`<div class="muted">${esc(d.error)}</div>`
       :`<svg viewBox="0 0 ${S} ${S}" style="width:100%;max-width:${S}px;background:#0d1114;border:1px solid var(--line);border-radius:4px">
