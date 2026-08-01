@@ -752,6 +752,17 @@ def action(action: str):
         raise HTTPException(400, "Unknown action")
     out = _sh_ok(cmd[0], timeout=cmd[1]).strip()[-400:]
     _log("server." + action, out=out or None)
+    # The watcher samples once a minute, so a stop followed by a start half a minute later
+    # is invisible to it - both samples say "running". The action itself knows exactly what
+    # happened, so it says so, and hands the watcher the new state to stop it reporting the
+    # same thing again from behind.
+    if action in ("start", "stop", "restart"):
+        WATCH["active"] = action != "stop"
+        _notify("server_action", {"start": "Server started", "stop": "Server stopped",
+                                  "restart": "Server restarted"}[action],
+                f"From the panel, at {datetime.now().strftime('%H:%M')}.",
+                priority="high" if action == "stop" else "default",
+                tags={"start": "green_circle", "stop": "red_circle", "restart": "repeat"}[action])
     return {"ok": True, "out": out}
 
 
@@ -1657,6 +1668,7 @@ ALERT_EVENTS = {
     "player_leave": "Player left",
     "player_death": "Player died",
     "server_crash": "Server crashed or was killed",
+    "server_action": "Started or stopped from the panel",
     "backup_failed": "Backup failed",
     "disk_low": "Disk almost full",
     "update_available": "Game update available",
@@ -1719,6 +1731,15 @@ def _notify(event, title, message, priority="default", tags=""):
     if not cfg["ntfy"]["topic"] or (event != "__test__" and
                                     (not cfg.get("enabled") or not cfg["events"].get(event, False))):
         return False
+    # Every push says which game and which server it came from. A phone that also gets
+    # notifications from other boxes only sees the title, and "Server stopped" alone is
+    # useless there. The server's own name is added when it is set to something else.
+    try:
+        srv = _parse_env(Path(VH_ENV).read_text().splitlines())["name"].strip()
+    except Exception:
+        srv = ""
+    who = f"Valheim ({srv})" if srv and srv.lower() != "valheim" else "Valheim"
+    title = f"{who} — {title}"
     payload = {"topic": cfg["ntfy"]["topic"], "title": title, "message": message,
                "priority": {"default": 3, "high": 4, "urgent": 5, "low": 2}.get(priority, 3)}
     if tags:
