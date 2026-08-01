@@ -179,6 +179,7 @@
     </div>
 
     <div class="pane" id="t-world">
+      <div class="grid" id="vh-card"></div>
       <table><thead><tr><th>World</th><th>Size</th><th>Last save</th><th class="r">Actions</th></tr></thead>
       <tbody id="vh-worlds"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
       <div class="add" style="margin-top:12px">
@@ -191,6 +192,8 @@
 
     <div class="pane" id="t-backups">
       <div class="row"><div class="muted" id="vh-bk-note">—</div><div id="vh-timers" style="display:flex;gap:14px"></div></div>
+      <div class="row" style="margin-top:10px"><div class="muted" id="vh-verify-msg">The newest backup is opened and read once a day.</div>
+        <button class="mini" id="vh-verify">Verify the newest now</button></div>
       <table style="margin-top:10px"><thead><tr><th>Backup</th><th>Date</th><th class="r">Size</th><th class="r">Actions</th></tr></thead>
       <tbody id="vh-backups"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
     </div>
@@ -355,6 +358,7 @@
       <tbody id="vh-plog"></tbody></table>
     </div>
 
+    <div id="vh-crashes" style="margin-top:14px"></div>
     <div class="err" id="vh-err"></div>
   </div>
   <div class="attrib">
@@ -485,7 +489,13 @@ const I18N={
  "Playtime":"Czas gry",
  "Total":"Łącznie",
  "Longest":"Najdłuższa",
- "Sessions":"Sesji",
+ "Sessions":"Sesji","Deaths":"Zgonów","World":"Świat","Seed":"Seed","Day in game":"Dzień w grze",
+ "World file":"Plik świata","Last save":"Ostatni zapis","Newest backup opened and read":"Najnowszy backup otwarty i odczytany",
+ "Backup did not verify":"Backup nie przeszedł weryfikacji","Backup verified":"Backup sprawdzony",
+ "Unexpected stops":"Nieoczekiwane zatrzymania","When":"Kiedy","Reason":"Powód","Exit":"Kod",
+ "out of memory":"brak pamięci","day":"dzień",
+ "The newest backup is opened and read once a day.":"Najnowszy backup jest raz dziennie otwierany i odczytywany.",
+ "Verify the newest now":"Sprawdź najnowszy teraz",
  "Last seen":"Ostatnio",
  "When the server is busy":"Kiedy serwer żyje",
  "Time played, everyone":"Czas gry, wszyscy",
@@ -679,6 +689,7 @@ async function load(){
     $("vh-meta").textContent=b.join(" · ");
     $("warn-default").style.display=(v.settings||{}).panel_default_pass?"block":"none";
     vhOnline(v);vhHistory(v);vhStats();vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
+    vhCard();vhHealth();
     $("vh-err").textContent="";
   }catch(e){$("vh-err").textContent=e.message;}
 }
@@ -817,6 +828,42 @@ function vhLists(v){
     const k=b.dataset.vhadd,id=$("vh-add-"+k).value.trim();if(!id)return;
     vhSaveList(k,[...(VH.lists[k]||[]),id]).then(()=>{toast("Added","ok");load();}).catch(e=>toast(e.message,"bad"));});
 }
+async function vhCard(){
+  try{
+    const c=await jf("/api/valheim/world/card");
+    const f=c.fwl||{},d=c.db||{};
+    $("vh-card").innerHTML=c.error
+      ?`<div class="stat"><div class="muted">${t("World")}</div><div class="muted">${esc(c.error)}</div></div>`
+      :`<div class="stat"><div class="muted">${t("World")}</div><div>${esc(c.world)}</div></div>`+
+       `<div class="stat"><div class="muted">${t("Seed")}</div><div><code>${esc(f.seed_name||"?")}</code></div></div>`+
+       `<div class="stat"><div class="muted">${t("Day in game")}</div><div>${d.day??"?"}</div></div>`+
+       `<div class="stat"><div class="muted">${t("World file")}</div><div>${fmtBytes(d.size||0)}</div></div>`+
+       `<div class="stat"><div class="muted">${t("Last save")}</div><div>${fmtTs(d.saved)}</div></div>`;
+  }catch(e){$("vh-card").innerHTML=`<div class="stat"><div class="muted">${esc(e.message)}</div></div>`;}
+}
+async function vhHealth(){
+  try{
+    const h=await jf("/api/valheim/health");
+    const b=h.backup;
+    if(b)$("vh-verify-msg").innerHTML=b.ok
+      ? `${t("Newest backup opened and read")}: <code>${esc(b.file)}</code> — ${t("day")} ${b.day}, ${fmtBytes(b.size||0)}, ${fmtTs(b.at)}`
+      : `<span class="bad">${t("Backup did not verify")}: ${esc(b.file)} — ${esc(b.error||"")}</span>`;
+    const c=(h.crashes||[]).slice(-10).reverse();
+    $("vh-crashes").innerHTML=c.length
+      ? `<div class="muted" style="margin-bottom:6px">${t("Unexpected stops")}</div>
+         <table><thead><tr><th>${t("When")}</th><th>${t("Reason")}</th><th class="r">${t("Exit")}</th></tr></thead><tbody>`+
+        c.map(x=>`<tr><td class="muted">${fmtTs(x.t)}</td><td>${esc(x.result)}${x.result==="oom-kill"?" — "+t("out of memory"):""}</td>
+          <td class="r muted">${esc(x.status||"")}</td></tr>`).join("")+"</tbody></table>"
+      : "";
+  }catch(e){}
+}
+$("vh-verify").onclick=async()=>{
+  const b=$("vh-verify");b.classList.add("loading");
+  try{const r=await jf("/api/valheim/backups/verify",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
+    toast(r.ok?t("Backup verified"):t("Backup did not verify"),r.ok?"ok":"bad");await vhHealth();}
+  catch(e){toast(e.message,"bad");}
+  b.classList.remove("loading");
+};
 function vhWorlds(v){
   const act=(v.settings||{}).world;
   $("vh-worlds").innerHTML=(v.worlds||[]).length?v.worlds.map(w=>`<tr>

@@ -15,6 +15,7 @@ import re
 import secrets
 import shlex
 import socket
+import struct
 import subprocess
 import time
 import urllib.request
@@ -939,6 +940,121 @@ def _bak_ok(fn):
     return fn
 
 
+# ---------- what is actually inside a world file ----------
+# Both formats are plain little-endian structs written by C#'s BinaryWriter. Verified
+# against this server's own files: .fwl gives the seed, .db opens with the world version
+# and the in-game clock. Game time only advances while somebody is connected, which is why
+# two backups taken from an empty server are byte-identical.
+DAY_SECONDS = 1800
+
+
+def _cs_string(b, i):
+    """C# BinaryWriter string: 7-bit encoded length, then UTF-8."""
+    n = shift = 0
+    while True:
+        x = b[i]
+        i += 1
+        n |= (x & 0x7F) << shift
+        if not x & 0x80:
+            break
+        shift += 7
+    return b[i:i + n].decode("utf8", "replace"), i + n
+
+
+def _read_fwl(data):
+    i = 4                                     # length prefix of the package that follows
+    ver = struct.unpack_from("<i", data, i)[0]
+    i += 4
+    name, i = _cs_string(data, i)
+    seed_name, i = _cs_string(data, i)
+    seed = struct.unpack_from("<i", data, i)[0]
+    return {"version": ver, "name": name, "seed_name": seed_name, "seed": seed}
+
+
+def _read_db_head(head):
+    ver = struct.unpack_from("<i", head, 0)[0]
+    net = struct.unpack_from("<d", head, 4)[0]
+    return {"version": ver, "time": round(net, 1), "day": int(net / DAY_SECONDS) + 1}
+
+
+def _world_card(world=None):
+    """Seed, in-game day and file sizes for one world — everything a restore decision needs."""
+    world = world or _parse_env(Path(VH_ENV).read_text().splitlines())["world"]
+    fwl, db = Path(VH_WORLDS) / f"{world}.fwl", Path(VH_WORLDS) / f"{world}.db"
+    card = {"world": world, "db": None, "fwl": None, "error": None}
+    try:
+        card["fwl"] = _read_fwl(fwl.read_bytes())
+        with db.open("rb") as f:
+            card["db"] = _read_db_head(f.read(12))
+        card["db"]["size"] = db.stat().st_size
+        card["db"]["saved"] = int(db.stat().st_mtime)
+    except FileNotFoundError:
+        card["error"] = "world files not found — it is created on first start"
+    except Exception as e:
+        card["error"] = f"{type(e).__name__}: {e}"[:120]
+    return card
+
+
+def _verify_backup(fn):
+    """A backup nobody has opened is a guess. `tar tz` walks the whole gzip stream, so a
+    truncated or bit-rotted archive fails here instead of on the night you need it."""
+    p = Path(VH_BACKUPS) / fn
+    out = {"file": fn, "at": int(time.time()), "ok": False, "size": None, "error": None}
+    try:
+        out["size"] = p.stat().st_size
+        r = _sh(f"tar tzf {shlex.quote(str(p))}", timeout=180)
+        if r.returncode != 0:
+            out["error"] = (r.stderr or "tar failed").strip()[:160]
+            return out
+        # the names are kept exactly as tar stored them ("./Klans.db"), because that is what
+        # tar wants back when extracting one — trimming the "./" first finds nothing
+        members = [m.strip() for m in r.stdout.splitlines() if m.strip()]
+        if not any(m.endswith(".db") for m in members) or not any(m.endswith(".fwl") for m in members):
+            out["error"] = f"no world in the archive ({len(members)} files)"
+            return out
+        # and prove the world inside is readable, not just that the archive opens
+        name = next(m for m in members if m.endswith(".db"))
+        head = _sh(f"tar xzOf {shlex.quote(str(p))} {shlex.quote(name)} 2>/dev/null | head -c 12 | base64",
+                   timeout=180).stdout.strip()
+        out.update(_read_db_head(base64.b64decode(head)))
+        out["ok"] = True
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e}"[:160]
+    return out
+
+
+@app.get("/api/valheim/world/card")
+def world_card(world: str = ""):
+    if world and not VH_NAME_RE.match(world):
+        raise HTTPException(400, "Invalid world name")
+    return _world_card(world or None)
+
+
+@app.get("/api/valheim/health")
+def health():
+    try:
+        return json.loads(VH_HEALTH.read_text())
+    except Exception:
+        return {"crashes": [], "backup": None}
+
+
+@app.post("/api/valheim/backups/verify")
+def backup_verify(body: dict = Body(default={})):
+    fn = body.get("file")
+    if not fn:
+        names = sorted(_ls(_sh(f"ls -l --time-style=+%s {VH_BACKUPS}").stdout.splitlines()),
+                       key=lambda b: b["mtime"], reverse=True)
+        if not names:
+            raise HTTPException(404, "No backups yet")
+        fn = names[0]["name"]
+    res = _verify_backup(_bak_ok(fn))
+    st = _health_state()
+    st["backup"] = res
+    _write_health(st)
+    _log("backup.verify", file=fn, ok=res["ok"], error=res.get("error"))
+    return res
+
+
 @app.post("/api/valheim/backups/{fn}/restore")
 def backup_restore(fn: str):
     _bak_ok(fn)
@@ -1504,6 +1620,25 @@ VH_ALERTS = Path(os.environ.get("VH_ALERTS", f"{VH_DIR}/alerts.json"))
 VH_PUBLIC = Path(f"{VH_DIR}/public.json")
 VH_METRICS = Path(f"{VH_DIR}/metrics.json")
 VH_LINK = Path(f"{VH_DIR}/link.json")
+VH_HEALTH = Path(f"{VH_DIR}/health.json")   # crashes and the last backup verification
+HEALTH_KEEP = 50
+
+
+def _health_state():
+    try:
+        return json.loads(VH_HEALTH.read_text())
+    except Exception:
+        return {"crashes": [], "backup": None}
+
+
+def _write_health(st):
+    st["crashes"] = (st.get("crashes") or [])[-HEALTH_KEEP:]
+    try:
+        VH_HEALTH.write_text(json.dumps(st))
+    except Exception:
+        pass
+
+
 LINK_KEEP = 1008          # a ping every 10 min = a week of history
 METRIC_POINTS = 1440          # one a minute = last 24 h
 # Minimal by default. Everything here is visible to the whole internet, so each extra field
@@ -1521,6 +1656,7 @@ ALERT_EVENTS = {
     "player_join": "Player joined",
     "player_leave": "Player left",
     "player_death": "Player died",
+    "server_crash": "Server crashed or was killed",
     "backup_failed": "Backup failed",
     "disk_low": "Disk almost full",
     "update_available": "Game update available",
@@ -1639,6 +1775,12 @@ def public_status():
            "uptime": (int(time.time()) - int(started)) if active and started.isdigit() and int(started) else None}
     if cfg.get("show_version"):
         out["version"] = ver or None
+    # The world name is on this page anyway, and the day it is on says something a stranger
+    # cannot misuse - how far along the server is. Rides with the name, no separate switch.
+    try:
+        out["day"] = (_world_card().get("db") or {}).get("day")
+    except Exception:
+        pass
     if cfg.get("show_address"):
         out["port"] = env["port"]
         out["password_required"] = bool(env["password"])
@@ -1856,7 +1998,7 @@ def link_test(force: bool = False):
 
 # ---------- background watcher ----------
 WATCH = {"active": None, "online": {}, "disk_warned": 0, "build_checked": 0,
-         "restart_done": "", "deferred_until": 0, "death_ts": 0}
+         "restart_done": "", "deferred_until": 0, "death_ts": 0, "restarts": None}
 
 
 def _steam_latest_build():
@@ -1900,6 +2042,36 @@ def _live_tick():
         LIVE["mem"] = None
     LIVE["ping"] = _ping(count=3) or LIVE["ping"]
     LIVE["t"] = int(time.time())
+
+
+def _crash_watch(now):
+    """systemd counts its own restarts and names the reason, which is the one place a
+    container can learn the kernel did the killing: Result=oom-kill. Without it a crash
+    loop and a clean restart look identical in the log. Returns the crash it recorded."""
+    try:
+        f = dict(l.split("=", 1) for l in _sh(
+            "systemctl show valheim -p NRestarts -p Result -p ExecMainStatus -p ExecMainCode"
+        ).stdout.splitlines() if "=" in l)
+        n = int(f.get("NRestarts") or 0)
+    except Exception:
+        return None
+    prev, WATCH["restarts"] = WATCH.get("restarts"), n
+    if prev is None or n <= prev:        # first pass only takes a watermark
+        return None
+    why, code = f.get("Result") or "unknown", f.get("ExecMainStatus") or "0"
+    crash = {"t": now, "result": why, "status": code, "n": n}
+    st = _health_state()
+    st["crashes"] = (st.get("crashes") or []) + [crash]
+    _write_health(st)
+    _log("server.crash", result=why, status=code, restarts=n)
+    oom = why == "oom-kill"
+    _notify("server_crash",
+            "Server was killed by the kernel (out of memory)" if oom else "Server crashed",
+            f"systemd restarted it. Reason: {why}"
+            + (f", exit {code}" if code not in ("0", "") else "")
+            + (". Give the container more RAM or it will happen again." if oom else "."),
+            priority="high", tags="skull_and_crossbones" if oom else "warning")
+    return crash
 
 
 def _tick():
@@ -1982,6 +2154,26 @@ def _tick():
                 entry.update(s2 or {})
             link["history"] = (link.get("history") or [])[-(LINK_KEEP - 1):] + [entry]
             VH_LINK.write_text(json.dumps(link))
+    except Exception:
+        pass
+
+    _crash_watch(now)
+
+    # One backup a day gets opened and read. Cheap on a schedule, priceless the one time it
+    # comes back broken — an unverified backup is a guess, not a backup.
+    try:
+        st = _health_state()
+        last = (st.get("backup") or {}).get("at", 0)
+        if now - last >= 24 * 3600:
+            names = sorted(_ls(_sh(f"ls -l --time-style=+%s {VH_BACKUPS}").stdout.splitlines()),
+                           key=lambda b: b["mtime"], reverse=True)
+            if names:
+                res = _verify_backup(names[0]["name"])
+                st["backup"] = res
+                _write_health(st)
+                if not res["ok"]:
+                    _notify("backup_failed", "Backup did not verify",
+                            f"{res['file']}: {res.get('error')}", priority="high", tags="warning")
     except Exception:
         pass
 
