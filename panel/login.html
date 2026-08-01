@@ -183,6 +183,7 @@ async function load(){
     const bits=[];
     if(d.uptime)bits.push((PL?"od ":"up ")+fmtDur(d.uptime));
     if(d.day)bits.push((PL?"dzień ":"day ")+d.day);
+    if(d.clock)bits.push(d.clock.time+" "+(d.clock.night?(PL?"noc":"night"):(PL?"dzień":"day")));
     if(d.version)bits.push(d.version);
     document.getElementById("meta").textContent=bits.join(" · ");
 

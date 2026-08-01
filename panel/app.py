@@ -957,6 +957,24 @@ def _bak_ok(fn):
 # and the in-game clock. Game time only advances while somebody is connected, which is why
 # two backups taken from an empty server are byte-identical.
 DAY_SECONDS = 1800
+# One in-game hour is 75 real seconds; of the 30-minute cycle, 21 minutes are daylight and
+# 9 are night, which puts night at roughly 20:24-03:36. What is *not* documented anywhere is
+# the phase - which clock time the saved counter's zero corresponds to. A fresh world starts
+# in the morning, so 06:00 is the assumption, and CLOCK_OFFSET_H is the knob to correct it:
+# compare the panel against the sky once and shift it by the difference.
+CLOCK_OFFSET_H = float(os.environ.get("VH_CLOCK_OFFSET", 6))
+NIGHT_FROM, NIGHT_TO = 20 + 24 / 60, 3 + 36 / 60
+
+
+def _clock(net_seconds):
+    """In-game time of day from the world clock, plus how long until it flips."""
+    h = ((net_seconds / DAY_SECONDS % 1) * 24 + CLOCK_OFFSET_H) % 24
+    night = h >= NIGHT_FROM or h < NIGHT_TO
+    nxt = NIGHT_TO if night else NIGHT_FROM
+    hours_left = (nxt - h) % 24
+    return {"hour": int(h), "minute": int(h % 1 * 60),
+            "time": f"{int(h):02d}:{int(h % 1 * 60):02d}",
+            "night": night, "changes_in": round(hours_left * (DAY_SECONDS / 24))}
 
 
 def _cs_string(b, i):
@@ -999,6 +1017,12 @@ def _world_card(world=None):
             card["db"] = _read_db_head(f.read(12))
         card["db"]["size"] = db.stat().st_size
         card["db"]["saved"] = int(db.stat().st_mtime)
+        # The file only moves on save (every 20 minutes), but game time runs at wall-clock
+        # rate while somebody is connected - and stands still when nobody is. So: extrapolate
+        # from the last save, and only for as long as the server has had players.
+        live = card["db"]["time"] + (time.time() - card["db"]["saved"] if WATCH.get("online") else 0)
+        card["clock"] = _clock(live)
+        card["day"] = int(live / DAY_SECONDS) + 1
     except FileNotFoundError:
         card["error"] = "world files not found — it is created on first start"
     except Exception as e:
@@ -1032,6 +1056,227 @@ def _verify_backup(fn):
     except Exception as e:
         out["error"] = f"{type(e).__name__}: {e}"[:160]
     return out
+
+
+# ---------- admin-only tools: the panel talking to the running game ----------
+# Vanilla Valheim has no way in - no RCON, no console socket, nothing. Three server-side
+# mods provide one, and none of them touches the players: rcon carries the protocol,
+# Rcon_Commands exposes the server console over it, Server_devcommands adds the commands
+# worth sending. Everything below is dead until they are installed.
+ADMIN_TOOLS = ["AviiNL-rcon", "JereKuusela-Rcon_Commands", "JereKuusela-Server_devcommands"]
+SAY_KEEP = 200
+
+
+def _rcon(command, timeout=6):
+    """Source RCON: 4-byte length, request id, type, body, two nulls. Type 3 authenticates,
+    type 2 runs. Loopback only - the port is not meant to leave this container."""
+    env = _env_file(VH_PANEL_ENV)
+    port, pw = int(env.get("RCON_PORT") or 0), env.get("RCON_PASS") or ""
+    if not port or not pw:
+        raise HTTPException(503, "RCON is not configured — install the admin tools first")
+
+    def pkt(i, t, body):
+        data = struct.pack("<ii", i, t) + body.encode("utf8") + b"\x00\x00"
+        return struct.pack("<i", len(data)) + data
+
+    def read(sock):
+        head = sock.recv(4)
+        if len(head) < 4:
+            raise OSError("short read")
+        n = struct.unpack("<i", head)[0]
+        buf = b""
+        while len(buf) < n:
+            chunk = sock.recv(n - len(buf))
+            if not chunk:
+                break
+            buf += chunk
+        rid, _t = struct.unpack_from("<ii", buf)
+        return rid, buf[8:-2].decode("utf8", "replace")
+
+    with socket.create_connection(("127.0.0.1", port), timeout=timeout) as sk:
+        sk.settimeout(timeout)
+        sk.sendall(pkt(1, 3, pw))
+        rid, _ = read(sk)
+        if rid == -1:
+            raise HTTPException(502, "RCON refused the password")
+        sk.sendall(pkt(2, 2, command))
+        _rid, out = read(sk)
+        return out
+
+
+def _admin_tools_state():
+    have = set((_mods_state().get("mods") or {}).keys())
+    env = _env_file(VH_PANEL_ENV)
+    missing = [m for m in ADMIN_TOOLS if m not in have]
+    st = {"packages": ADMIN_TOOLS, "missing": missing,
+          "configured": bool(env.get("RCON_PORT") and env.get("RCON_PASS")),
+          "ready": False, "error": None}
+    if not missing and st["configured"]:
+        try:
+            _rcon("help", timeout=4)
+            st["ready"] = True
+        except Exception as e:
+            st["error"] = f"{type(e).__name__}: {e}"[:120]
+    return st
+
+
+RCON_CFG = f"{VH_DIR}/server/BepInEx/config/nl.avii.plugins.rcon.cfg"
+
+
+@app.post("/api/valheim/admin-tools/setup")
+def admin_tools_setup():
+    """Turn RCON on with a generated password and a port outside the forwarded game range.
+    The default is 2458, which sits inside 2456-2458 - the range a router forward points at.
+    It is TCP so a UDP forward cannot reach it, but a port nobody has to reason about is
+    better than one that needs the explanation."""
+    cfg = Path(RCON_CFG)
+    if not cfg.exists():
+        raise HTTPException(409, "The rcon mod has not written its config yet — start the server once")
+    env = _env_file(VH_PANEL_ENV)
+    port = env.get("RCON_PORT") or "2465"
+    pw = env.get("RCON_PASS") or secrets.token_urlsafe(18)
+    text = re.sub(r"(?m)^enabled = .*$", "enabled = true", cfg.read_text())
+    text = re.sub(r"(?m)^port = .*$", f"port = {port}", text)
+    text = re.sub(r"(?m)^password = .*$", f"password = {pw}", text)
+    cfg.write_text(text)
+    if not env.get("RCON_PASS"):
+        with Path(VH_PANEL_ENV).open("a") as f:
+            f.write(f"RCON_PORT='{port}'\nRCON_PASS='{pw}'\n")
+        Path(VH_PANEL_ENV).chmod(0o600)
+    os.environ["RCON_PORT"], os.environ["RCON_PASS"] = str(port), pw
+    _sh_ok("systemctl restart valheim", timeout=240)
+    _log("admin_tools.setup", port=port)
+    return {"ok": True, "port": int(port)}
+
+
+@app.get("/api/valheim/admin-tools")
+def admin_tools():
+    return _admin_tools_state()
+
+
+class Say(BaseModel):
+    text: str
+    where: str = "center"        # center or side, the two vanilla message positions
+    players: str = ""            # empty = everyone
+
+
+@app.post("/api/valheim/say")
+def say(p: Say):
+    text = (p.text or "").strip()
+    if not text:
+        raise HTTPException(400, "Nothing to say")
+    if len(text) > 200:
+        raise HTTPException(400, "Keep it under 200 characters")
+    where = p.where if p.where in ("center", "side") else "center"
+    if p.players.strip():
+        out = _rcon(f'message {p.players.strip()} {where} {text}')
+    else:
+        out = _rcon(f"broadcast {where} {text}")
+    _say_log({"t": int(time.time()), "text": text, "where": where,
+              "to": p.players.strip() or "all", "by": "panel"})
+    _log("say", where=where, to=p.players.strip() or "all", chars=len(text))
+    return {"ok": True, "out": out}
+
+
+def _say_log(entry):
+    try:
+        hist = json.loads(VH_SAY.read_text())
+    except Exception:
+        hist = []
+    hist.append(entry)
+    try:
+        VH_SAY.write_text(json.dumps(hist[-SAY_KEEP:]))
+    except Exception:
+        pass
+
+
+# ---------- scheduled messages ----------
+# The mod that used to do this on Thunderstore threw 1797 null references a minute and never
+# wrote its config, so the panel does it: it already knows the in-game clock, who is online
+# and how to reach the server. Rules fire at most once per in-game day, and never into an
+# empty world - a message nobody reads is just noise in the log.
+VH_RULES = Path(f"{VH_DIR}/schedule.json")
+RULE_FIRED = {}
+
+
+def _rules():
+    try:
+        return json.loads(VH_RULES.read_text())
+    except Exception:
+        return DEFAULT_RULES
+
+
+DEFAULT_RULES = [
+    {"id": "dusk", "text": "Zaraz będzie ciemno!", "where": "center",
+     "when": "before_night", "value": 1, "enabled": True},
+]
+
+
+@app.get("/api/valheim/schedule")
+def rules_get():
+    return {"rules": _rules(), "fired": RULE_FIRED}
+
+
+@app.post("/api/valheim/schedule")
+def rules_set(body: dict = Body(...)):
+    out = []
+    for r in (body.get("rules") or [])[:20]:
+        text = str(r.get("text") or "").strip()[:200]
+        if not text:
+            continue
+        when = r.get("when") if r.get("when") in ("before_night", "ingame_at", "every") else "before_night"
+        out.append({"id": str(r.get("id") or secrets.token_hex(4))[:16], "text": text,
+                    "where": "side" if r.get("where") == "side" else "center",
+                    "when": when, "value": max(0, float(r.get("value") or 0)),
+                    "enabled": bool(r.get("enabled", True))})
+    VH_RULES.write_text(json.dumps(out, ensure_ascii=False, indent=1))
+    _log("schedule.save", rules=len(out))
+    return {"ok": True, "rules": out}
+
+
+def _rules_tick():
+    """Called from the ten-second sampler: fine enough for a clock where an in-game hour is
+    75 real seconds, and cheap because it only reads two small files."""
+    if not WATCH.get("online"):
+        return                                    # nobody to read it
+    rules = [r for r in _rules() if r.get("enabled")]
+    if not rules:
+        return
+    card = _world_card()
+    clock, day = card.get("clock"), card.get("day")
+    if not clock:
+        return
+    now = int(time.time())
+    for r in rules:
+        key, fire = r["id"], False
+        if r["when"] == "before_night":
+            # value is in in-game hours before nightfall; one of them is 75 real seconds
+            fire = not clock["night"] and clock["changes_in"] <= r["value"] * (DAY_SECONDS / 24)
+            stamp = f"day{day}"
+        elif r["when"] == "ingame_at":
+            target = r["value"]                   # in-game hour, 0-23.99
+            fire = abs((clock["hour"] + clock["minute"] / 60) - target) < 0.4
+            stamp = f"day{day}"
+        else:                                     # every N real minutes
+            fire = now - RULE_FIRED.get(key, 0) >= max(1, r["value"]) * 60
+            stamp = str(now)
+        if not fire or RULE_FIRED.get(key + ":stamp") == stamp:
+            continue
+        RULE_FIRED[key + ":stamp"], RULE_FIRED[key] = stamp, now
+        try:
+            _rcon(f"broadcast {r['where']} {r['text']}")
+            _say_log({"t": now, "text": r["text"], "where": r["where"], "to": "all", "by": r["id"]})
+            _log("say.scheduled", rule=r["id"], when=r["when"])
+        except Exception as e:
+            _log("say.failed", ok=False, rule=r["id"], error=f"{type(e).__name__}: {e}"[:120])
+
+
+@app.get("/api/valheim/say/history")
+def say_history():
+    try:
+        return {"messages": json.loads(VH_SAY.read_text())[::-1]}
+    except Exception:
+        return {"messages": []}
 
 
 @app.get("/api/valheim/world/card")
@@ -1632,6 +1877,7 @@ VH_PUBLIC = Path(f"{VH_DIR}/public.json")
 VH_METRICS = Path(f"{VH_DIR}/metrics.json")
 VH_LINK = Path(f"{VH_DIR}/link.json")
 VH_HEALTH = Path(f"{VH_DIR}/health.json")   # crashes and the last backup verification
+VH_SAY = Path(f"{VH_DIR}/messages.json")   # what the panel has said in game, and when
 HEALTH_KEEP = 50
 
 
@@ -1669,6 +1915,7 @@ ALERT_EVENTS = {
     "player_death": "Player died",
     "server_crash": "Server crashed or was killed",
     "server_action": "Started or stopped from the panel",
+    "load_high": "CPU or memory pegged",
     "backup_failed": "Backup failed",
     "disk_low": "Disk almost full",
     "update_available": "Game update available",
@@ -1682,7 +1929,8 @@ ALERTS_DEFAULT = {
     "schedule": {"restart_at": "", "only_when_empty": True, "defer_minutes": 30,
                  "update_when_empty": True, "disk_warn_gb": 3,
                  "link_minutes": 10, "link_speed_hours": 6,
-                 "speed_when_empty": True, "ping_when_empty": False},
+                 "speed_when_empty": True, "ping_when_empty": False,
+                 "load_pct": 95, "load_minutes": 1},
 }
 
 
@@ -1799,7 +2047,9 @@ def public_status():
     # The world name is on this page anyway, and the day it is on says something a stranger
     # cannot misuse - how far along the server is. Rides with the name, no separate switch.
     try:
-        out["day"] = (_world_card().get("db") or {}).get("day")
+        card = _world_card()
+        out["day"] = card.get("day")
+        out["clock"] = card.get("clock")
     except Exception:
         pass
     if cfg.get("show_address"):
@@ -2019,7 +2269,8 @@ def link_test(force: bool = False):
 
 # ---------- background watcher ----------
 WATCH = {"active": None, "online": {}, "disk_warned": 0, "build_checked": 0,
-         "restart_done": "", "deferred_until": 0, "death_ts": 0, "restarts": None}
+         "restart_done": "", "deferred_until": 0, "death_ts": 0, "restarts": None,
+         "hot": {}, "hot_warned": {}}
 
 
 def _steam_latest_build():
@@ -2063,6 +2314,35 @@ def _live_tick():
         LIVE["mem"] = None
     LIVE["ping"] = _ping(count=3) or LIVE["ping"]
     LIVE["t"] = int(time.time())
+    _load_watch()
+    try:
+        _rules_tick()
+    except Exception as e:
+        _log("schedule.error", ok=False, error=f"{type(e).__name__}: {e}"[:160])
+
+
+def _load_watch():
+    """A spike is a chunk loading; a minute pinned at the ceiling is the server struggling,
+    which players feel as rubber-banding long before anything crashes. Ten-second samples
+    make the difference visible, so the alert waits for the run rather than the spike."""
+    try:
+        sch = _alerts_cfg()["schedule"]
+    except Exception:
+        return
+    lim, need = sch.get("load_pct", 95), max(10, int(float(sch.get("load_minutes", 1)) * 60))
+    for key, label in (("cpu", "CPU"), ("mem", "Memory")):
+        v, now = LIVE.get(key), LIVE["t"]
+        if v is None or v < lim:
+            WATCH["hot"][key] = None
+            continue
+        since = WATCH["hot"].get(key)
+        if since is None:
+            WATCH["hot"][key] = now
+        elif now - since >= need and now - WATCH["hot_warned"].get(key, 0) > 1800:
+            WATCH["hot_warned"][key] = now
+            _notify("load_high", f"{label} at {v}%",
+                    f"{label} has stayed at or above {lim}% for {max(1, round((now - since) / 60))} min. "
+                    "Players will feel this as lag.", priority="high", tags="fire")
 
 
 def _crash_watch(now):

@@ -135,6 +135,7 @@
       <a data-pane="t-settings">Settings</a>
       <a data-pane="t-mods">Mods</a>
       <a data-pane="t-cfg">Mod config</a>
+      <a data-pane="t-say">Messages</a>
       <a data-pane="t-alerts">Alerts</a>
       <a data-pane="t-log">Log</a>
     </div>
@@ -330,6 +331,8 @@
           <input id="al-defer" type="number" min="1" max="720" style="margin-top:6px"></div>
         <div class="stat"><div class="muted">Warn when free disk drops below (GB)</div>
           <input id="al-disk" type="number" min="1" max="720" style="margin-top:6px"></div>
+        <div class="stat"><div class="muted">Warn when CPU or RAM stays above</div>
+          <input id="al-load" type="number" min="50" max="100" style="margin-top:6px"></div>
       </div>
 
       <div class="row" style="margin-top:14px">
@@ -356,6 +359,31 @@
       <pre class="log" id="vh-log" style="margin-top:10px">—</pre>
       <table id="vh-plog-wrap" style="margin-top:10px;display:none"><thead><tr><th>When</th><th>Action</th><th>Detail</th></tr></thead>
       <tbody id="vh-plog"></tbody></table>
+    </div>
+
+    <div class="pane" id="t-say">
+      <div id="at-box" class="grid"></div>
+      <div id="say-ui" style="display:none">
+        <div class="muted" style="margin:14px 0 6px">Send a message to everyone playing right now</div>
+        <div class="add"><input id="say-text" placeholder="It'll be dark soon!" maxlength="200">
+          <select id="say-where"><option value="center">middle of the screen</option><option value="side">corner</option></select>
+          <button id="say-send" class="primary">Send</button></div>
+
+        <div class="muted" style="margin:18px 0 6px">Scheduled messages</div>
+        <table><thead><tr><th>Text</th><th>When</th><th class="r">Value</th><th>Where</th><th class="r">On</th><th class="r"></th></tr></thead>
+        <tbody id="say-rules"></tbody></table>
+        <div class="add" style="margin-top:8px">
+          <input id="nr-text" placeholder="message text" maxlength="200">
+          <select id="nr-when"><option value="before_night">in-game hours before nightfall</option>
+            <option value="ingame_at">at in-game hour</option><option value="every">every N real minutes</option></select>
+          <input id="nr-val" type="number" step="0.5" min="0" max="24" value="1" style="max-width:90px">
+          <button id="nr-add">Add</button>
+        </div>
+        <div class="muted" style="margin-top:6px">Rules fire once per in-game day and never into an empty server.</div>
+
+        <div class="muted" style="margin:18px 0 6px">Sent</div>
+        <table><thead><tr><th>When</th><th>Text</th><th>Where</th><th>By</th></tr></thead><tbody id="say-hist"></tbody></table>
+      </div>
     </div>
 
     <div id="vh-crashes" style="margin-top:14px"></div>
@@ -489,7 +517,18 @@ const I18N={
  "Playtime":"Czas gry",
  "Total":"Łącznie",
  "Longest":"Najdłuższa",
- "Sessions":"Sesji","Deaths":"Zgonów","World":"Świat","Seed":"Seed","Day in game":"Dzień w grze",
+ "Sessions":"Sesji","Time in game":"Godzina w grze","night":"noc","day":"dzień","changes in":"zmiana za",
+ "Admin only tools":"Narzędzia tylko dla admina","installed and reachable":"zainstalowane i odpowiadają",
+ "Not installed. These three server-side mods let the panel talk to the running game — players install nothing.":"Niezainstalowane. Te trzy mody serwerowe pozwalają panelowi rozmawiać z działającą grą — gracze nie instalują nic.",
+ "Install them":"Zainstaluj","Install the admin tools?":"Zainstalować narzędzia admina?",
+ "The server stops for the install and starts again. Players need nothing — these run server-side only.":"Serwer zatrzyma się na czas instalacji i wstanie ponownie. Gracze nie potrzebują niczego — to mody wyłącznie serwerowe.",
+ "Install":"Instaluj","Installed — configuring":"Zainstalowane — konfiguruję",
+ "Send a message to everyone playing right now":"Wyślij komunikat do wszystkich, którzy teraz grają",
+ "Scheduled messages":"Zaplanowane komunikaty","Sent":"Wysłane","in-game h before dark":"godz. w grze przed zmierzchem",
+ "at in-game hour":"o godzinie w grze","every N min":"co N minut","corner":"róg","middle":"środek",
+ "no scheduled messages":"brak zaplanowanych komunikatów","nothing sent yet":"nic jeszcze nie wysłano",
+ "Rules fire once per in-game day and never into an empty server.":"Reguła odpala się raz na dobę w grze i nigdy na pusty serwer.",
+ "Messages":"Komunikaty","Nothing to say":"Pusty komunikat","Saved":"Zapisano","Warn when CPU or RAM stays above":"Ostrzegaj, gdy CPU lub RAM trzyma się powyżej","Deaths":"Zgonów","World":"Świat","Seed":"Seed","Day in game":"Dzień w grze",
  "World file":"Plik świata","Last save":"Ostatni zapis","Newest backup opened and read":"Najnowszy backup otwarty i odczytany",
  "Backup did not verify":"Backup nie przeszedł weryfikacji","Backup verified":"Backup sprawdzony",
  "Unexpected stops":"Nieoczekiwane zatrzymania","When":"Kiedy","Reason":"Powód","Exit":"Kod",
@@ -689,7 +728,7 @@ async function load(){
     $("vh-meta").textContent=b.join(" · ");
     $("warn-default").style.display=(v.settings||{}).panel_default_pass?"block":"none";
     vhOnline(v);vhHistory(v);vhStats();vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
-    vhCard();vhHealth();
+    vhCard();vhHealth();vhSay();
     $("vh-err").textContent="";
   }catch(e){$("vh-err").textContent=e.message;}
 }
@@ -828,6 +867,74 @@ function vhLists(v){
     const k=b.dataset.vhadd,id=$("vh-add-"+k).value.trim();if(!id)return;
     vhSaveList(k,[...(VH.lists[k]||[]),id]).then(()=>{toast("Added","ok");load();}).catch(e=>toast(e.message,"bad"));});
 }
+let RULES=[];
+async function vhSay(){
+  try{
+    const a=await jf("/api/valheim/admin-tools");
+    const ready=a.ready;
+    $("at-box").innerHTML=ready
+      ? `<div class="stat"><div class="muted">${t("Admin only tools")}</div><div>${t("installed and reachable")}</div>
+           <div class="muted" style="margin-top:4px">${a.packages.join(", ")}</div></div>`
+      : `<div class="stat" style="grid-column:1/-1"><div class="muted">${t("Admin only tools")}</div>
+           <div>${t("Not installed. These three server-side mods let the panel talk to the running game — players install nothing.")}</div>
+           <div class="muted" style="margin:6px 0">${a.packages.join(", ")}${a.error?" — "+esc(a.error):""}</div>
+           <button id="at-install" class="primary" style="max-width:260px">${t("Install them")}</button></div>`;
+    $("say-ui").style.display=ready?"":"none";
+    const ib=$("at-install");
+    if(ib)ib.onclick=async()=>{
+      if(!await confirmModal(t("Install the admin tools?"),
+        t("The server stops for the install and starts again. Players need nothing — these run server-side only."),t("Install")))return;
+      ib.classList.add("loading");
+      try{await jf("/api/mods/install",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({mods:a.packages,restart:true})});
+        toast(t("Installed — configuring"),"ok");
+        await jf("/api/valheim/admin-tools/setup",{method:"POST"});
+        setTimeout(vhSay,9000);}
+      catch(e){toast(e.message,"bad");ib.classList.remove("loading");}
+    };
+    if(ready){await vhRules();await vhSayHist();}
+  }catch(e){$("at-box").innerHTML=`<div class="stat"><div class="muted">${esc(e.message)}</div></div>`;}
+}
+const WHEN_LABEL={before_night:"in-game h before dark",ingame_at:"at in-game hour",every:"every N min"};
+async function vhRules(){
+  const r=await jf("/api/valheim/schedule");RULES=r.rules||[];
+  $("say-rules").innerHTML=RULES.length?RULES.map((x,i)=>`<tr>
+    <td>${esc(x.text)}</td><td class="muted">${t(WHEN_LABEL[x.when]||x.when)}</td>
+    <td class="r">${x.value}</td><td class="muted">${x.where==="side"?t("corner"):t("middle")}</td>
+    <td class="r"><input type="checkbox" data-ri="${i}" ${x.enabled?"checked":""}></td>
+    <td class="r"><button class="mini danger" data-rd="${i}">remove</button></td></tr>`).join("")
+    :`<tr><td colspan="6" class="muted">${t("no scheduled messages")}</td></tr>`;
+  $("say-rules").querySelectorAll("[data-ri]").forEach(c=>c.onchange=()=>{
+    RULES[+c.dataset.ri].enabled=c.checked;saveRules();});
+  $("say-rules").querySelectorAll("[data-rd]").forEach(b=>b.onclick=()=>{
+    RULES.splice(+b.dataset.rd,1);saveRules();});
+}
+async function saveRules(){
+  try{await jf("/api/valheim/schedule",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({rules:RULES})});await vhRules();toast(t("Saved"),"ok");}
+  catch(e){toast(e.message,"bad");}
+}
+async function vhSayHist(){
+  try{const h=await jf("/api/valheim/say/history");
+    $("say-hist").innerHTML=(h.messages||[]).slice(0,30).map(m=>`<tr>
+      <td class="muted">${fmtTs(m.t)}</td><td>${esc(m.text)}</td>
+      <td class="muted">${m.where==="side"?t("corner"):t("middle")}</td>
+      <td class="muted">${esc(m.by)}</td></tr>`).join("")
+      ||`<tr><td colspan="4" class="muted">${t("nothing sent yet")}</td></tr>`;
+  }catch(e){}
+}
+$("say-send").onclick=async()=>{
+  const txt=$("say-text").value.trim();if(!txt)return;
+  try{await jf("/api/valheim/say",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({text:txt,where:$("say-where").value})});
+    $("say-text").value="";toast(t("Sent"),"ok");vhSayHist();}
+  catch(e){toast(e.message,"bad");}
+};
+$("nr-add").onclick=()=>{
+  const txt=$("nr-text").value.trim();if(!txt)return toast(t("Nothing to say"),"bad");
+  RULES.push({text:txt,when:$("nr-when").value,value:+$("nr-val").value||0,where:"center",enabled:true});
+  $("nr-text").value="";saveRules();
+};
 async function vhCard(){
   try{
     const c=await jf("/api/valheim/world/card");
@@ -836,7 +943,9 @@ async function vhCard(){
       ?`<div class="stat"><div class="muted">${t("World")}</div><div class="muted">${esc(c.error)}</div></div>`
       :`<div class="stat"><div class="muted">${t("World")}</div><div>${esc(c.world)}</div></div>`+
        `<div class="stat"><div class="muted">${t("Seed")}</div><div><code>${esc(f.seed_name||"?")}</code></div></div>`+
-       `<div class="stat"><div class="muted">${t("Day in game")}</div><div>${d.day??"?"}</div></div>`+
+       `<div class="stat"><div class="muted">${t("Day in game")}</div><div>${c.day??d.day??"?"}</div></div>`+
+       `<div class="stat"><div class="muted">${t("Time in game")}</div><div>${c.clock?c.clock.time:"?"}
+          <span class="muted">${c.clock?(c.clock.night?t("night"):t("day"))+" · "+t("changes in")+" "+fmtDur(c.clock.changes_in):""}</span></div></div>`+
        `<div class="stat"><div class="muted">${t("World file")}</div><div>${fmtBytes(d.size||0)}</div></div>`+
        `<div class="stat"><div class="muted">${t("Last save")}</div><div>${fmtTs(d.saved)}</div></div>`;
   }catch(e){$("vh-card").innerHTML=`<div class="stat"><div class="muted">${esc(e.message)}</div></div>`;}
@@ -1157,6 +1266,7 @@ async function vhAlerts(){
     $("al-token").value=a.ntfy.token?"***":"";$("al-enabled").checked=!!a.enabled;
     $("al-at").value=a.schedule.restart_at||"";$("al-empty").checked=!!a.schedule.only_when_empty;
     $("al-defer").value=a.schedule.defer_minutes;$("al-disk").value=a.schedule.disk_warn_gb;
+    $("al-load").value=a.schedule.load_pct??95;
     $("al-sub").href=a.subscribe_url||"#";$("al-sub").textContent=a.subscribe_url||"";
     $("al-events").innerHTML=Object.entries(a.labels).map(([k,label])=>
       `<div class="stat"><label style="display:flex;gap:8px;align-items:center">
@@ -1170,7 +1280,8 @@ function alBody(){
     ntfy:{topic:$("al-topic").value.trim(),server:$("al-server").value.trim()||"https://ntfy.sh",
           token:$("al-token").value},
     schedule:{restart_at:$("al-at").value.trim(),only_when_empty:$("al-empty").checked,
-              defer_minutes:+$("al-defer").value||30,disk_warn_gb:+$("al-disk").value||3}};
+              defer_minutes:+$("al-defer").value||30,disk_warn_gb:+$("al-disk").value||3,
+              load_pct:Math.min(100,Math.max(50,+$("al-load").value||95))}};
 }
 $("al-new").onclick=async()=>{
   if(!await confirmModal(t("New topic?"),t("The old name stops receiving anything — resubscribe in the app to the new one."),t("Generate")))return;
