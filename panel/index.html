@@ -185,6 +185,18 @@
         <a id="map-link" class="mini" target="_blank" rel="noopener" style="text-decoration:none">Terrain map for this seed</a></div>
       <div id="vh-map"></div>
       <table style="margin-top:10px"><tbody id="map-where"></tbody></table>
+      <div class="add" style="margin-top:12px">
+        <input type="file" id="map-file" accept="image/png,image/jpeg">
+        <button id="map-up">Use this as the map background</button>
+        <button id="map-del" class="danger">Remove it</button>
+      </div>
+      <div class="muted" style="margin-top:6px" id="map-hint">Open the terrain map above, hit Download Map there, and drop the image here — the dots then sit on real ground. The site renders in the browser, so the panel cannot fetch it for you.</div>
+      <div class="add" style="margin-top:12px">
+        <input id="lobby-view" placeholder="https://valheim-map.world/... — shared pins, view link">
+        <input id="lobby-edit" placeholder="...edit link">
+        <button id="lobby-save">Save the lobby links</button>
+      </div>
+      <div class="muted" style="margin-top:6px">A lobby on that site lets everyone share pins on this seed. Create it there once and keep the links here.</div>
       <table><thead><tr><th>World</th><th>Size</th><th>Last save</th><th class="r">Actions</th></tr></thead>
       <tbody id="vh-worlds"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
       <div class="add" style="margin-top:12px">
@@ -527,6 +539,10 @@ const I18N={
  "Total":"Łącznie",
  "Longest":"Najdłuższa",
  "Sessions":"Sesji","Time in game":"Godzina w grze","on join, by name":"przy wejściu, po nicku","random greeting from the pool":"losowe powitanie z puli","random Valheim joke":"losowy suchar o Valheimie","nobody is playing":"nikt nie gra","height":"wysokość","show on the terrain map":"pokaż na mapie terenu",
+ "Pick an image first":"Najpierw wybierz obrazek","The uploaded map was made for a different seed":"Wgrana mapa jest dla innego seeda",
+ "Use this as the map background":"Użyj jako tła mapy","Remove it":"Usuń","Save the lobby links":"Zapisz linki do lobby",
+ "Open the terrain map above, hit Download Map there, and drop the image here — the dots then sit on real ground. The site renders in the browser, so the panel cannot fetch it for you.":"Otwórz mapę terenu powyżej, kliknij tam Download Map i wrzuć obrazek tutaj — kropki usiądą wtedy na prawdziwym terenie. Serwis renderuje w przeglądarce, więc panel nie pobierze tego za Ciebie.",
+ "A lobby on that site lets everyone share pins on this seed. Create it there once and keep the links here.":"Lobby na tamtej stronie pozwala graczom dzielić się pinezkami na tym seedzie. Załóż je raz, a linki trzymaj tutaj.",
  "Where everyone is right now — admin side only, never on the public page.":"Kto gdzie teraz jest — tylko dla admina, nigdy na stronie publicznej.",
  "Terrain map for this seed":"Mapa terenu dla tego seeda",
  "min after joining":"min po wejściu",
@@ -1005,9 +1021,17 @@ async function vhMap(){
           <td class="r"><a class="mini" target="_blank" rel="noopener" style="text-decoration:none"
             href="${mapUrl(p.x,p.z,"2.000")}">${t("show on the terrain map")}</a></td></tr>`).join("")
       : "";
+    let cfg={};
+    try{cfg=await jf("/api/valheim/world/links");}catch(e){}
+    $("lobby-view").value=cfg.lobby_view||"";$("lobby-edit").value=cfg.lobby_edit||"";
+    // the downloaded map covers the whole disc, so it spans the full width of the plot
+    const bg=cfg.map?`<image href="/api/valheim/world/map?t=${cfg.map_at||0}" x="0" y="0" width="${S}" height="${S}" preserveAspectRatio="none"/>`:"";
+    if(cfg.map&&cfg.map_seed&&d.seed&&cfg.map_seed!==d.seed)
+      $("map-hint").innerHTML=`<span class="bad">${t("The uploaded map was made for a different seed")}: ${esc(cfg.map_seed)}</span>`;
     $("vh-map").innerHTML=d.error
       ?`<div class="muted">${esc(d.error)}</div>`
       :`<svg viewBox="0 0 ${S} ${S}" style="width:100%;max-width:${S}px;background:#0d1114;border:1px solid var(--line);border-radius:4px">
+          ${bg}
           <circle cx="${c}" cy="${c}" r="${c-2}" fill="none" stroke="var(--line)"/>
           <circle cx="${c}" cy="${c}" r="${(c-2)*0.5}" fill="none" stroke="var(--line)" stroke-dasharray="3 5"/>
           <line x1="${c}" y1="4" x2="${c}" y2="${S-4}" stroke="var(--line)" stroke-dasharray="3 7"/>
@@ -1017,6 +1041,25 @@ async function vhMap(){
         </svg>`;
   }catch(e){$("vh-map").innerHTML=`<div class="muted">${esc(e.message)}</div>`;}
 }
+$("map-up").onclick=async()=>{
+  const f=$("map-file").files[0];
+  if(!f)return toast(t("Pick an image first"),"bad");
+  try{
+    const r=await fetch("/api/valheim/world/map",{method:"POST",body:f});
+    if(!r.ok)throw new Error((await r.json()).detail||r.status);
+    toast(t("Saved"),"ok");vhMap();
+  }catch(e){toast(e.message,"bad");}
+};
+$("map-del").onclick=async()=>{
+  try{await jf("/api/valheim/world/map",{method:"DELETE"});toast(t("Saved"),"ok");vhMap();}
+  catch(e){toast(e.message,"bad");}
+};
+$("lobby-save").onclick=async()=>{
+  try{await jf("/api/valheim/world/links",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({lobby_view:$("lobby-view").value.trim(),lobby_edit:$("lobby-edit").value.trim()})});
+    toast(t("Saved"),"ok");}
+  catch(e){toast(e.message,"bad");}
+};
 async function vhHealth(){
   try{
     const h=await jf("/api/valheim/health");
