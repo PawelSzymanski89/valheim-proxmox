@@ -2106,15 +2106,10 @@ def _notify(event, title, message, priority="default", tags=""):
     if not cfg["ntfy"]["topic"] or (event != "__test__" and
                                     (not cfg.get("enabled") or not cfg["events"].get(event, False))):
         return False
-    # Every push says which game and which server it came from. A phone that also gets
-    # notifications from other boxes only sees the title, and "Server stopped" alone is
-    # useless there. The server's own name is added when it is set to something else.
-    try:
-        srv = _parse_env(Path(VH_ENV).read_text().splitlines())["name"].strip()
-    except Exception:
-        srv = ""
-    who = f"Valheim ({srv})" if srv and srv.lower() != "valheim" else "Valheim"
-    title = f"{who} — {title}"
+    # Every push names the game, because a phone that also gets notifications from other
+    # boxes only ever sees the title. Just the game: the server name added nothing a
+    # single-server owner did not already know, and ate room the actual message needed.
+    title = f"Valheim — {title}"
     payload = {"topic": cfg["ntfy"]["topic"], "title": title, "message": message,
                "priority": {"default": 3, "high": 4, "urgent": 5, "low": 2}.get(priority, 3)}
     if tags:
