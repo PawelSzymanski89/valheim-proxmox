@@ -55,6 +55,22 @@ assert len(dup_conns) == 1, dup_conns
 assert dup_conns[0]["name"] == "Torvald", dup_conns
 assert sum(1 for _t, kind, _c in dup_hist if kind == "join") == 2, dup_hist  # two real sessions
 
+# Deaths: the same ZDOID line the name comes from, with the character id zeroed. The name
+# line must keep working, and a death by somebody who is not connected is dropped, not
+# guessed onto whoever happens to be online.
+DEATHS = LOG[:5] + [
+    L.format("10:06:00", "10:06:00", "Got character ZDOID from Skjor : 0:0"),
+    L.format("10:07:00", "10:07:00", "Got character ZDOID from Ghost : 0:0"),
+    L.format("10:08:00", "10:08:00", "Got character ZDOID from Skjor : 0:0"),
+]
+d_conns, d_hist, *_ = app._scan(DEATHS)
+assert [c["name"] for c in d_conns] == ["Skjor", "Hilda"], d_conns
+assert [c["name"] for _t, k, c in d_hist if k == "death"] == ["Skjor", "Skjor"], d_hist
+
+app.VH_STORE = pathlib.Path(tempfile.mkdtemp()) / "players.json"
+by_death = {p["id"]: p for p in app._history(d_hist)}
+assert by_death["76561198000000001"]["deaths"] == 2, by_death
+
 app.VH_STORE = pathlib.Path(tempfile.mkdtemp()) / "players.json"
 by_id = {p["id"]: p for p in app._history(hist)}
 assert by_id["76561198000000001"]["name"] == "Skjor", by_id
