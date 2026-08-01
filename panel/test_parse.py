@@ -39,6 +39,22 @@ assert app._scan(with_code + [L.format("11:00:00", "11:00:00", "Valheim version:
 restarted, *_ = app._scan(LOG + [L.format("11:00:00", "11:00:00", "Valheim version: l-0.221.12")])
 assert restarted == [], restarted
 
+# Straight from a production log: the server prints "Got connection" AND "Got handshake"
+# for one peer, and a reconnect prints the pair again. This read as three players online.
+DUP = [
+    L.format("10:00:00", "10:00:00", "Valheim version: l-0.221.12 (network version 36)"),
+    L.format("11:40:52", "11:40:52", "Got connection SteamID 76561197992106139"),
+    L.format("11:40:52", "11:40:52", "Got handshake from client 76561197992106139"),
+    L.format("11:41:00", "11:41:00", "Closing socket 76561197992106139"),
+    L.format("11:41:21", "11:41:21", "Got connection SteamID 76561197992106139"),
+    L.format("11:41:21", "11:41:21", "Got handshake from client 76561197992106139"),
+    L.format("11:41:36", "11:41:36", "Got character ZDOID from Torvald : 487959370:3"),
+]
+dup_conns, dup_hist, *_ = app._scan(DUP)
+assert len(dup_conns) == 1, dup_conns
+assert dup_conns[0]["name"] == "Torvald", dup_conns
+assert sum(1 for _t, kind, _c in dup_hist if kind == "join") == 2, dup_hist  # two real sessions
+
 app.VH_STORE = pathlib.Path(tempfile.mkdtemp()) / "players.json"
 by_id = {p["id"]: p for p in app._history(hist)}
 assert by_id["76561198000000001"]["name"] == "Skjor", by_id

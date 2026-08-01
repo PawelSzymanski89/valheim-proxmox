@@ -370,6 +370,12 @@ def _scan(lines):
                 hist.append((t, "leave", c))
             conns, version, joincode = [], val, None
         elif kind == "join":
+            # The server prints both "Got connection" and "Got handshake from client" for
+            # the same peer, and with crossplay sometimes only one of the two — so the id
+            # is what counts, not the line. Without this guard one player was two or three
+            # online, and every join appeared twice in the history.
+            if any(x["id"] == val for x in conns):
+                continue
             c = {"id": val, "name": None, "since": t}
             conns.append(c)
             hist.append((t, "join", c))
@@ -1637,14 +1643,18 @@ def public_status():
             disk = _sh(f"df -B1 --output=used,avail {VH_DIR} | tail -1").stdout.split()
             out["specs"] = {"cores": cores, "ram": total,
                             "disk": (int(disk[0]) + int(disk[1])) if len(disk) == 2 else None}
-            out["load"] = {"cpu": round(100 * float(la[0]) / cores, 1),
-                           "mem": round(100 * (1 - avail / total), 1)}
+            # the ten-second sampler if it has run, the one-minute average as a fallback
+            fresh = time.time() - LIVE["t"] < 30
+            out["load"] = {
+                "cpu": LIVE["cpu"] if fresh and LIVE["cpu"] is not None else round(100 * float(la[0]) / cores, 1),
+                "mem": LIVE["mem"] if fresh and LIVE["mem"] is not None else round(100 * (1 - avail / total), 1)}
         except Exception:
             pass
     if cfg.get("show_link"):
         link = _link_state()
-        out["link"] = {"ping": link.get("ping"), "speed": link.get("speed"),
-                       "checked": link.get("last_ping") or None}
+        live_ping = LIVE["ping"] if time.time() - LIVE["t"] < 30 else None
+        out["link"] = {"ping": live_ping or link.get("ping"), "speed": link.get("speed"),
+                       "checked": (LIVE["t"] if live_ping else link.get("last_ping")) or None}
         if cfg.get("show_metrics"):
             out["link"]["history"] = [{k: v for k, v in h.items()
                                        if k in ("t", "avg", "loss", "down_mbit", "up_mbit")}
@@ -1830,6 +1840,39 @@ def _steam_latest_build():
     return installed, out
 
 
+# Live figures for the public page. Neither of the existing sources moves at the rate the
+# page refreshes: loadavg is a one-minute average, and the link ping runs on a ten-minute
+# schedule because its history is a chart. These three are cheap enough to take every ten
+# seconds - two /proc reads and three packets - and they live in memory only, so there is
+# nothing to retain or clean up.
+LIVE = {"t": 0, "cpu": None, "mem": None, "ping": None}
+_CPU_PREV = {}
+
+
+def _cpu_pct():
+    """Utilisation between two samples, which is what "CPU now" should mean."""
+    v = [int(x) for x in Path("/proc/stat").read_text().split("\n")[0].split()[1:]]
+    total, idle = sum(v), v[3] + (v[4] if len(v) > 4 else 0)   # idle + iowait
+    prev, _CPU_PREV["v"] = _CPU_PREV.get("v"), (total, idle)
+    if not prev or total <= prev[0]:
+        return None
+    dt, di = total - prev[0], idle - prev[1]
+    return round(100 * (dt - di) / dt, 1)
+
+
+def _live_tick():
+    LIVE["cpu"] = _cpu_pct()
+    try:
+        mem = {k: int(v.split()[0]) for k, _, v in
+               (l.partition(":") for l in Path("/proc/meminfo").read_text().splitlines())
+               if k in ("MemTotal", "MemAvailable")}
+        LIVE["mem"] = round(100 * (1 - mem["MemAvailable"] / mem["MemTotal"]), 1)
+    except Exception:
+        LIVE["mem"] = None
+    LIVE["ping"] = _ping(count=3) or LIVE["ping"]
+    LIVE["t"] = int(time.time())
+
+
 def _tick():
     cfg = _alerts_cfg()
     s = status()
@@ -1954,5 +1997,18 @@ async def _start_watcher():
             except Exception as e:
                 _log("watch.error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
             await asyncio.sleep(60)
+
+    # Separate loop on purpose: _tick reads the whole journal and shells out a dozen times,
+    # which has no business running six times a minute. The live sampler touches two files
+    # and sends three packets.
+    async def live():
+        import asyncio
+        while True:
+            try:
+                await asyncio.to_thread(_live_tick)
+            except Exception as e:
+                _log("live.error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
+            await asyncio.sleep(10)
     import asyncio
     asyncio.create_task(run())
+    asyncio.create_task(live())
