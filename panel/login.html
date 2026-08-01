@@ -18,7 +18,7 @@
       radial-gradient(700px 400px at 50% 110%, #171a14 0%, transparent 60%),
       repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0 1px, transparent 1px 3px),
       var(--bg)}
-  .wrap{max-width:1400px;margin:0 auto}
+  .wrap{position:relative;z-index:1;max-width:1400px;margin:0 auto}
   header{text-align:center;margin-bottom:26px}
   h1{margin:0;font:600 30px/1.1 Georgia,"Times New Roman",serif;letter-spacing:.22em;
     text-transform:uppercase;color:var(--gold2);text-shadow:0 2px 18px rgba(201,162,39,.25)}
@@ -69,6 +69,22 @@
   .attrib a:hover{color:var(--gold2)}
   .attrib .sep{opacity:.4;margin:0 6px}
   svg .ln{fill:none;stroke-width:1.5}
+  /* Pogoda. Mgła pod interfejsem, deszcz nad nim - oba warstwy dekoracyjne, więc żadna
+     nie może przechwycić kliknięcia ani przewijania. */
+  .fx-fog{position:fixed;left:0;right:0;bottom:0;height:42vh;pointer-events:none;z-index:0;
+    background:
+      radial-gradient(60% 100% at 12% 100%, rgba(150,168,180,.10) 0%, transparent 70%),
+      radial-gradient(52% 100% at 52% 100%, rgba(120,140,155,.09) 0%, transparent 72%),
+      radial-gradient(64% 100% at 88% 100%, rgba(150,168,180,.08) 0%, transparent 70%);
+    filter:blur(14px);
+    animation:fx-drift 46s ease-in-out infinite alternate}
+  .fx-fog:after{content:"";position:absolute;inset:0;
+    background:linear-gradient(0deg, rgba(190,205,215,.07) 0%, transparent 62%);
+    animation:fx-breathe 17s ease-in-out infinite alternate}
+  @keyframes fx-drift{from{transform:translate3d(-4%,0,0) scaleX(1)}to{transform:translate3d(4%,0,0) scaleX(1.08)}}
+  @keyframes fx-breathe{from{opacity:.55}to{opacity:1}}
+  .fx-rain{position:fixed;inset:0;pointer-events:none;z-index:9}
+  @media(prefers-reduced-motion:reduce){.fx-fog{animation:none}}
 </style>
 </head>
 <body>
@@ -303,5 +319,102 @@ document.getElementById("f").onsubmit=async ev=>{
     b.disabled=false;document.getElementById("p").value="";document.getElementById("p").focus();
   }
 };
+
+/* Weather. Fog drifts behind everything, rain falls in front and breaks on the cards.
+
+   Two rules kept it honest: it must never touch the pointer (both layers are
+   pointer-events:none) and it must cost nothing when nobody is looking - the loop stops
+   when the tab is hidden, and prefers-reduced-motion leaves the fog and drops the rain.  */
+(function(){
+  var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var fog = document.createElement("div");
+  fog.className = "fx-fog";
+  document.body.appendChild(fog);
+  if (reduce) return;
+
+  var cv = document.createElement("canvas");
+  cv.className = "fx-rain";
+  document.body.appendChild(cv);
+  var ctx = cv.getContext("2d"), W = 0, H = 0, dpr = Math.min(devicePixelRatio || 1, 2);
+
+  function size(){
+    W = innerWidth; H = innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    cv.style.width = W + "px"; cv.style.height = H + "px";
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  size();
+  addEventListener("resize", size);
+
+  // What the rain lands on: the top edge of every card in view. Recomputed on a timer
+  // rather than per frame, because getBoundingClientRect on a dozen nodes every 16 ms is
+  // exactly the kind of thing that makes a page feel cheap.
+  var edges = [];
+  function measure(){
+    edges = [];
+    document.querySelectorAll(".card,.box,.modal").forEach(function(el){
+      var r = el.getBoundingClientRect();
+      if (r.bottom > 0 && r.top < H && r.width > 40) edges.push({x: r.left, w: r.width, y: r.top});
+    });
+  }
+  measure();
+  addEventListener("scroll", function(){ measure(); }, {passive: true});
+  setInterval(measure, 700);
+
+  var drops = [], splashes = [], N = Math.round(Math.min(90, W / 14));
+  function newDrop(y){
+    return {x: Math.random() * W, y: y === undefined ? Math.random() * -H : y,
+            v: 5.5 + Math.random() * 5, len: 9 + Math.random() * 14, a: .10 + Math.random() * .16};
+  }
+  for (var i = 0; i < N; i++) drops.push(newDrop());
+
+  function hit(d){
+    for (var i = 0; i < edges.length; i++){
+      var e = edges[i];
+      if (d.x >= e.x && d.x <= e.x + e.w && d.y >= e.y && d.y - d.v <= e.y) return e.y;
+    }
+    return d.y >= H ? H : 0;
+  }
+
+  var run = true;
+  document.addEventListener("visibilitychange", function(){
+    run = !document.hidden;
+    if (run) frame();
+  });
+
+  function frame(){
+    if (!run) return;
+    ctx.clearRect(0, 0, W, H);
+
+    ctx.lineWidth = 1;
+    for (var i = 0; i < drops.length; i++){
+      var d = drops[i];
+      d.y += d.v;
+      ctx.strokeStyle = "rgba(201,186,150," + d.a + ")";
+      ctx.beginPath();
+      ctx.moveTo(d.x, d.y);
+      ctx.lineTo(d.x - 1, d.y - d.len);
+      ctx.stroke();
+      var y = hit(d);
+      if (y){
+        splashes.push({x: d.x, y: y, r: 0, a: .30});
+        drops[i] = newDrop(-20 - Math.random() * 200);
+      }
+    }
+
+    for (var j = splashes.length - 1; j >= 0; j--){
+      var s = splashes[j];
+      s.r += .7; s.a -= .025;
+      if (s.a <= 0){ splashes.splice(j, 1); continue; }
+      ctx.strokeStyle = "rgba(227,192,90," + s.a + ")";
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y, s.r * 2.2, s.r * .7, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    requestAnimationFrame(frame);
+  }
+  frame();
+})();
 </script>
 </body></html>
