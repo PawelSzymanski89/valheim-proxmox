@@ -18,6 +18,7 @@ import socket
 import struct
 import subprocess
 import time
+import unicodedata
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -1136,6 +1137,18 @@ def _rcon(command, timeout=6):
         return out
 
 
+def _ingame(text):
+    """Valheim's font has no Polish letters - they arrive as question marks - so anything
+    headed for a player's screen is folded to ASCII first. Only the message text: a player
+    named Michał has to stay Michał or the command finds nobody. The panel's own history
+    keeps the original, because that one is read in a browser."""
+    text = text.replace("ł", "l").replace("Ł", "L")
+    text = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    for a, b in (("—", "-"), ("–", "-"), ("„", '"'), ("”", '"'), ("’", "'"), ("…", "...")):
+        text = text.replace(a, b)
+    return text
+
+
 def _admin_tools_state():
     have = set((_mods_state().get("mods") or {}).keys())
     env = {**_env_file(VH_PANEL_ENV), **_env_file(VH_RCON_ENV)}
@@ -1202,9 +1215,9 @@ def say(p: Say):
         raise HTTPException(400, "Keep it under 200 characters")
     where = p.where if p.where in ("center", "side") else "center"
     if p.players.strip():
-        out = _rcon(f'message {p.players.strip()} {where} {text}')
+        out = _rcon(f'message {p.players.strip()} {where} {_ingame(text)}')
     else:
-        out = _rcon(f"broadcast {where} {text}")
+        out = _rcon(f"broadcast {where} {_ingame(text)}")
     _say_log({"t": int(time.time()), "text": text, "where": where,
               "to": p.players.strip() or "all", "by": "panel"})
     _log("say", where=where, to=p.players.strip() or "all", chars=len(text))
@@ -1339,7 +1352,7 @@ def _greet_tick():
             if not text:
                 continue
             try:
-                _rcon(f"message {name} {r['where']} {text}")
+                _rcon(f"message {name} {r['where']} {_ingame(text)}")
                 _say_log({"t": int(time.time()), "text": text, "where": r["where"],
                           "to": name, "by": r["id"]})
                 _log("say.greeting", player=name, rule=r["id"])
@@ -1377,7 +1390,7 @@ def _rules_tick():
             continue
         RULE_FIRED[key + ":stamp"], RULE_FIRED[key] = stamp, now
         try:
-            _rcon(f"broadcast {r['where']} {r['text']}")
+            _rcon(f"broadcast {r['where']} {_ingame(r['text'])}")
             _say_log({"t": now, "text": r["text"], "where": r["where"], "to": "all", "by": r["id"]})
             _log("say.scheduled", rule=r["id"], when=r["when"])
         except Exception as e:
