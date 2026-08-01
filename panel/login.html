@@ -51,6 +51,7 @@
   th{text-align:left;color:var(--gold);font-size:11px;text-transform:uppercase;letter-spacing:.1em;
     padding:6px 8px;border-bottom:1px solid var(--line)}
   td{padding:6px 8px;border-bottom:1px solid var(--line)}
+  th.r,td.r{text-align:right}
   label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);margin:14px 0 5px}
   input{width:100%;background:#0d1114;color:var(--tx);border:1px solid var(--line);border-radius:3px;padding:11px 12px;font:inherit}
   input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,162,39,.10)}
@@ -99,6 +100,14 @@
     </form>
   </div>
 
+  <div class="box" id="board-box" style="margin-top:16px;display:none">
+    <h2 id="h-board">Ranking</h2>
+    <div class="muted" style="margin:-6px 0 12px" id="board-hint">Czas gry liczony od pierwszego dnia serwera.</div>
+    <table><thead><tr><th>#</th><th id="th-who">Gracz</th><th class="r" id="th-time">Czas gry</th>
+      <th class="r" id="th-ses">Sesji</th><th class="r" id="th-dea">Zgonów</th></tr></thead>
+    <tbody id="board"></tbody></table>
+  </div>
+
   <div class="box" id="mods-box" style="margin-top:16px;display:none">
     <div class="row" style="margin-bottom:12px">
       <h2 id="h-mods" style="margin:0">Mody</h2>
@@ -133,9 +142,11 @@ const T=PL?{}:{ "Serwer":"Server","Mody":"Mods","Obciążenie, ostatnie 12 h":"L
  "Login":"User","Hasło":"Password","Wejdź":"Enter","Paczka":"Package","Wersja":"Version",
  "Brama zamknięta dla nieproszonych":"The gate stays shut for the uninvited",
  "Łącze co 10 minut, obciążenie co minutę.":"Link every 10 minutes, load every minute.",
- "licencja MIT":"MIT license"};
+ "licencja MIT":"MIT license","Ranking":"Leaderboard","Gracz":"Player","Czas gry":"Time played",
+ "Sesji":"Sessions","Zgonów":"Deaths",
+ "Czas gry liczony od pierwszego dnia serwera.":"Time played since the server's first day."};
 const tr=s=>T[s]||s;
-["h-status","h-mods","h-charts","charts-hint","h-login","login-hint","l-user","l-pass","b","th-mod","th-ver","foot","attrib-lic"]
+["h-status","h-mods","h-charts","charts-hint","h-login","login-hint","l-user","l-pass","b","th-mod","th-ver","foot","attrib-lic","h-board","board-hint","th-who","th-time","th-ses","th-dea"]
   .forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=tr(el.textContent);});
 
 const fmtDur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
@@ -203,6 +214,14 @@ async function load(){
     }
     document.getElementById("cells").innerHTML=c.join("");
     if(d.note)document.getElementById("note").textContent=d.note;
+
+    if(d.board&&d.board.length){
+      document.getElementById("board-box").style.display="";
+      document.getElementById("board").innerHTML=d.board.map((p,i)=>
+        `<tr><td class="muted">${i+1}</td><td>${esc(p.name)}</td>
+          <td class="r">${fmtDur(p.total)}</td><td class="r">${p.sessions}</td>
+          <td class="r">${p.deaths}</td></tr>`).join("");
+    }
 
     if(d.mods){
       document.getElementById("mods-box").style.display="";

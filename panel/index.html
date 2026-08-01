@@ -162,7 +162,7 @@
       <div class="row" style="margin:18px 0 6px"><div class="muted">Playtime</div>
         <button class="mini" id="st-refresh">Refresh</button></div>
       <div id="st-sum" class="grid"></div>
-      <table style="margin-top:10px"><thead><tr><th>Player</th><th class="r">Total</th><th class="r">Longest</th><th class="r">Sessions</th><th>Last seen</th></tr></thead>
+      <table style="margin-top:10px"><thead><tr><th>Player</th><th class="r">Total</th><th class="r">Longest</th><th class="r">Sessions</th><th class="r">Deaths</th><th>Last seen</th></tr></thead>
       <tbody id="st-board"><tr><td colspan="5" class="muted">—</td></tr></tbody></table>
       <div class="muted" style="margin:16px 0 6px">When the server is busy</div>
       <div id="st-hours" style="display:flex;gap:3px;align-items:flex-end;height:70px"></div>
@@ -784,8 +784,8 @@ async function vhStats(){
     $("st-board").innerHTML=s.players.length?s.players.map(p=>`<tr>
       <td>${esc(p.name||p.id)}</td><td class="r">${fmtDur(p.total)}</td>
       <td class="r muted">${fmtDur(p.longest)}</td><td class="r">${p.sessions}</td>
-      <td class="muted">${fmtTs(p.last)}</td></tr>`).join("")
-      :`<tr><td colspan="5" class="muted">${t("nobody has finished a session yet")}</td></tr>`;
+      <td class="r">${p.deaths||0}</td><td class="muted">${fmtTs(p.last)}</td></tr>`).join("")
+      :`<tr><td colspan="6" class="muted">${t("nobody has finished a session yet")}</td></tr>`;
     const max=Math.max(1,...s.by_hour);
     $("st-hours").innerHTML=s.by_hour.map((v,i)=>
       `<div title="${i}:00 — ${v}" style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%">
@@ -892,7 +892,7 @@ function vhSettings(v){
   if(!$("pub-flags").children.length)vhPublic();
 }
 const PUB_LABELS={enabled:"Show the page at all",show_link:"Link quality (latency, loss, speed)",show_specs:"Machine specs and live load",show_players:"Number of players online",
-  show_names:"Their names",show_mods:"Mod list and share code",show_metrics:"Load charts",
+  show_names:"Their names",show_board:"Ranking: time played, sessions and deaths (names only)",show_mods:"Mod list and share code",show_metrics:"Load charts",
   show_version:"Server version",show_address:"Port and whether a password is needed"};
 async function vhPublic(){
   try{

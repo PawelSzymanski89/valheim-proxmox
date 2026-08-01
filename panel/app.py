@@ -339,6 +339,13 @@ def _events(lines):
         if m:
             yield t, "leave", m.group(1)
             continue
+        # A dead player's character id is zeroed, and that is the only trace a death leaves
+        # in a vanilla server log — the game itself never writes the word. Checked before
+        # the name line below, which otherwise swallows it.
+        m = re.search(r"Got character ZDOID from (.+?) : 0:0\s*$", rest)
+        if m:
+            yield t, "death", m.group(1).strip()
+            continue
         m = re.search(r"Got character ZDOID from (.+?) : ", rest)
         if m:
             yield t, "name", m.group(1).strip()
@@ -389,6 +396,12 @@ def _scan(lines):
             if c:
                 c["name"] = val
                 hist.append((t, "name", c))
+        elif kind == "death":
+            # the line carries a name, not an id, so it can only be attributed to someone
+            # who is connected under that name — an unmatched death is dropped, not guessed
+            c = next((x for x in conns if x["name"] == val), None)
+            if c:
+                hist.append((t, "death", c))
         elif kind == "count":
             count, count_ts = int(val), t
         elif kind == "joincode":
@@ -414,6 +427,9 @@ def _history(hist):
             p["sessions"] = p.get("sessions", 0) + 1
         if kind == "name" and c["name"]:
             p["name"] = c["name"]
+        if kind == "death":
+            p["deaths"] = p.get("deaths", 0) + 1
+            p["last_death"] = t
         if kind == "leave" and c.get("since"):
             # the only place a session length can be known: the connection carried its start
             dur = max(0, t - c["since"])
@@ -717,7 +733,7 @@ def player_stats():
                 by_hour[(h + i) % 24] += 1
     board = sorted(({"id": p["id"], "name": p.get("name"), "total": p.get("total", 0),
                      "sessions": p.get("sessions", 0), "last": p.get("last"),
-                     "first": p.get("first"),
+                     "first": p.get("first"), "deaths": p.get("deaths", 0),
                      "longest": max((s["seconds"] for s in p.get("log", [])), default=0)}
                     for p in players.values()),
                    key=lambda x: x["total"], reverse=True)
@@ -1495,6 +1511,7 @@ METRIC_POINTS = 1440          # one a minute = last 24 h
 # load chart tell a stranger what runs there and when nobody is watching.
 PUBLIC_DEFAULT = {"enabled": True, "show_players": True, "show_names": False,
                   "show_mods": False, "show_metrics": False, "show_version": False,
+                  "show_board": False,
                   "show_address": False, "show_specs": False, "show_link": False, "note": ""}
 VH_COUNT = Path(f"{VH_DIR}/players.count")   # read by update.sh so it can hold off too
 ALERT_EVENTS = {
@@ -1503,6 +1520,7 @@ ALERT_EVENTS = {
     "server_up": "Server is up",
     "player_join": "Player joined",
     "player_leave": "Player left",
+    "player_death": "Player died",
     "backup_failed": "Backup failed",
     "disk_low": "Disk almost full",
     "update_available": "Game update available",
@@ -1512,7 +1530,7 @@ ALERT_EVENTS = {
 }
 ALERTS_DEFAULT = {
     "enabled": True,
-    "events": {k: k not in ("player_leave",) for k in ALERT_EVENTS},
+    "events": {k: k not in ("player_leave", "player_death") for k in ALERT_EVENTS},
     "schedule": {"restart_at": "", "only_when_empty": True, "defer_minutes": 30,
                  "update_when_empty": True, "disk_warn_gb": 3,
                  "link_minutes": 10, "link_speed_hours": 6,
@@ -1628,6 +1646,17 @@ def public_status():
         out["players"] = len(conns)
         if cfg.get("show_names"):
             out["names"] = [c.get("name") for c in conns if c.get("name")]
+    if cfg.get("show_board"):
+        # Names only. The ids are what a stranger could use to look someone up, so they stay
+        # on this side of the wall even when the ranking is switched on.
+        try:
+            ps = json.loads(VH_STORE.read_text()).get("players", {}).values()
+        except Exception:
+            ps = []
+        out["board"] = sorted(({"name": p["name"], "total": p.get("total", 0),
+                                "sessions": p.get("sessions", 0), "deaths": p.get("deaths", 0)}
+                               for p in ps if p.get("name")),
+                              key=lambda x: x["total"], reverse=True)[:20]
     if cfg.get("show_mods"):
         out["mods"] = [{"full_name": k, "version": v.get("version"), "name": v.get("name")}
                        for k, v in sorted(st.get("mods", {}).items(),
@@ -1676,7 +1705,7 @@ def public_cfg_get():
 def public_cfg_set(body: dict = Body(...)):
     cfg = _public_cfg()
     for k in ("enabled", "show_players", "show_names", "show_mods", "show_metrics",
-              "show_version", "show_address", "show_specs", "show_link"):
+              "show_version", "show_address", "show_specs", "show_link", "show_board"):
         if k in body:
             cfg[k] = bool(body[k])
     if "note" in body:
@@ -1827,7 +1856,7 @@ def link_test(force: bool = False):
 
 # ---------- background watcher ----------
 WATCH = {"active": None, "online": {}, "disk_warned": 0, "build_checked": 0,
-         "restart_done": "", "deferred_until": 0}
+         "restart_done": "", "deferred_until": 0, "death_ts": 0}
 
 
 def _steam_latest_build():
@@ -1898,6 +1927,18 @@ def _tick():
         if pid not in now_on:
             _notify("player_leave", "Player left", f"{name} left.", tags="wave")
     WATCH["online"] = now_on
+
+    # deaths, off the history the status pass has just refreshed. The first pass only takes
+    # a watermark — otherwise a panel restart would replay every death ever recorded.
+    seen = WATCH["death_ts"]
+    newest = seen
+    for p in s.get("history") or []:
+        d = p.get("last_death") or 0
+        newest = max(newest, d)
+        if seen and d > seen:
+            _notify("player_death", "Player died", f"{p.get('name') or p['id']} died.", tags="skull")
+    WATCH["death_ts"] = newest or int(time.time())
+
     try:
         VH_COUNT.write_text(str(len(now_on)))     # update.sh reads this to hold off
     except Exception:
