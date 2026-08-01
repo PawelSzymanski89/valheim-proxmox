@@ -1472,6 +1472,75 @@ WORLD_RADIUS = 10500
 PLAYER_POS_RE = re.compile(r"(\S+)/(.+?)/(\S+)\s+\((-?\d+),\s*(-?\d+),\s*(-?\d+)\)")
 
 
+# valheim-map.world renders in the browser and has no API, so nothing here pretends to
+# talk to it. The admin does the two clicks that site is good at - download the rendered
+# map, create a lobby for shared pins - and the panel keeps the results.
+VH_MAPIMG = Path(f"{VH_DIR}/worldmap.png")
+VH_WORLDCFG = Path(f"{VH_DIR}/worldmap.json")
+
+
+def _world_cfg():
+    cfg = {"lobby_view": "", "lobby_edit": "", "map_seed": "", "map_at": 0}
+    try:
+        cfg.update(json.loads(VH_WORLDCFG.read_text()))
+    except Exception:
+        pass
+    cfg["map"] = VH_MAPIMG.exists()
+    return cfg
+
+
+@app.get("/api/valheim/world/links")
+def world_links():
+    return _world_cfg()
+
+
+@app.post("/api/valheim/world/links")
+def world_links_set(body: dict = Body(...)):
+    cfg = _world_cfg()
+    for k in ("lobby_view", "lobby_edit"):
+        if k in body:
+            v = str(body[k] or "").strip()[:300]
+            # only that site, and only https - this link is handed to players
+            if v and not v.startswith("https://valheim-map.world/"):
+                raise HTTPException(400, "Expecting a https://valheim-map.world/ link")
+            cfg[k] = v
+    VH_WORLDCFG.write_text(json.dumps({k: cfg[k] for k in
+                                       ("lobby_view", "lobby_edit", "map_seed", "map_at")}))
+    _log("world.links", view=bool(cfg["lobby_view"]), edit=bool(cfg["lobby_edit"]))
+    return _world_cfg()
+
+
+@app.post("/api/valheim/world/map")
+async def world_map_upload(data: bytes = Body(...)):
+    if not data or len(data) > 40 * 1024 * 1024:
+        raise HTTPException(400, "Expecting an image under 40 MB")
+    if not (data.startswith(b"\x89PNG") or data.startswith(b"\xff\xd8")):
+        raise HTTPException(400, "PNG or JPEG only")
+    VH_MAPIMG.write_bytes(data)
+    cfg = _world_cfg()
+    cfg["map_seed"] = (_world_card().get("fwl") or {}).get("seed_name") or ""
+    cfg["map_at"] = int(time.time())
+    VH_WORLDCFG.write_text(json.dumps({k: cfg[k] for k in
+                                       ("lobby_view", "lobby_edit", "map_seed", "map_at")}))
+    _log("world.map_upload", bytes=len(data), seed=cfg["map_seed"])
+    return _world_cfg()
+
+
+@app.delete("/api/valheim/world/map")
+def world_map_delete():
+    VH_MAPIMG.unlink(missing_ok=True)
+    _log("world.map_delete")
+    return _world_cfg()
+
+
+@app.get("/api/valheim/world/map")
+def world_map():
+    if not VH_MAPIMG.exists():
+        raise HTTPException(404, "No map uploaded")
+    head = VH_MAPIMG.read_bytes()
+    return Response(head, media_type="image/png" if head.startswith(b"\x89PNG") else "image/jpeg")
+
+
 @app.get("/api/valheim/players/positions")
 def player_positions():
     """Where everyone is standing, straight from the game rather than from the log.
