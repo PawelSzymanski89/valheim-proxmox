@@ -158,6 +158,47 @@ sessions, last seen — and a bar per hour of the day showing when people actual
 comes out of the session log the panel already keeps, so nothing extra runs on the game server and
 nothing is asked of the players.
 
+## Admin only tools, and messages in game
+
+Vanilla Valheim gives an admin no way into a running server — no RCON, no console socket, no
+chat. Three **server-side** mods provide one, and the **Mods** tab installs and configures all
+three from a single button:
+
+| Package | What it is for |
+|---|---|
+| `AviiNL-rcon` | carries the RCON protocol |
+| `JereKuusela-Rcon_Commands` | puts the server console behind it |
+| `JereKuusela-Server_devcommands` | the commands worth sending |
+
+**Players install nothing.** These run on the server only and vanilla clients join as before.
+Everything that depends on them stays hidden in the panel until they answer.
+
+RCON is enabled with a generated password on port **2465** — deliberately not the mod's default
+2458, which sits inside the 2456-2458 range a router forward points at. It listens for the panel
+on the same machine; there is no reason to expose it, and every reason not to.
+
+With them installed, the **Messages** tab can:
+
+- send a line to everyone playing, in the middle of the screen or in the corner,
+- keep a **schedule** of messages — *N in-game hours before nightfall*, *at an in-game hour*, or
+  *every N real minutes*. A rule fires once per in-game day and never into an empty server.
+- show what was sent, when, and by which rule.
+
+Backups also get better: with the tools installed, `backup.sh` asks the server to write the world
+before it copies it. Without that, a backup is only as fresh as the last autosave — up to twenty
+minutes behind.
+
+### The in-game clock, with no mod at all
+
+Game time runs at wall-clock rate while somebody is connected and stands still when nobody is, so
+the panel extrapolates it from the world file: the day, the time of day, and how long until it
+turns. The public page shows it too. One in-game hour is 75 real seconds, and of the 30-minute
+cycle roughly 21 minutes are daylight.
+
+What no source documents is the phase — which clock time the saved counter's zero corresponds to.
+The panel assumes 06:00; if it reads differently from the sky in your world, `VH_CLOCK_OFFSET`
+shifts it.
+
 ## Link quality
 
 For a game server the line matters more than the CPU — Valheim is UDP, so latency and packet

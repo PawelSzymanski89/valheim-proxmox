@@ -123,6 +123,14 @@ cat >"$VH_DIR/backup.sh" <<'EOF'
 #!/bin/bash
 SRC=/opt/valheim/data/worlds_local; DST=/opt/valheim/backups
 [ -d "$SRC" ] || exit 0
+
+# A backup copies a file, and that file is only as fresh as the last autosave - up to twenty
+# minutes behind. If the admin tools are installed, ask the server to write the world first.
+# Failure is not fatal here: an older world is still worth archiving.
+if [ -r /opt/valheim/rcon.env ]; then
+  python3 /opt/valheim/rcon-save.py 2>/dev/null && sleep 4
+fi
+
 ts=$(date +%Y%m%d-%H%M%S)
 tar czf "$DST/world-$ts.tar.gz" -C "$SRC" . 2>/dev/null && echo "backup world-$ts.tar.gz"
 ls -1t "$DST"/world-*.tar.gz 2>/dev/null | tail -n +31 | xargs -r rm -f
@@ -152,6 +160,34 @@ EOF
 for f in adminlist bannedlist permittedlist; do
   [ -f "$VH_DIR/data/$f.txt" ] || echo "// one player id per line" >"$VH_DIR/data/$f.txt"
 done
+cat >"$VH_DIR/rcon-save.py" <<'EOF'
+# Asks the running server to write the world, so a backup taken a second later is current.
+# Source RCON: length, request id, type (3 authenticates, 2 runs), body, two nulls.
+import re, socket, struct
+e = dict(re.findall(r"(\w+)='([^']*)'", open("/opt/valheim/rcon.env").read()))
+
+
+def pkt(i, t, body):
+    d = struct.pack("<ii", i, t) + body.encode() + b"\x00\x00"
+    return struct.pack("<i", len(d)) + d
+
+
+def rd(s):
+    n = struct.unpack("<i", s.recv(4))[0]
+    buf = b""
+    while len(buf) < n:
+        chunk = s.recv(n - len(buf))
+        if not chunk:
+            break
+        buf += chunk
+
+
+s = socket.create_connection(("127.0.0.1", int(e["RCON_PORT"])), timeout=5)
+s.sendall(pkt(1, 3, e["RCON_PASS"])); rd(s)
+s.sendall(pkt(2, 2, "save")); rd(s)
+s.close()
+EOF
+
 chmod +x "$VH_DIR"/{start.sh,backup.sh,update.sh}
 chown -R valheim:valheim "$VH_DIR"
 

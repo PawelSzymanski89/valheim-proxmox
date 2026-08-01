@@ -1070,7 +1070,7 @@ SAY_KEEP = 200
 def _rcon(command, timeout=6):
     """Source RCON: 4-byte length, request id, type, body, two nulls. Type 3 authenticates,
     type 2 runs. Loopback only - the port is not meant to leave this container."""
-    env = _env_file(VH_PANEL_ENV)
+    env = {**_env_file(VH_PANEL_ENV), **_env_file(VH_RCON_ENV)}
     port, pw = int(env.get("RCON_PORT") or 0), env.get("RCON_PASS") or ""
     if not port or not pw:
         raise HTTPException(503, "RCON is not configured — install the admin tools first")
@@ -1106,7 +1106,7 @@ def _rcon(command, timeout=6):
 
 def _admin_tools_state():
     have = set((_mods_state().get("mods") or {}).keys())
-    env = _env_file(VH_PANEL_ENV)
+    env = {**_env_file(VH_PANEL_ENV), **_env_file(VH_RCON_ENV)}
     missing = [m for m in ADMIN_TOOLS if m not in have]
     st = {"packages": ADMIN_TOOLS, "missing": missing,
           "configured": bool(env.get("RCON_PORT") and env.get("RCON_PASS")),
@@ -1132,17 +1132,18 @@ def admin_tools_setup():
     cfg = Path(RCON_CFG)
     if not cfg.exists():
         raise HTTPException(409, "The rcon mod has not written its config yet — start the server once")
-    env = _env_file(VH_PANEL_ENV)
+    env = {**_env_file(VH_PANEL_ENV), **_env_file(VH_RCON_ENV)}
     port = env.get("RCON_PORT") or "2465"
     pw = env.get("RCON_PASS") or secrets.token_urlsafe(18)
     text = re.sub(r"(?m)^enabled = .*$", "enabled = true", cfg.read_text())
     text = re.sub(r"(?m)^port = .*$", f"port = {port}", text)
     text = re.sub(r"(?m)^password = .*$", f"password = {pw}", text)
     cfg.write_text(text)
-    if not env.get("RCON_PASS"):
-        with Path(VH_PANEL_ENV).open("a") as f:
-            f.write(f"RCON_PORT='{port}'\nRCON_PASS='{pw}'\n")
-        Path(VH_PANEL_ENV).chmod(0o600)
+    # its own file, owned by the game user: backup.sh runs as valheim and needs the password
+    # to ask for a save before it copies the world, and it has no business reading panel.env
+    Path(VH_RCON_ENV).write_text(f"RCON_PORT='{port}'\nRCON_PASS='{pw}'\n")
+    Path(VH_RCON_ENV).chmod(0o600)
+    _sh(f"chown valheim:valheim {VH_RCON_ENV}")
     os.environ["RCON_PORT"], os.environ["RCON_PASS"] = str(port), pw
     _sh_ok("systemctl restart valheim", timeout=240)
     _log("admin_tools.setup", port=port)
@@ -1878,6 +1879,7 @@ VH_METRICS = Path(f"{VH_DIR}/metrics.json")
 VH_LINK = Path(f"{VH_DIR}/link.json")
 VH_HEALTH = Path(f"{VH_DIR}/health.json")   # crashes and the last backup verification
 VH_SAY = Path(f"{VH_DIR}/messages.json")   # what the panel has said in game, and when
+VH_RCON_ENV = f"{VH_DIR}/rcon.env"        # readable by the game user, unlike panel.env
 HEALTH_KEEP = 50
 
 
