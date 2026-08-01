@@ -89,4 +89,30 @@ assert len(skjor["log"]) == 1 and skjor["log"][0]["seconds"] == 8 * 60, skjor
 # Hilda never left in this log, so she has no closed session yet
 assert by_id["76561198000000002"]["total"] == 0, by_id["76561198000000002"]
 
-print("OK — log parser and login history")
+# The crash watcher, without crashing a live server: systemd's own counter is what it
+# reads, so a canned `systemctl show` is a faithful stand-in.
+class _Fake:
+    def __init__(self, out):
+        self.stdout, self.stderr, self.returncode = out, "", 0
+
+
+def _systemctl(n, result="signal", status="9"):
+    return lambda cmd, **kw: _Fake(f"NRestarts={n}\nResult={result}\n"
+                                   f"ExecMainStatus={status}\nExecMainCode=2\n")
+
+
+app.VH_HEALTH = pathlib.Path(tempfile.mkdtemp()) / "health.json"
+app._notify = lambda *a, **k: None
+app._log = lambda *a, **k: None
+app.WATCH["restarts"] = None
+
+app._sh = _systemctl(3)
+assert app._crash_watch(1000) is None, "first pass only takes a watermark"
+app._sh = _systemctl(3)
+assert app._crash_watch(1001) is None, "no new restarts, no crash"
+app._sh = _systemctl(4, "oom-kill", "0")
+c = app._crash_watch(1002)
+assert c and c["result"] == "oom-kill", c
+assert [x["result"] for x in app._health_state()["crashes"]] == ["oom-kill"], app._health_state()
+
+print("OK — log parser, login history and the crash watcher")

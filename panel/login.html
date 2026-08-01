@@ -182,6 +182,7 @@ async function load(){
     document.getElementById("state").textContent=d.active?(PL?"Działa":"Running"):(PL?"Wyłączony":"Offline");
     const bits=[];
     if(d.uptime)bits.push((PL?"od ":"up ")+fmtDur(d.uptime));
+    if(d.day)bits.push((PL?"dzień ":"day ")+d.day);
     if(d.version)bits.push(d.version);
     document.getElementById("meta").textContent=bits.join(" · ");
 
