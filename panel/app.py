@@ -2359,7 +2359,12 @@ def _crash_watch(now):
     prev, WATCH["restarts"] = WATCH.get("restarts"), n
     if prev is None or n <= prev:        # first pass only takes a watermark
         return None
-    why, code = f.get("Result") or "unknown", f.get("ExecMainStatus") or "0"
+    # Result describes the unit's *last* outcome, so after a successful restart it reads
+    # "success" - which says nothing about the stop that caused it. Name that case honestly.
+    why = f.get("Result") or "unknown"
+    if why == "success":
+        why = "stopped unexpectedly"
+    code = f.get("ExecMainStatus") or "0"
     crash = {"t": now, "result": why, "status": code, "n": n}
     st = _health_state()
     st["crashes"] = (st.get("crashes") or []) + [crash]
