@@ -172,11 +172,10 @@ function chart(title,pts,color,unit,max){
     </svg></div>`;
 }
 
-async function load(){
+// Same trick as the panel: paint the last answer at once so the page does not assemble
+// itself in front of the visitor, then repaint when the fresh one arrives.
+function paint(d){
   try{
-    const r=await fetch("/api/public");
-    if(!r.ok)throw 0;
-    const d=await r.json();
     document.getElementById("sub").textContent=d.name+(d.world?" · "+(PL?"świat":"world")+" "+d.world:"");
     document.getElementById("dot").className="dot "+(d.active?"up":"down");
     document.getElementById("state").textContent=d.active?(PL?"Działa":"Running"):(PL?"Wyłączony":"Offline");
@@ -274,6 +273,21 @@ async function load(){
     document.getElementById("status-box").style.opacity=".6";
   }
 }
+async function load(){
+  try{
+    const r=await fetch("/api/public");
+    if(!r.ok)throw 0;
+    const d=await r.json();
+    try{sessionStorage.setItem("vhPublic",JSON.stringify(d));}catch(e){}
+    paint(d);
+  }catch(e){
+    document.getElementById("state").textContent=PL?"Brak połączenia z panelem":"Panel unreachable";
+  }
+}
+try{
+  const c=JSON.parse(sessionStorage.getItem("vhPublic")||"null");
+  if(c)paint(c);
+}catch(e){}
 load();setInterval(load,10000);
 
 document.getElementById("f").onsubmit=async ev=>{
