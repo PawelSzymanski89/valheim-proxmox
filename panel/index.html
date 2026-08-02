@@ -426,6 +426,11 @@
           <input type="checkbox" id="lch-enabled"> <span>Offer the launcher to players on the public page</span></label>
         <button class="mini primary" id="lch-save">Save</button>
       </div>
+      <div class="add" style="margin-bottom:6px">
+        <input id="lch-address" placeholder="valheim.example.com — the name players connect to">
+        <span class="muted">Address of the game server</span>
+      </div>
+      <div class="muted" style="margin-bottom:10px">Put a <b>name</b> here, not an address in numbers — on a home connection the number changes and a launcher built with it stops working. The launcher reads this at every start, so a change here reaches everyone without rebuilding anything.</div>
       <div class="muted">While this is off, the launcher endpoints answer 404 — no manifest, no mod files, nothing.
         While it is on, they are open without a login, because a mod list is not a secret and the launcher has no account.</div>
 
@@ -613,7 +618,9 @@ const I18N={
  "While it is on, they are open without a login, because a mod list is not a secret and the launcher has no account.":"Przy włączonym są otwarte bez logowania, bo lista modów nie jest tajemnicą, a launcher nie ma konta.",
  "Background shown in the launcher — PNG, JPEG or MP4":"Tło pokazywane w launcherze — PNG, JPEG albo MP4",
  "Players download it once and keep it — it is fetched again only after you change it here.":"Gracze pobierają je raz i trzymają u siebie — ponownie dopiero, gdy je tutaj zmienisz.",
- "What the launcher hands to players":"Co launcher podaje graczom","Hold":"Trzymaj",
+ "What the launcher hands to players":"Co launcher podaje graczom","Address of the game server":"Adres serwera gry",
+ "valheim.example.com — the name players connect to":"valheim.example.com — nazwa, po której gracze wchodzą",
+ "Put a <b>name</b> here, not an address in numbers — on a home connection the number changes and a launcher built with it stops working. The launcher reads this at every start, so a change here reaches everyone without rebuilding anything.":"Wpisz <b>nazwę</b>, nie adres liczbowy — na łączu domowym numer się zmienia, a launcher zbudowany z nim przestaje działać. Launcher czyta to przy każdym starcie, więc zmiana tutaj dociera do wszystkich bez przebudowywania czegokolwiek.","Hold":"Trzymaj",
  "wipe the installed mods as well (back to vanilla)":"wyczyść też zainstalowane mody (powrót do wanilii)","Wipe the game?":"Wyczyścić rozgrywkę?","Wipe":"Wyczyść",
  "is deleted and generated again on a new seed. Player statistics, message history and availability counters start from zero.":"zostanie skasowany i wygenerowany od nowa na nowym seedzie. Statystyki graczy, historia komunikatów i liczniki dostępności ruszają od zera.",
  "A backup is taken first — it is the only way back.":"Najpierw robi się kopia — to jedyna droga powrotu.",
@@ -1049,6 +1056,7 @@ async function vhLauncher(){
   try{
     const d=await jf("/api/valheim/launcher");
     $("lch-enabled").checked=!!d.enabled;
+    if(document.activeElement!==$("lch-address"))$("lch-address").value=d.address||"";
     $("lch-sum").innerHTML=
       `<div class="stat"><div class="muted">${t("For players")}</div><div>${d.enabled?t("available"):t("switched off")}</div></div>`+
       `<div class="stat"><div class="muted">${t("Files in the manifest")}</div><div>${d.files}</div></div>`+
@@ -1065,7 +1073,7 @@ async function vhLauncher(){
 }
 $("lch-save").onclick=async()=>{
   try{await jf("/api/valheim/launcher",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({enabled:$("lch-enabled").checked})});
+    body:JSON.stringify({enabled:$("lch-enabled").checked,address:$("lch-address").value.trim()})});
     toast(t("Saved"),"ok");vhLauncher();}
   catch(e){toast(e.message,"bad");}
 };
