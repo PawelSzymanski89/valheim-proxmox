@@ -1624,7 +1624,11 @@ def world_reset(body: dict = Body(default={})):
 # a secret - it is the mod list this server already publishes - so these routes are open,
 # and they answer 404 the moment the launcher is switched off.
 def _launcher_cfg():
-    cfg = {"enabled": False, "note": "", "bg_at": 0}
+    # address is the one thing a launcher cannot work out for itself and the one thing that
+    # moves: a home connection changes IP, DDNS follows it, and an IP baked into an exe is
+    # wrong by morning. So it lives here and travels in the manifest, which means the only
+    # constant inside the exe is where the panel is.
+    cfg = {"enabled": False, "note": "", "bg_at": 0, "address": ""}
     try:
         cfg.update(json.loads(VH_LAUNCHER.read_text()))
     except Exception:
@@ -1665,6 +1669,7 @@ def launcher_manifest():
     st = _mods_state()
     files = _mod_files()
     return {"server": {"name": env["name"], "port": env["port"],
+                       "address": cfg.get("address") or None,
                        "password_required": bool(env["password"]),
                        "crossplay": env["crossplay"]},
             "mods": [{"full_name": k, "version": v.get("version"), "name": v.get("name")}
@@ -1715,7 +1720,9 @@ def launcher_set(body: dict = Body(...)):
         cfg["enabled"] = bool(body["enabled"])
     if "note" in body:
         cfg["note"] = str(body["note"] or "")[:200]
-    VH_LAUNCHER.write_text(json.dumps({k: cfg[k] for k in ("enabled", "note", "bg_at")}))
+    if "address" in body:
+        cfg["address"] = str(body["address"] or "").strip()[:120]
+    VH_LAUNCHER.write_text(json.dumps({k: cfg[k] for k in ("enabled", "note", "bg_at", "address")}))
     _log("launcher.config", enabled=cfg["enabled"])
     return _launcher_cfg()
 
@@ -1730,6 +1737,7 @@ async def launcher_bg_upload(data: bytes = Body(...)):
     cfg = _launcher_cfg()
     # the launcher caches the background and only refetches when this stamp changes
     VH_LAUNCHER.write_text(json.dumps({"enabled": cfg["enabled"], "note": cfg.get("note", ""),
+                                       "address": cfg.get("address", ""),
                                        "bg_at": int(time.time())}))
     _log("launcher.background", bytes=len(data))
     return _launcher_cfg()
