@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>valheim-proxmox — serwer Valheima z panelem i launcherem</title>
+<meta name="description" content="Serwer Valheima w LXC na Proxmoxie: panel WWW, mody z kodu profilu, kopie, alerty i launcher dla graczy na Windows, macOS i Linux. Darmowe do użytku niekomercyjnego.">
+<link rel="icon" href="icon.svg">
+<style>
+  :root{
+    --stone:#14110d; --stone2:#1b1712; --line:#2f2820;
+    --gold:#c9a227; --gold2:#e3c05a; --ink:#e8e2d4; --ink2:#b9ae95;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--stone);color:var(--ink);
+    font:16px/1.65 "Iowan Old Style","Palatino Linotype",Georgia,serif}
+  a{color:var(--gold2)}
+  .wrap{max-width:960px;margin:0 auto;padding:0 20px}
+  header{padding:64px 0 40px;text-align:center;
+    background:radial-gradient(120% 80% at 50% 0,rgba(201,162,39,.10),transparent 60%);
+    border-bottom:1px solid var(--line)}
+  header img{width:76px;height:76px}
+  h1{font-size:clamp(30px,5vw,46px);margin:14px 0 6px;letter-spacing:.02em}
+  .sub{color:var(--ink2);font-size:clamp(16px,2.2vw,19px);margin:0 auto;max-width:640px}
+  .cta{margin-top:28px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  .btn{display:inline-block;padding:11px 20px;border-radius:4px;text-decoration:none;
+    border:1px solid var(--gold);color:var(--gold2);background:rgba(201,162,39,.07)}
+  .btn.plain{border-color:var(--line);color:var(--ink2);background:transparent}
+  h2{font-size:24px;margin:44px 0 14px;color:var(--gold2)}
+  h3{font-size:17px;margin:22px 0 6px}
+  .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+  .card{background:linear-gradient(180deg,var(--stone2),var(--stone));
+    border:1px solid var(--line);border-radius:5px;padding:18px 20px}
+  .card h3{margin-top:0}
+  .card p{margin:0;color:var(--ink2);font-size:15px}
+  table{width:100%;border-collapse:collapse;margin-top:10px;font-size:15px}
+  th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+  th{color:var(--gold2);font-weight:600}
+  .price{border:1px solid var(--gold);border-radius:5px;padding:22px;
+    background:rgba(201,162,39,.06);margin-top:16px}
+  .price p:first-child{margin-top:0}
+  code{background:#0f0d0a;border:1px solid var(--line);border-radius:3px;
+    padding:1px 6px;font-size:14px;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .shots{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));margin-top:8px}
+  .shots img{width:100%;border:1px solid var(--line);border-radius:4px;display:block}
+  .muted{color:var(--ink2);font-size:14px}
+  footer{margin-top:56px;padding:26px 0 44px;border-top:1px solid var(--line);
+    text-align:center;color:var(--ink2);font-size:14px}
+  @media (prefers-reduced-motion:no-preference){.btn{transition:background .15s}}
+  .btn:hover{background:rgba(201,162,39,.16)}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <img src="icon.svg" alt="">
+    <h1>valheim-proxmox</h1>
+    <p class="sub">Serwer Valheima w kontenerze na Proxmoxie — z panelem w przeglądarce,
+      modami z kodu profilu, kopiami co dwie godziny i launcherem, który graczom
+      wszystko poukłada sam.</p>
+    <div class="cta">
+      <a class="btn" href="https://github.com/PawelSzymanski89/valheim-proxmox">Kod i instalacja</a>
+      <a class="btn plain" href="#licencja">Licencja komercyjna</a>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <h2>Co dostajesz</h2>
+  <div class="grid">
+    <div class="card">
+      <h3>Instalacja jedną komendą</h3>
+      <p>Skrypt buduje kontener LXC na Proxmoxie albo instaluje się w gotowym
+         Debianie. Na końcu wypisuje adres, login i hasło do gry.</p>
+    </div>
+    <div class="card">
+      <h3>Panel w przeglądarce</h3>
+      <p>Start, stop, świat, gracze, bany, ustawienia, kopie, mody i log —
+         każda akcja zapisana, własne logowanie z blokadą po nieudanych próbach.</p>
+    </div>
+    <div class="card">
+      <h3>Mody z kodu profilu</h3>
+      <p>Wklejasz kod z Thunderstore Mod Managera, panel rozwija go i instaluje
+         dokładnie te wersje, które mają gracze.</p>
+    </div>
+    <div class="card">
+      <h3>Launcher dla graczy</h3>
+      <p>Windows, macOS i Linux. Sam znajduje grę, pobiera mody serwera,
+         aktualizuje się z GitHuba i wchodzi na serwer jednym przyciskiem.</p>
+    </div>
+    <div class="card">
+      <h3>Kopie, które się sprawdza</h3>
+      <p>Co dwie godziny, trzydzieści sztuk, świat zapisywany przed spakowaniem,
+         a raz dziennie archiwum jest otwierane i czytane na dowód, że da się je odtworzyć.</p>
+    </div>
+    <div class="card">
+      <h3>Alerty na telefon</h3>
+      <p>Pad serwera z podaniem przyczyny, wejście gracza, brak miejsca, nieudana
+         kopia, aktualizacja gry — przez ntfy, bez zakładania konta.</p>
+    </div>
+  </div>
+
+  <h2>Jak to wygląda</h2>
+  <div class="shots">
+    <img src="summary.png" alt="Panel — podsumowanie serwera">
+    <img src="mods.png" alt="Panel — instalacja modów z kodu profilu">
+    <img src="public.png" alt="Strona publiczna serwera">
+    <img src="settings.png" alt="Panel — ustawienia świata">
+  </div>
+
+  <h2 id="licencja">Licencja</h2>
+  <p>Projekt jest udostępniony na <strong>PolyForm Noncommercial 1.0.0</strong>.
+     Krótko, bez prawniczego żargonu:</p>
+
+  <table>
+    <tr><th style="width:52%">Do czego wolno bez pytania i bez opłat</th>
+        <th>Na co potrzebna jest licencja komercyjna</th></tr>
+    <tr>
+      <td>Własny serwer dla siebie i znajomych. Klan, społeczność, serwer, na
+          którym nikt nie płaci za wstęp. Nauka, badania, testy, majsterkowanie
+          w domowej serwerowni. Zmiany w kodzie na własny użytek.</td>
+      <td>Hosting Valheima za pieniądze — i to niezależnie od tego, czy klient
+          płaci za sam serwer, czy za pakiet z panelem. Sprzedawanie panelu albo
+          launchera, także jako części większej usługi. Używanie tego wewnątrz
+          firmy do jej działalności.</td>
+    </tr>
+  </table>
+
+  <div class="price">
+    <p><strong>Chcesz użyć komercyjnie?</strong> Cenę ustalam indywidualnie —
+       zależy od skali, tego, czy potrzebujesz wsparcia i czy ma być z Twoim
+       oznaczeniem. Napisz, co planujesz, a odpiszę z konkretną propozycją.</p>
+    <p style="margin-bottom:0">
+      <a class="btn" href="mailto:stefan.burczymucha@qb.com.pl?subject=Licencja%20komercyjna%20valheim-proxmox">Napisz w sprawie ceny</a>
+      <a class="btn plain" href="https://www.linkedin.com/in/pszym89/">LinkedIn</a>
+      <a class="btn plain" href="https://github.com/PawelSzymanski89/valheim-proxmox/issues">Pytania techniczne</a>
+    </p>
+  </div>
+
+  <p class="muted">Kod sprzed zmiany licencji pozostaje na dawnych warunkach —
+     licencja nie działa wstecz. Składniki innych autorów (BepInEx, UnityDoorstop,
+     Flutter i biblioteki) mają własne licencje.</p>
+
+  <h2>Zacznij</h2>
+  <p>Na hoście Proxmox VE, jako root — skrypt zbuduje kontener i wypisze dane dostępowe:</p>
+  <p><code>bash -c "$(curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/install.sh)"</code></p>
+  <p class="muted">Nie masz Proxmoxa? Ten sam projekt instaluje się w dowolnym
+     Debianie 12/13 skryptem <code>setup.sh</code>. Szczegóły, wymagania i opis
+     wszystkich funkcji są w <a href="https://github.com/PawelSzymanski89/valheim-proxmox">README na GitHubie</a>.</p>
+
+</div>
+
+<footer>
+  <div class="wrap">
+    © 2026 Paweł Szymański ·
+    <a href="https://github.com/PawelSzymanski89/valheim-proxmox">GitHub</a> ·
+    <a href="https://github.com/PawelSzymanski89/valheim-proxmox/blob/main/LICENSE">PolyForm Noncommercial</a> ·
+    <a href="https://buymeacoffee.com/cygan">☕ Postaw kawę</a>
+    <div style="margin-top:10px">Valheim® jest znakiem towarowym Iron Gate AB.
+      To niezależne, nieoficjalne narzędzie.</div>
+  </div>
+</footer>
+
+</body>
+</html>

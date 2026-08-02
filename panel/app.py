@@ -1941,6 +1941,11 @@ def launcher_download(request: Request, platform: str = ""):
                         media_type="application/zip")
 
 
+def _exe_base(server_name):
+    """A server name trimmed down to what a file name may contain."""
+    return re.sub(r"[^A-Za-z0-9._ -]", "", server_name).strip() or "Valheim"
+
+
 def _platform_for(asked, user_agent):
     """Which build to hand over. An explicit ?platform= wins; otherwise the
     browser's own user agent decides, because a player clicking Download on the
