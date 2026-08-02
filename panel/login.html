@@ -165,6 +165,10 @@ const tr=s=>T[s]||s;
 ["h-status","h-mods","h-charts","charts-hint","h-login","login-hint","l-user","l-pass","b","th-mod","th-ver","foot","attrib-lic","h-board","board-hint","th-who","th-time","th-ses","th-dea"]
   .forEach(id=>{const el=document.getElementById(id);if(el)el.textContent=tr(el.textContent);});
 
+// czas dzialania w godzinach - "94,2 h" czyta sie szybciej niz "3d 22h 12m"
+const fmtHours=s=>(s/3600).toFixed(1).replace(".", PL?",":".")+" h";
+const fmtDate=t=>{const d=new Date(t*1000);
+  return d.toLocaleDateString(PL?"pl-PL":"en-GB",{day:"numeric",month:"short",year:"numeric"});};
 const fmtDur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
   return d?`${d}d ${h}h`:h?`${h}h ${m}m`:`${m}m`;};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -220,7 +224,7 @@ function paint(d){
     // czas dzialania serwera i czas w grze to dwie rozne rzeczy - obie podpisane,
     // bo w jednej linijce ciagiem nie dalo sie ich odroznic
     if(d.uptime)c.push(cell(PL?"Działa nieprzerwanie":"Running for",
-      `<div class="big" style="font-size:20px" id="uplive">${fmtDur(d.uptime)}</div>
+      `<div class="big" style="font-size:20px" id="uplive">${fmtHours(d.uptime)}</div>
        <div class="muted">${PL?"od ostatniego startu":"since last start"}</div>`));
     if(d.day||d.clock)c.push(cell(PL?"Czas w grze":"In-game time",
       `<div class="big" style="font-size:20px">${d.clock?d.clock.time:"—"}</div>
@@ -228,6 +232,9 @@ function paint(d){
     if(d.uptime24)c.push(cell(PL?"Dostępność":"Availability",
       `<div class="big" style="font-size:20px">${d.uptime24.pct}%</div>
        <div class="muted">${PL?"ostatnie 24 h":"last 24 h"}</div>`));
+    if(d.uptime_life)c.push(cell(PL?"Dostępność od początku":"Availability, all time",
+      `<div class="big" style="font-size:20px">${d.uptime_life.pct}%</div>
+       <div class="muted">${PL?"od ":"since "}${fmtDate(d.uptime_life.since)}</div>`));
     if(d.specs){
       const gb=b=>b?(b/1073741824).toFixed(b<10*1073741824?1:0)+" GB":"—";
       c.push(cell(PL?"Maszyna":"Machine",
@@ -318,7 +325,7 @@ let UP0=null;
 setInterval(()=>{
   if(!UP0)return;
   const el=document.getElementById("uplive");
-  if(el)el.textContent=fmtDur(UP0.v+Math.floor((Date.now()-UP0.t0)/1000));
+  if(el)el.textContent=fmtHours(UP0.v+Math.floor((Date.now()-UP0.t0)/1000));
 },1000);
 load();setInterval(load,10000);
 

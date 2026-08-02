@@ -2163,6 +2163,7 @@ VH_METRICS = Path(f"{VH_DIR}/metrics.json")
 VH_LINK = Path(f"{VH_DIR}/link.json")
 VH_HEALTH = Path(f"{VH_DIR}/health.json")   # crashes and the last backup verification
 VH_SAY = Path(f"{VH_DIR}/messages.json")   # what the panel has said in game, and when
+VH_LIFE = Path(f"{VH_DIR}/uptime.json")   # availability since this world began
 VH_RCON_ENV = f"{VH_DIR}/rcon.env"        # readable by the game user, unlike panel.env
 HEALTH_KEEP = 50
 
@@ -2347,6 +2348,13 @@ def public_status():
         if len(pts) >= 10:
             out["uptime24"] = {"pct": round(100 * sum(1 for p in pts if p.get("up")) / len(pts), 2),
                                "samples": len(pts), "minutes": len(pts)}
+    except Exception:
+        pass
+    try:
+        life = json.loads(VH_LIFE.read_text())
+        if life.get("total", 0) >= 5:
+            out["uptime_life"] = {"pct": round(100 * life["up"] / life["total"], 2),
+                                  "since": life.get("since")}
     except Exception:
         pass
     if cfg.get("show_board"):
@@ -2710,6 +2718,21 @@ def _tick():
 
     try:
         VH_COUNT.write_text(str(len(now_on)))     # update.sh reads this to hold off
+    except Exception:
+        pass
+
+    # Availability for as long as this world has existed. The rolling series only keeps a
+    # day, and a counter is the honest way to answer "how often is it up" - two integers
+    # and the date they started, rather than a guess extrapolated from the last 24 hours.
+    try:
+        life = {"since": now, "up": 0, "total": 0}
+        try:
+            life.update(json.loads(VH_LIFE.read_text()))
+        except Exception:
+            pass
+        life["total"] += 1
+        life["up"] += 1 if s["active"] else 0
+        VH_LIFE.write_text(json.dumps(life))
     except Exception:
         pass
 
