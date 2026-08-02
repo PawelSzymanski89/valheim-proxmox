@@ -1429,7 +1429,12 @@ def _rules_tick():
     75 real seconds, and cheap because it only reads two small files."""
     if not WATCH.get("online"):
         return                                    # nobody to read it
-    rules = [r for r in _rules() if r.get("enabled") and r.get("when") != "on_join"]
+    # on_join and after_join are addressed to one player and are sent by the watcher that
+    # knows who joined and when. They have no place here: this loop broadcasts, and its
+    # catch-all "every N minutes" branch was firing them at everyone - with {joke} and
+    # {random} left as literal text, because only the per-player path resolves those.
+    rules = [r for r in _rules()
+             if r.get("enabled") and r.get("when") not in ("on_join", "after_join")]
     if not rules:
         return
     card = _world_card()
@@ -1453,9 +1458,14 @@ def _rules_tick():
         if not fire or RULE_FIRED.get(key + ":stamp") == stamp:
             continue
         RULE_FIRED[key + ":stamp"], RULE_FIRED[key] = stamp, now
+        # A timed rule may ask for a random joke too - resolve it here as well, otherwise
+        # the placeholder goes out verbatim.
+        text = _joke() if r["text"].strip() == "{joke}" else r["text"]
+        if not text:
+            continue
         try:
-            _rcon(f"broadcast {r['where']} {_ingame(_signed(r['text']))}")
-            _say_log({"t": now, "text": r["text"], "where": r["where"], "to": "all", "by": r["id"]})
+            _rcon(f"broadcast {r['where']} {_ingame(_signed(text))}")
+            _say_log({"t": now, "text": text, "where": r["where"], "to": "all", "by": r["id"]})
             _log("say.scheduled", rule=r["id"], when=r["when"])
         except Exception as e:
             _log("say.failed", ok=False, rule=r["id"], error=f"{type(e).__name__}: {e}"[:120])
@@ -1664,6 +1674,37 @@ def _client_mods():
     return out
 
 
+def _lan_ip():
+    """This machine's address on the LAN. The game runs in this very container, so the
+    address players on the LAN must use is simply ours."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("192.0.2.1", 9))     # documentation range: routed, never answered
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception:
+        return None
+
+
+def _join_address(request, cfg):
+    """Where this particular player should point the game.
+
+    The public name resolves to the reverse proxy, not to this container - that is how the
+    panel is reachable over HTTPS at all. A player on the LAN who follows it lands on the
+    proxy, which has nothing listening on the game port, and the game hangs on a server
+    that looks dead. So: a request that came from a private address gets our LAN address,
+    everyone else gets the public name."""
+    try:
+        addr = ipaddress.ip_address(_client_ip(request))
+        if addr.is_private or addr.is_loopback:
+            return _lan_ip() or cfg.get("address") or None
+    except Exception:
+        pass
+    return cfg.get("address") or None
+
+
 _MOD_FILES_CACHE = {"sig": None, "data": [], "at": 0.0}
 
 
@@ -1732,7 +1773,7 @@ def _mod_files_uncached():
 
 
 @app.get("/api/launcher/manifest")
-def launcher_manifest():
+def launcher_manifest(request: Request):
     cfg = _launcher_cfg()
     if not cfg.get("enabled"):
         raise HTTPException(404, "Launcher is off")
@@ -1740,7 +1781,7 @@ def launcher_manifest():
     st = _mods_state()
     files = _mod_files()
     return {"server": {"name": env["name"], "port": env["port"],
-                       "address": cfg.get("address") or None,
+                       "address": _join_address(request, cfg),
                        "password_required": bool(env["password"]),
                        "crossplay": env["crossplay"]},
             "mods": [{"full_name": k, "version": v.get("version"), "name": v.get("name")}
@@ -1846,7 +1887,10 @@ def launcher_download(request: Request):
     env = _parse_env(Path(VH_ENV).read_text().splitlines())
     config = json.dumps({"serverName": env["name"], "panelUrl": f"{proto}://{host}",
                          "engineRepo": LAUNCHER_REPO})
-    key = hashlib.sha256(f"{tag}|{config}".encode()).hexdigest()[:12]
+    exe_name = f"{_exe_base(env['name'])} Launcher.exe"
+    # The name of the exe is part of what makes this build this server's, so it belongs in
+    # the cache key - renaming the server must not serve the previous name from disk.
+    key = hashlib.sha256(f"{tag}|{config}|{exe_name}".encode()).hexdigest()[:12]
     dist = Path(VH_DIR) / "launcher-dist"
     dist.mkdir(exist_ok=True)
     out = dist / f"launcher-{tag}-{key}.zip"
@@ -1865,19 +1909,29 @@ def launcher_download(request: Request):
                 if old != raw:
                     old.unlink(missing_ok=True)
         cfg_path = "data/flutter_assets/assets/panel_config.json"
+        # The player gets an exe named after the server, not "server_launcher". Renaming a
+        # Flutter build is safe - it finds its data/ folder beside itself, by position, not
+        # by name - and the updater renames the engine again after every update.
         part = out.with_suffix(".part")
         with zipfile.ZipFile(raw) as src, \
                 zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as dst:
             for item in src.infolist():
-                if item.filename != cfg_path:
-                    dst.writestr(item, src.read(item.filename))
+                if item.filename == cfg_path:
+                    continue
+                name = exe_name if item.filename == "server_launcher.exe" else item.filename
+                dst.writestr(name, src.read(item.filename))
             dst.writestr(cfg_path, config)
         part.rename(out)
         for old in dist.glob("launcher-*.zip"):
             if old != out:
                 old.unlink(missing_ok=True)
-    name = re.sub(r"[^A-Za-z0-9._ -]", "", env["name"]) or "Valheim"
-    return FileResponse(out, filename=f"{name} Launcher.zip", media_type="application/zip")
+    return FileResponse(out, filename=f"{_exe_base(env['name'])} Launcher.zip",
+                        media_type="application/zip")
+
+
+def _exe_base(server_name):
+    """A server name trimmed down to what Windows accepts in a file name."""
+    return re.sub(r"[^A-Za-z0-9._ -]", "", server_name).strip() or "Valheim"
 
 
 def _github_json(url):
