@@ -257,10 +257,32 @@ function paint(d){
 
     if(d.launcher){
       document.getElementById("launcher-box").style.display="";
+      const dl=d.launcher.download||d.launcher.releases;
+      // Trzy systemy, trzy kafle. Ten pasujacy do przegladarki gracza jest
+      // podswietlony - reszta zostaje widoczna, bo ktos pobiera dla kolegi.
+      const ua=navigator.userAgent.toLowerCase();
+      const mine=/mac/.test(ua)?"macos":(/linux/.test(ua)&&!/android/.test(ua))?"linux":"windows";
+      const plats=[
+        {id:"windows",name:"Windows",icon:'<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M3 5.5l7.5-1v7H3v-6zM11.5 4.3L21 3v8.5h-9.5v-7.2zM3 12.5h7.5v7L3 18.5v-6zM11.5 12.5H21V21l-9.5-1.3v-7.2z"/></svg>'},
+        {id:"macos",name:"macOS",icon:'<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.8-3-.8-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .8 1.1 1.7 2.3 2.9 2.2 1.2 0 1.6-.7 3-.7 1.4 0 1.8.7 3 .7 1.2 0 2-1.1 2.8-2.2.9-1.2 1.2-2.5 1.2-2.5s-2.4-.9-2.4-3.6zM14.2 5.4c.6-.8 1-1.9.9-3-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-.9 2.9 1 .1 2-.5 2.7-1.3z"/></svg>'},
+        {id:"linux",name:"Linux",icon:'<svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><path d="M12 2c-2 0-3.2 1.6-3.2 3.6 0 1.3.2 2-.3 2.9-.7 1.2-1.8 2.4-2.4 4C5.6 13.7 5 15 4.4 16c-.5.9-.2 1.9.7 2 .7.1 1.3.5 1.7 1 .5.6 1.3.8 2 .4.6-.3 1.4-.4 2.2-.4h2c.8 0 1.6.1 2.2.4.7.4 1.5.2 2-.4.4-.5 1-.9 1.7-1 .9-.1 1.2-1.1.7-2-.6-1-1.2-2.3-1.7-3.5-.6-1.6-1.7-2.8-2.4-4-.5-.9-.3-1.6-.3-2.9C15.2 3.6 14 2 12 2zm-1.4 3.1c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9zm2.8 0c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9zM12 8.2c.9 0 1.9.5 1.9 1s-1 .8-1.9.8-1.9-.3-1.9-.8 1-1 1.9-1z"/></svg>'}];
+      const sep=dl.indexOf("?")>=0?"&":"?";
       document.getElementById("launcher-body").innerHTML=
-        `<a class="copy" style="display:inline-block;padding:8px 14px;text-decoration:none;border:1px solid var(--gold);border-radius:3px;color:var(--gold2)"
-            href="${esc(d.launcher.download||d.launcher.releases)}">${PL?"Pobierz launcher":"Download the launcher"}</a>`+
-        (d.launcher.note?`<div class="muted" style="margin-top:8px">${esc(d.launcher.note)}</div>`:"");
+        `<div style="display:flex;flex-wrap:wrap;gap:10px">`+
+        plats.map(p=>`<a href="${esc(dl)}${sep}platform=${p.id}"
+            style="flex:1 1 140px;min-width:140px;display:flex;flex-direction:column;align-items:center;gap:6px;
+                   padding:14px 10px;text-decoration:none;border-radius:4px;
+                   border:1px solid ${p.id===mine?"var(--gold)":"var(--line)"};
+                   background:${p.id===mine?"rgba(201,162,39,.08)":"transparent"};
+                   color:${p.id===mine?"var(--gold2)":"var(--ink2,#b9ae95)"}">
+            ${p.icon}<span style="font-size:14px">${p.name}</span>
+            ${p.id===mine?`<span class="muted" style="font-size:11px">${PL?"twój system":"your system"}</span>`:""}
+          </a>`).join("")+
+        `</div>`+
+        (d.launcher.note?`<div class="muted" style="margin-top:10px">${esc(d.launcher.note)}</div>`:"")+
+        `<div class="muted" style="margin-top:10px;font-size:12px">${PL
+          ?"Rozpakuj i uruchom. Launcher sam dobierze mody, zaktualizuje się i wejdzie na serwer."
+          :"Unzip and run. The launcher fetches the mods, updates itself and joins the server."}</div>`;
     }
 
     if(d.board&&d.board.length){
