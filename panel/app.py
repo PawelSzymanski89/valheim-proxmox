@@ -1664,7 +1664,31 @@ def _client_mods():
     return out
 
 
+_MOD_FILES_CACHE = {"sig": None, "data": []}
+
+
 def _mod_files():
+    """Cached in front of the real work below. Hashing every mod on every call is fine for
+    three admin plugins and ruinous for a seventy-mod pack — and the manifest is now the
+    allow-list for downloads, so it is consulted once per file a player fetches. The cache
+    key is a cheap stat sweep: a changed size or mtime anywhere re-hashes, nothing else
+    does."""
+    root = Path(VH_SERVER) / "BepInEx"
+    try:
+        sig = (tuple(sorted((p.as_posix(), s.st_size, int(s.st_mtime))
+                            for p in root.rglob("*")
+                            if p.is_file() for s in (p.stat(),))),
+               tuple(sorted(_client_mods().items())))
+    except Exception:
+        sig = None
+    if sig is not None and sig == _MOD_FILES_CACHE["sig"]:
+        return _MOD_FILES_CACHE["data"]
+    data = _mod_files_uncached()
+    _MOD_FILES_CACHE.update(sig=sig, data=data)
+    return data
+
+
+def _mod_files_uncached():
     """Every file a client needs, with a hash so the launcher can tell what changed.
 
     Nothing is shipped when no mod is meant for players: a server whose only mods are
