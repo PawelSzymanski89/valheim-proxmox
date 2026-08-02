@@ -451,6 +451,10 @@
       <div class="muted" style="margin-top:6px">Players download it once and keep it — it is fetched again only after you change it here.</div>
       <div id="lch-bg-prev" style="margin-top:10px"></div>
 
+      <div class="muted" style="margin:16px 0 6px">Mods sent to players — admin tools stay on the server</div>
+      <table><tbody id="lch-mods"></tbody></table>
+      <div class="muted" style="margin:6px 0 10px">With nothing ticked the launcher installs no mods at all and just starts the game. Configs holding a password are never sent, whatever is ticked.</div>
+
       <div class="muted" style="margin:16px 0 6px">What the launcher hands to players</div>
       <table><tbody id="lch-info"></tbody></table>
       <div class="err" id="lch-err"></div>
@@ -622,6 +626,9 @@ const I18N={
  "Background":"Tło","set":"ustawione","none":"brak","uploaded (video)":"wgrane (wideo)",
  "Engine and updates":"Silnik i aktualizacje","Manifest":"Manifest","Mod files":"Pliki modów","Upload":"Wgraj","Remove":"Usuń",
  "Ready launcher for players":"Gotowy launcher dla graczy","Download":"Pobierz","Download for players":"Pobieranie dla graczy",
+ "Mods sent to players — admin tools stay on the server":"Mody wysyłane graczom — narzędzia admina zostają na serwerze",
+ "With nothing ticked the launcher installs no mods at all and just starts the game. Configs holding a password are never sent, whatever is ticked.":"Gdy nic nie zaznaczone, launcher nie instaluje żadnych modów i po prostu uruchamia grę. Configi z hasłem nie wychodzą nigdy, niezależnie od zaznaczeń.",
+ "no mods installed":"brak zainstalowanych modów",
  "Server status for the launcher":"Status serwera dla launchera",
  "Give players this address. The panel takes the neutral engine from GitHub, injects this server's address into it and serves a configured build — the first download after a new engine release takes a while.":"Daj graczom ten adres. Panel bierze neutralny silnik z GitHuba, wstrzykuje w niego adres tego serwera i serwuje gotową paczkę — pierwsze pobranie po nowym wydaniu silnika chwilę trwa.",
  "Offer the launcher to players on the public page":"Udostępniaj launcher graczom na stronie publicznej",
@@ -1076,6 +1083,13 @@ async function vhLauncher(){
       ? `<img src="/api/launcher/background?v=${d.bg_at}" style="max-width:420px;border:1px solid var(--line);border-radius:4px" onerror="this.replaceWith(document.createTextNode('${t("uploaded (video)")}'))">`
       : "";
     $("lch-dl").value=location.origin+"/api/launcher/download";
+    $("lch-mods").innerHTML=Object.entries(d.client_mods||{}).map(([n,on])=>
+      `<tr><td><input type="checkbox" data-lchmod="${esc(n)}" ${on?"checked":""}></td><td>${esc(n)}</td></tr>`).join("")
+      ||`<tr><td class="muted">${t("no mods installed")}</td></tr>`;
+    $("lch-mods").querySelectorAll("[data-lchmod]").forEach(c=>c.onchange=async()=>{
+      try{await jf("/api/valheim/launcher/mods",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({mods:{[c.dataset.lchmod]:c.checked}})});
+        toast(t("Saved"),"ok");vhLauncher();}catch(e){toast(e.message,"bad");}});
     $("lch-info").innerHTML=
       `<tr><td>${t("Engine and updates")}</td><td><a href="https://github.com/${esc(d.repo)}/releases" target="_blank" rel="noopener">${esc(d.repo)}</a></td></tr>`+
       `<tr><td>${t("Download for players")}</td><td><code>/api/launcher/download</code></td></tr>`+
