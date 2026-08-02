@@ -227,7 +227,7 @@ function paint(d){
        <div class="muted">${d.day?(PL?"dzień ":"day ")+d.day:""}${d.clock?" · "+(d.clock.night?(PL?"noc":"night"):(PL?"dzień":"daytime")):""}</div>`));
     if(d.uptime24)c.push(cell(PL?"Dostępność":"Availability",
       `<div class="big" style="font-size:20px">${d.uptime24.pct}%</div>
-       <div class="muted">${PL?"ostatnie 24 h":"last 24 h"} · ${d.uptime24.samples} ${PL?"pomiarów":"samples"}</div>`));
+       <div class="muted">${PL?"ostatnie 24 h":"last 24 h"}</div>`));
     if(d.specs){
       const gb=b=>b?(b/1073741824).toFixed(b<10*1073741824?1:0)+" GB":"—";
       c.push(cell(PL?"Maszyna":"Machine",
