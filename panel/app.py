@@ -1564,6 +1564,55 @@ def player_positions():
     return out
 
 
+@app.post("/api/valheim/world/reset")
+def world_reset(body: dict = Body(default={})):
+    """Start over: new world, empty statistics, counters from zero.
+
+    The order matters and every step here was learned the hard way. The backup goes first
+    and it is the only way back. The login history is not deleted but *watermarked* - the
+    panel rebuilds it from the journal, so an empty file simply fills up again with the
+    players who were here yesterday. And the world file only appears on the first save,
+    so the server is asked to write one, otherwise the public page shows no day or clock
+    until the first autosave twenty minutes later.
+    """
+    world = _parse_env(Path(VH_ENV).read_text().splitlines())["world"]
+    if body.get("confirm") != world:
+        raise HTTPException(400, "Confirm with the world name")
+
+    backup = _sh_ok(f"{VH_DIR}/backup.sh", timeout=180).strip()[-120:]
+    _sh_ok("systemctl stop valheim", timeout=180)
+
+    # Mods are optional here on purpose. A fresh world with the same mod set is a normal
+    # thing to want; so is going back to vanilla. Wiping them also drops the share code,
+    # so the players have to be told either way.
+    wipe_mods = bool(body.get("mods"))
+    if wipe_mods:
+        _sh_ok(f"cd {VH_SERVER} && rm -rf BepInEx doorstop_libs unstripped_corlib "
+               f"doorstop_config.ini start_game_bepinex.sh start_server_bepinex.sh .doorstop_version")
+        st = _mods_state()
+        st["mods"], st["profile_code"], st["profile_name"], st["bepinex_version"] = {}, None, None, None
+        _mods_save(st)
+
+    removed = []
+    for p in Path(VH_WORLDS).glob(f"{world}*"):
+        if p.suffix in (".db", ".fwl", ".old") or ".db" in p.name or ".fwl" in p.name:
+            p.unlink(missing_ok=True)
+            removed.append(p.name)
+    for f in (VH_SAY, VH_METRICS, VH_LIFE):
+        f.unlink(missing_ok=True)
+    VH_STORE.write_text(json.dumps({"players": {}, "last_ts": int(time.time())}))
+    _sh(f"chown valheim:valheim {VH_STORE}")
+    GREETED.clear()
+    JOKED.clear()
+    WATCH["online"], WATCH["death_ts"] = {}, 0
+
+    _sh_ok("systemctl start valheim", timeout=180)
+    _log("world.reset", world=world, files=len(removed), mods_wiped=wipe_mods, backup=backup)
+    _notify("maintenance", "World reset",
+            f"{world} started over. The old one is in {backup or 'the backups'}.", tags="new")
+    return {"ok": True, "world": world, "removed": removed, "mods_wiped": wipe_mods, "backup": backup}
+
+
 @app.get("/api/valheim/world/card")
 def world_card(world: str = ""):
     if world and not VH_NAME_RE.match(world):

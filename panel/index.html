@@ -60,6 +60,7 @@
   button.danger{color:#e0796f;border-color:#4a2a27}
   button.danger:hover{border-color:var(--bad);box-shadow:0 0 16px rgba(143,47,40,.25)}
   button.mini{padding:3px 9px;font-size:12px}
+  button.danger-armed{color:#ffb4a8;border-color:var(--bad);background:linear-gradient(180deg,#3a1f1c,#241312)}
   button:disabled,button.loading{opacity:.55;pointer-events:none}
   input,select{background:var(--field);color:var(--tx);border:1px solid var(--line);border-radius:3px;
     padding:8px 11px;font:inherit;width:100%;transition:border-color .15s}
@@ -238,6 +239,10 @@
       <div class="add" style="margin-top:12px">
         <input type="file" id="vh-wup" multiple accept=".db,.fwl">
         <button id="vh-wup-btn">Upload world</button>
+      </div>
+      <div class="row" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
+        <div class="muted">Start the whole thing over: new world on a new seed, empty player statistics, availability counted from zero. A backup is taken first.</div>
+        <button class="mini danger" id="vh-wipe">Wipe the game</button>
       </div>
       <div class="muted" style="margin-top:6px">Upload a matching pair <code>NAME.db</code> + <code>NAME.fwl</code>.
         New world: just type a name in Settings — the server generates it on the next start.</div>
@@ -574,7 +579,12 @@ const I18N={
  "Playtime":"Czas gry",
  "Total":"Łącznie",
  "Longest":"Najdłuższa",
- "Sessions":"Sesji",
+ "Sessions":"Sesji","Wipe the game":"Wyczyść rozgrywkę","Hold":"Trzymaj",
+ "wipe the installed mods as well (back to vanilla)":"wyczyść też zainstalowane mody (powrót do wanilii)","Wipe the game?":"Wyczyścić rozgrywkę?","Wipe":"Wyczyść",
+ "is deleted and generated again on a new seed. Player statistics, message history and availability counters start from zero.":"zostanie skasowany i wygenerowany od nowa na nowym seedzie. Statystyki graczy, historia komunikatów i liczniki dostępności ruszają od zera.",
+ "A backup is taken first — it is the only way back.":"Najpierw robi się kopia — to jedyna droga powrotu.",
+ "Done — the old world is in":"Gotowe — stary świat leży w",
+ "Start the whole thing over: new world on a new seed, empty player statistics, availability counted from zero. A backup is taken first.":"Zacznij wszystko od nowa: nowy świat na nowym seedzie, puste statystyki graczy, dostępność liczona od zera. Najpierw robi się kopia.",
  ") and paste the code here. Everyone ends up on the same versions, which is what stops the “incompatible version” bounce at join time.":") i wklej kod tutaj. Wszyscy lądują na tych samych wersjach, a to właśnie ucina wyrzucanie z powodu „niezgodnej wersji”.",
  "Anyone who knows this name receives your alerts — that is why it is random. Change it if it ever leaks.":"Każdy, kto zna tę nazwę, dostaje Twoje powiadomienia — dlatego jest losowa. Zmień ją, jeśli kiedykolwiek wycieknie.",
  "Everything a server admin can control. In-game commands (kick, spawn, weather) live in the F5 console — add yourself to":"Wszystko, czym admin może sterować. Komendy w grze (kick, spawn, pogoda) siedzą w konsoli F5 — dopisz się do",
@@ -1080,6 +1090,43 @@ $("nr-add").onclick=()=>{
   RULES.push({text:txt,when,value:+$("nr-val").value||0,where:"center",enabled:true});
   $("nr-text").value="";saveRules();
 };
+// Ten guzik kasuje swiat, wiec nie wystarczy go kliknac: trzeba go przytrzymac przez
+// dziesiec sekund, a licznik na nim odlicza. Puszczenie wczesniej anuluje wszystko.
+// Dopiero potem pyta modal - i to on decyduje, czy mody tez leca.
+(function(){
+  const b=$("vh-wipe"), label=b.textContent;
+  let timer=null, left=0;
+  const stop=()=>{ if(timer){clearInterval(timer);timer=null;} b.textContent=label; b.classList.remove("danger-armed"); };
+  const ask=async()=>{
+    const w=((VH||{}).settings||{}).world||"";
+    const ok=await confirmModal(t("Wipe the game?"),
+      `${t("World")} <b>${esc(w)}</b> ${t("is deleted and generated again on a new seed. Player statistics, message history and availability counters start from zero.")}
+       <br><br>${t("A backup is taken first — it is the only way back.")}
+       <br><br><label style="display:flex;gap:8px;align-items:center">
+         <input type="checkbox" id="wipe-mods"> ${t("wipe the installed mods as well (back to vanilla)")}</label>`,
+      t("Wipe"));
+    const mods = ok && !!(document.getElementById("wipe-mods")||{}).checked;
+    if(!ok)return;
+    b.classList.add("loading");
+    try{
+      const r=await jf("/api/valheim/world/reset",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({confirm:w, mods})});
+      toast(t("Done — the old world is in")+" "+(r.backup||"backups"),"ok");
+      setTimeout(load,12000);
+    }catch(e){toast(e.message,"bad");}
+    b.classList.remove("loading");
+  };
+  b.addEventListener("pointerdown",e=>{
+    e.preventDefault();
+    left=10; b.textContent=t("Hold")+" "+left+"…"; b.classList.add("danger-armed");
+    timer=setInterval(()=>{
+      left--;
+      if(left>0){ b.textContent=t("Hold")+" "+left+"…"; return; }
+      stop(); ask();
+    },1000);
+  });
+  ["pointerup","pointerleave","pointercancel"].forEach(ev=>b.addEventListener(ev,stop));
+})();
 async function vhCard(){
   try{await jfc("/api/valheim/world/card",paintCard);}
   catch(e){$("vh-card").innerHTML=`<div class="stat"><div class="muted">${esc(e.message)}</div></div>`;}
