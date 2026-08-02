@@ -2340,6 +2340,15 @@ def public_status():
         out["players"] = len(conns)
         if cfg.get("show_names"):
             out["names"] = [c.get("name") for c in conns if c.get("name")]
+    # Dostepnosc liczona z tych samych probek, ktore rysuja wykresy - jedna na minute,
+    # 1440 punktow, czyli dokladnie doba. Nie deklaruje wiecej, niz ma w danych.
+    try:
+        pts = json.loads(VH_METRICS.read_text())[-1440:]
+        if len(pts) >= 10:
+            out["uptime24"] = {"pct": round(100 * sum(1 for p in pts if p.get("up")) / len(pts), 2),
+                               "samples": len(pts), "minutes": len(pts)}
+    except Exception:
+        pass
     if cfg.get("show_board"):
         # Names only. The ids are what a stranger could use to look someone up, so they stay
         # on this side of the wall even when the ranking is switched on.
