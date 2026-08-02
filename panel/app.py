@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 VH_DIR = os.environ.get("VH_DIR", "/opt/valheim")
@@ -135,6 +135,8 @@ app = FastAPI(title="Valheim panel")
 
 # The login screen and the login call are the only things reachable without a session.
 OPEN_PATHS = {"/", "/icon.svg", "/api/login", "/api/logout", "/api/public"}
+# the launcher talks to these without a panel login - see _launcher_cfg for what they expose
+OPEN_PREFIXES = ("/api/launcher/",)
 
 
 @app.exception_handler(Exception)
@@ -147,7 +149,9 @@ async def _unhandled(request: Request, exc: Exception):
 
 @app.middleware("http")
 async def guard(request: Request, call_next):
-    if request.url.path in OPEN_PATHS or _who(request):
+    if (request.url.path in OPEN_PATHS
+            or request.url.path.startswith(OPEN_PREFIXES)
+            or _who(request)):
         return await call_next(request)
     # A rejected Basic header is a guess like any other, and until now it was the one door
     # nobody was counting: no rate limit, no log line. A request with no credentials at all
@@ -1425,7 +1429,12 @@ def _rules_tick():
     75 real seconds, and cheap because it only reads two small files."""
     if not WATCH.get("online"):
         return                                    # nobody to read it
-    rules = [r for r in _rules() if r.get("enabled") and r.get("when") != "on_join"]
+    # on_join and after_join are addressed to one player and are sent by the watcher that
+    # knows who joined and when. They have no place here: this loop broadcasts, and its
+    # catch-all "every N minutes" branch was firing them at everyone - with {joke} and
+    # {random} left as literal text, because only the per-player path resolves those.
+    rules = [r for r in _rules()
+             if r.get("enabled") and r.get("when") not in ("on_join", "after_join")]
     if not rules:
         return
     card = _world_card()
@@ -1449,9 +1458,14 @@ def _rules_tick():
         if not fire or RULE_FIRED.get(key + ":stamp") == stamp:
             continue
         RULE_FIRED[key + ":stamp"], RULE_FIRED[key] = stamp, now
+        # A timed rule may ask for a random joke too - resolve it here as well, otherwise
+        # the placeholder goes out verbatim.
+        text = _joke() if r["text"].strip() == "{joke}" else r["text"]
+        if not text:
+            continue
         try:
-            _rcon(f"broadcast {r['where']} {_ingame(_signed(r['text']))}")
-            _say_log({"t": now, "text": r["text"], "where": r["where"], "to": "all", "by": r["id"]})
+            _rcon(f"broadcast {r['where']} {_ingame(_signed(text))}")
+            _say_log({"t": now, "text": text, "where": r["where"], "to": "all", "by": r["id"]})
             _log("say.scheduled", rule=r["id"], when=r["when"])
         except Exception as e:
             _log("say.failed", ok=False, rule=r["id"], error=f"{type(e).__name__}: {e}"[:120])
@@ -1611,6 +1625,380 @@ def world_reset(body: dict = Body(default={})):
     _notify("maintenance", "World reset",
             f"{world} started over. The old one is in {backup or 'the backups'}.", tags="new")
     return {"ok": True, "world": world, "removed": removed, "mods_wiped": wipe_mods, "backup": backup}
+
+
+# ---------- launcher for players ----------
+# The upstream generator hands every player an FTP account baked into the exe, and FTP is
+# plaintext. Here the launcher pulls the same things over the panel's own HTTPS: a manifest
+# of mod files with their hashes, the files themselves, and the background. Nothing here is
+# a secret - it is the mod list this server already publishes - so these routes are open,
+# and they answer 404 the moment the launcher is switched off.
+def _launcher_cfg():
+    # address is the one thing a launcher cannot work out for itself and the one thing that
+    # moves: a home connection changes IP, DDNS follows it, and an IP baked into an exe is
+    # wrong by morning. So it lives here and travels in the manifest, which means the only
+    # constant inside the exe is where the panel is.
+    cfg = {"enabled": False, "note": "", "bg_at": 0, "address": ""}
+    try:
+        cfg.update(json.loads(VH_LAUNCHER.read_text()))
+    except Exception:
+        pass
+    cfg["background"] = VH_LAUNCHER_BG.exists()
+    cfg["repo"] = LAUNCHER_REPO
+    return cfg
+
+
+# Mods that exist to run the server, not to play on it: RCON, admin consoles and the
+# like. Sending them to players installs an admin toolkit on their machine and, worse,
+# drags the mod's config along - which is where the RCON password lives.
+_SERVER_ONLY = re.compile(r"rcon|server_devcommands|servercommands|admin", re.I)
+
+# A config line that hands out a secret. Any file carrying one never leaves this box,
+# whatever mod it belongs to - config file names cannot be mapped back to packages
+# reliably, so this is checked on content rather than on the name.
+_SECRET_LINE = re.compile(rb"^\s*(password|passwd|secret|token|api[_-]?key)\s*=\s*\S",
+                          re.I | re.M)
+
+
+def _client_mods():
+    """Which installed mods a player actually needs. Server-only packages are excluded
+    by default; the admin can override either way in the Launcher tab."""
+    st = _mods_state()
+    picks = st.get("client_mods")
+    out = {}
+    for full_name in (st.get("mods") or {}):
+        if isinstance(picks, dict) and full_name in picks:
+            out[full_name] = bool(picks[full_name])
+        else:
+            out[full_name] = not _SERVER_ONLY.search(full_name)
+    return out
+
+
+def _lan_ip():
+    """This machine's address on the LAN. The game runs in this very container, so the
+    address players on the LAN must use is simply ours."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("192.0.2.1", 9))     # documentation range: routed, never answered
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception:
+        return None
+
+
+def _join_address(request, cfg):
+    """Where this particular player should point the game.
+
+    The public name resolves to the reverse proxy, not to this container - that is how the
+    panel is reachable over HTTPS at all. A player on the LAN who follows it lands on the
+    proxy, which has nothing listening on the game port, and the game hangs on a server
+    that looks dead. So: a request that came from a private address gets our LAN address,
+    everyone else gets the public name."""
+    try:
+        addr = ipaddress.ip_address(_client_ip(request))
+        if addr.is_private or addr.is_loopback:
+            return _lan_ip() or cfg.get("address") or None
+    except Exception:
+        pass
+    return cfg.get("address") or None
+
+
+_MOD_FILES_CACHE = {"sig": None, "data": [], "at": 0.0}
+
+
+def _mod_files():
+    """Cached in front of the real work below. Hashing every mod on every call is fine for
+    three admin plugins and ruinous for a seventy-mod pack — and the manifest is now the
+    allow-list for downloads, so it is consulted once per file a player fetches. The cache
+    key is a cheap stat sweep: a changed size or mtime anywhere re-hashes, nothing else
+    does. Even that sweep is skipped for a few seconds at a time, because a player pulling
+    a big pack asks hundreds of times a minute and mods do not change mid-download."""
+    now = time.time()
+    if _MOD_FILES_CACHE["sig"] is not None and now - _MOD_FILES_CACHE["at"] < 5:
+        return _MOD_FILES_CACHE["data"]
+    root = Path(VH_SERVER) / "BepInEx"
+    try:
+        sig = (tuple(sorted((p.as_posix(), s.st_size, int(s.st_mtime))
+                            for p in root.rglob("*")
+                            if p.is_file() for s in (p.stat(),))),
+               tuple(sorted(_client_mods().items())))
+    except Exception:
+        sig = None
+    if sig is not None and sig == _MOD_FILES_CACHE["sig"]:
+        _MOD_FILES_CACHE["at"] = now
+        return _MOD_FILES_CACHE["data"]
+    data = _mod_files_uncached()
+    _MOD_FILES_CACHE.update(sig=sig, data=data, at=now)
+    return data
+
+
+def _mod_files_uncached():
+    """Every file a client needs, with a hash so the launcher can tell what changed.
+
+    Nothing is shipped when no mod is meant for players: a server whose only mods are
+    admin tools expects players to run vanilla, and handing them BepInEx anyway would
+    mean the launcher installs a loader nobody asked for.
+
+    Config files ride along on purpose - a server that tunes a mod expects the players to
+    run the same numbers - except the ones carrying a secret."""
+    root = Path(VH_SERVER) / "BepInEx"
+    out = []
+    if not root.exists():
+        return out
+    wanted = {m for m, on in _client_mods().items() if on}
+    if not wanted:
+        return out
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(root).as_posix()
+        if rel.startswith("cache/") or rel.endswith(".log") or "/logs/" in rel:
+            continue
+        if rel.startswith("plugins/") and rel.split("/")[1] not in wanted:
+            continue
+        if rel.startswith("config/"):
+            try:
+                if _SECRET_LINE.search(p.read_bytes()):
+                    continue
+            except Exception:
+                continue
+        h = hashlib.sha256()
+        with p.open("rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        out.append({"path": rel, "size": p.stat().st_size, "sha256": h.hexdigest()})
+    return out
+
+
+@app.get("/api/launcher/manifest")
+def launcher_manifest(request: Request):
+    cfg = _launcher_cfg()
+    if not cfg.get("enabled"):
+        raise HTTPException(404, "Launcher is off")
+    env = _parse_env(Path(VH_ENV).read_text().splitlines())
+    st = _mods_state()
+    files = _mod_files()
+    return {"server": {"name": env["name"], "port": env["port"],
+                       "address": _join_address(request, cfg),
+                       "password_required": bool(env["password"]),
+                       "crossplay": env["crossplay"]},
+            "mods": [{"full_name": k, "version": v.get("version"), "name": v.get("name")}
+                     for k, v in sorted(st.get("mods", {}).items())],
+            "profile_code": st.get("profile_code"),
+            "files": files,
+            "bytes": sum(f["size"] for f in files),
+            "background": ("/api/launcher/background?v=%s" % cfg.get("bg_at")) if cfg["background"] else None,
+            "engine": {"repo": LAUNCHER_REPO,
+                       "releases": f"https://api.github.com/repos/{LAUNCHER_REPO}/releases/latest"},
+            "note": cfg.get("note") or None}
+
+
+@app.get("/api/launcher/files/{path:path}")
+def launcher_file(path: str):
+    if not _launcher_cfg().get("enabled"):
+        raise HTTPException(404, "Launcher is off")
+    # Only what the manifest advertises. Serving anything under BepInEx looked equivalent
+    # and was not: it handed out the admin mods' configs, and one of those carries the
+    # RCON password. The manifest is the allow-list, so the two can never drift apart.
+    if path.replace("\\", "/").lstrip("/") not in {f["path"] for f in _mod_files()}:
+        raise HTTPException(404, "No such file")
+    target = (Path(VH_SERVER) / "BepInEx" / path).resolve()
+    return Response(target.read_bytes(), media_type="application/octet-stream")
+
+
+@app.get("/api/launcher/background")
+def launcher_background():
+    if not _launcher_cfg().get("enabled") or not VH_LAUNCHER_BG.exists():
+        raise HTTPException(404, "No background")
+    head = VH_LAUNCHER_BG.read_bytes()
+    kind = "image/png" if head[:4] == b"\x89PNG" else (
+        "image/jpeg" if head[:2] == b"\xff\xd8" else "video/mp4")
+    return Response(head, media_type=kind,
+                    headers={"Cache-Control": "public, max-age=604800"})
+
+
+# The launcher polls this every few seconds and measures the round-trip as the
+# player's "ping" - so the answer must come from memory, always. The status
+# script costs real seconds; it runs in a background thread when the cache goes
+# stale, and the request being served never waits for it.
+_LAUNCHER_STATUS = {"t": 0.0, "data": None, "busy": False}
+
+
+def _launcher_status_refresh():
+    try:
+        env = _parse_env(Path(VH_ENV).read_text().splitlines())
+        active = _sh("systemctl is-active valheim").stdout.strip() == "active"
+        started = _sh('date -d "$(systemctl show valheim -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0').stdout.strip()
+        conns = []
+        if active:
+            try:
+                conns, _h, _c, _cts, _v, _jc = _scan(_sections(_sh(VH_STATUS_SH, timeout=90).stdout).get("log", []))
+            except Exception:
+                conns = []
+        out = {"name": env["name"], "online": active,
+               "uptime": (int(time.time()) - int(started)) if active and started.isdigit() and int(started) else None,
+               "players": len(conns),
+               "names": [c.get("name") for c in conns if c.get("name")]}
+        _LAUNCHER_STATUS.update(t=time.time(), data=out)
+        return out
+    finally:
+        _LAUNCHER_STATUS["busy"] = False
+
+
+@app.get("/api/launcher/status")
+def launcher_status():
+    """Open on purpose: the launcher shows the player whether it is worth
+    pressing Play before they join. The names are what they would see in-game
+    anyway, and the admin opted into all of this by switching the launcher on."""
+    if not _launcher_cfg().get("enabled"):
+        raise HTTPException(404, "Launcher is off")
+    cached = _LAUNCHER_STATUS["data"]
+    if cached is not None:
+        if time.time() - _LAUNCHER_STATUS["t"] >= 10 and not _LAUNCHER_STATUS["busy"]:
+            _LAUNCHER_STATUS["busy"] = True
+            import threading
+            threading.Thread(target=_launcher_status_refresh, daemon=True).start()
+        return cached
+    # very first call since the panel started - nothing to serve yet
+    _LAUNCHER_STATUS["busy"] = True
+    return _launcher_status_refresh()
+
+
+@app.get("/api/launcher/download")
+def launcher_download(request: Request):
+    """The engine release on GitHub is a neutral package pointing at no server.
+    This route turns it into THIS server's launcher: the panel injects its own
+    address into panel_config.json inside the zip and hands the player a ready
+    build. Cached per engine tag, so one download from GitHub serves everyone
+    until a new engine is out."""
+    if not _launcher_cfg().get("enabled"):
+        raise HTTPException(404, "Launcher is off")
+    rel = _github_json(f"https://api.github.com/repos/{LAUNCHER_REPO}/releases/latest")
+    tag = rel.get("tag_name", "")
+    asset = next((a for a in rel.get("assets", []) if a.get("name") == "launcher.zip"), None)
+    if not tag or not asset:
+        raise HTTPException(503, "No engine release on GitHub yet")
+    # The panel's public address is whatever name this request came in on -
+    # zero configuration, and it is right for LAN and for the internet alike.
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    proto = request.headers.get("x-forwarded-proto", "http")
+    env = _parse_env(Path(VH_ENV).read_text().splitlines())
+    config = json.dumps({"serverName": env["name"], "panelUrl": f"{proto}://{host}",
+                         "engineRepo": LAUNCHER_REPO})
+    exe_name = f"{_exe_base(env['name'])} Launcher.exe"
+    # The name of the exe is part of what makes this build this server's, so it belongs in
+    # the cache key - renaming the server must not serve the previous name from disk.
+    key = hashlib.sha256(f"{tag}|{config}|{exe_name}".encode()).hexdigest()[:12]
+    dist = Path(VH_DIR) / "launcher-dist"
+    dist.mkdir(exist_ok=True)
+    out = dist / f"launcher-{tag}-{key}.zip"
+    if not out.exists():
+        import shutil
+        import zipfile
+        raw = dist / f"engine-{tag}.zip"
+        if not raw.exists():
+            tmp = raw.with_suffix(".part")
+            req = urllib.request.Request(asset["browser_download_url"],
+                                         headers={"User-Agent": "valheim-proxmox-panel"})
+            with urllib.request.urlopen(req, timeout=600) as r, tmp.open("wb") as f:
+                shutil.copyfileobj(r, f)
+            tmp.rename(raw)
+            for old in dist.glob("engine-*.zip"):
+                if old != raw:
+                    old.unlink(missing_ok=True)
+        cfg_path = "data/flutter_assets/assets/panel_config.json"
+        # The player gets an exe named after the server, not "server_launcher". Renaming a
+        # Flutter build is safe - it finds its data/ folder beside itself, by position, not
+        # by name - and the updater renames the engine again after every update.
+        part = out.with_suffix(".part")
+        with zipfile.ZipFile(raw) as src, \
+                zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as dst:
+            for item in src.infolist():
+                if item.filename == cfg_path:
+                    continue
+                name = exe_name if item.filename == "server_launcher.exe" else item.filename
+                dst.writestr(name, src.read(item.filename))
+            dst.writestr(cfg_path, config)
+        part.rename(out)
+        for old in dist.glob("launcher-*.zip"):
+            if old != out:
+                old.unlink(missing_ok=True)
+    return FileResponse(out, filename=f"{_exe_base(env['name'])} Launcher.zip",
+                        media_type="application/zip")
+
+
+def _exe_base(server_name):
+    """A server name trimmed down to what Windows accepts in a file name."""
+    return re.sub(r"[^A-Za-z0-9._ -]", "", server_name).strip() or "Valheim"
+
+
+def _github_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "valheim-proxmox-panel",
+                                               "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
+
+
+@app.get("/api/valheim/launcher")
+def launcher_get():
+    cfg = _launcher_cfg()
+    cfg["files"] = len(_mod_files())
+    cfg["client_mods"] = _client_mods()
+    return cfg
+
+
+@app.post("/api/valheim/launcher/mods")
+def launcher_mods_set(body: dict = Body(...)):
+    """Which mods the launcher hands to players. Server-only packages start off; an admin
+    who knows better can flip any of them."""
+    st = _mods_state()
+    picks = dict(st.get("client_mods") or {})
+    for name, on in (body.get("mods") or {}).items():
+        if name in (st.get("mods") or {}):
+            picks[name] = bool(on)
+    st["client_mods"] = picks
+    _mods_save(st)
+    _log("launcher.client_mods", **{k: v for k, v in picks.items()})
+    return {"client_mods": _client_mods(), "files": len(_mod_files())}
+
+
+@app.post("/api/valheim/launcher")
+def launcher_set(body: dict = Body(...)):
+    cfg = _launcher_cfg()
+    if "enabled" in body:
+        cfg["enabled"] = bool(body["enabled"])
+    if "note" in body:
+        cfg["note"] = str(body["note"] or "")[:200]
+    if "address" in body:
+        cfg["address"] = str(body["address"] or "").strip()[:120]
+    VH_LAUNCHER.write_text(json.dumps({k: cfg[k] for k in ("enabled", "note", "bg_at", "address")}))
+    _log("launcher.config", enabled=cfg["enabled"])
+    return _launcher_cfg()
+
+
+@app.post("/api/valheim/launcher/background")
+async def launcher_bg_upload(data: bytes = Body(...)):
+    if not data or len(data) > 60 * 1024 * 1024:
+        raise HTTPException(400, "Expecting a file under 60 MB")
+    if not (data[:4] == b"\x89PNG" or data[:2] == b"\xff\xd8" or b"ftyp" in data[:32]):
+        raise HTTPException(400, "PNG, JPEG or MP4 only")
+    VH_LAUNCHER_BG.write_bytes(data)
+    cfg = _launcher_cfg()
+    # the launcher caches the background and only refetches when this stamp changes
+    VH_LAUNCHER.write_text(json.dumps({"enabled": cfg["enabled"], "note": cfg.get("note", ""),
+                                       "address": cfg.get("address", ""),
+                                       "bg_at": int(time.time())}))
+    _log("launcher.background", bytes=len(data))
+    return _launcher_cfg()
+
+
+@app.delete("/api/valheim/launcher/background")
+def launcher_bg_delete():
+    VH_LAUNCHER_BG.unlink(missing_ok=True)
+    _log("launcher.background_removed")
+    return _launcher_cfg()
 
 
 @app.get("/api/valheim/world/card")
@@ -2213,6 +2601,9 @@ VH_LINK = Path(f"{VH_DIR}/link.json")
 VH_HEALTH = Path(f"{VH_DIR}/health.json")   # crashes and the last backup verification
 VH_SAY = Path(f"{VH_DIR}/messages.json")   # what the panel has said in game, and when
 VH_LIFE = Path(f"{VH_DIR}/uptime.json")   # availability since this world began
+VH_LAUNCHER = Path(f"{VH_DIR}/launcher.json")
+VH_LAUNCHER_BG = Path(f"{VH_DIR}/launcher-bg")   # image or video the launcher shows
+LAUNCHER_REPO = "PawelSzymanski89/valheim_launcher_proxmox"
 VH_RCON_ENV = f"{VH_DIR}/rcon.env"        # readable by the game user, unlike panel.env
 HEALTH_KEEP = 50
 
@@ -2417,6 +2808,15 @@ def public_status():
                                 "sessions": p.get("sessions", 0), "deaths": p.get("deaths", 0)}
                                for p in ps if p.get("name")),
                               key=lambda x: x["total"], reverse=True)[:20]
+    # launcher for players - only advertised when it is actually switched on
+    lch = _launcher_cfg()
+    if lch.get("enabled"):
+        # download points at THIS panel, which injects its own address into the
+        # neutral engine - the GitHub release alone would not know the server.
+        out["launcher"] = {"repo": lch["repo"],
+                           "download": "/api/launcher/download",
+                           "releases": f"https://github.com/{lch['repo']}/releases/latest",
+                           "note": lch.get("note") or None}
     if cfg.get("show_mods"):
         out["mods"] = [{"full_name": k, "version": v.get("version"), "name": v.get("name")}
                        for k, v in sorted(st.get("mods", {}).items(),

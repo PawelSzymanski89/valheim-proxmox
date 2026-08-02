@@ -124,6 +124,12 @@
     <tbody id="board"></tbody></table>
   </div>
 
+  <div class="box" id="launcher-box" style="margin-top:16px;display:none">
+    <h2 id="h-launcher">Launcher</h2>
+    <div class="muted" id="launcher-hint">Jeden plik: pobiera mody serwera, pilnuje wersji i uruchamia grę.</div>
+    <div id="launcher-body" style="margin-top:10px"></div>
+  </div>
+
   <div class="box" id="mods-box" style="margin-top:16px;display:none">
     <div class="row" style="margin-bottom:12px">
       <h2 id="h-mods" style="margin:0">Mody</h2>
@@ -158,7 +164,8 @@ const T=PL?{}:{ "Serwer":"Server","Mody":"Mods","Obciążenie, ostatnie 12 h":"L
  "Login":"User","Hasło":"Password","Wejdź":"Enter","Paczka":"Package","Wersja":"Version",
  "Brama zamknięta dla nieproszonych":"The gate stays shut for the uninvited",
  "Łącze co 10 minut, obciążenie co minutę.":"Link every 10 minutes, load every minute.",
- "licencja MIT":"MIT license","Ranking":"Leaderboard","Gracz":"Player","Czas gry":"Time played",
+ "licencja MIT":"MIT license","Launcher":"Launcher",
+ "Jeden plik: pobiera mody serwera, pilnuje wersji i uruchamia grę.":"One file: pulls the server's mods, keeps versions in step and starts the game.","Ranking":"Leaderboard","Gracz":"Player","Czas gry":"Time played",
  "Sesji":"Sessions","Zgonów":"Deaths",
  "Czas gry liczony od pierwszego dnia serwera.":"Time played since the server's first day."};
 const tr=s=>T[s]||s;
@@ -247,6 +254,14 @@ function paint(d){
     }
     document.getElementById("cells").innerHTML=c.join("");
     if(d.note)document.getElementById("note").textContent=d.note;
+
+    if(d.launcher){
+      document.getElementById("launcher-box").style.display="";
+      document.getElementById("launcher-body").innerHTML=
+        `<a class="copy" style="display:inline-block;padding:8px 14px;text-decoration:none;border:1px solid var(--gold);border-radius:3px;color:var(--gold2)"
+            href="${esc(d.launcher.download||d.launcher.releases)}">${PL?"Pobierz launcher":"Download the launcher"}</a>`+
+        (d.launcher.note?`<div class="muted" style="margin-top:8px">${esc(d.launcher.note)}</div>`:"");
+    }
 
     if(d.board&&d.board.length){
       document.getElementById("board-box").style.display="";
