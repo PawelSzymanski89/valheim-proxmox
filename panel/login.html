@@ -282,7 +282,16 @@ function paint(d){
         (d.launcher.note?`<div class="muted" style="margin-top:10px">${esc(d.launcher.note)}</div>`:"")+
         `<div class="muted" style="margin-top:10px;font-size:12px">${PL
           ?"Rozpakuj i uruchom. Launcher sam dobierze mody, zaktualizuje się i wejdzie na serwer."
-          :"Unzip and run. The launcher fetches the mods, updates itself and joins the server."}</div>`;
+          :"Unzip and run. The launcher fetches the mods, updates itself and joins the server."}</div>`+
+        // Aplikacja nie jest notaryzowana u Apple, wiec przy pierwszym starcie
+        // system ja zatrzymuje. Lepiej powiedziec to z gory niz zostawic gracza
+        // z komunikatem "nie mozna otworzyc".
+        (mine==="macos"?`<div class="muted" style="margin-top:6px;font-size:12px">${PL
+          ?"macOS przy pierwszym uruchomieniu zapyta o zgodę — kliknij aplikację prawym przyciskiem i wybierz <b>Otwórz</b>."
+          :"On first run macOS will ask — right-click the app and choose <b>Open</b>."}</div>`:"")+
+        (mine==="linux"?`<div class="muted" style="margin-top:6px;font-size:12px">${PL
+          ?"Na Linuksie nadaj plikowi prawo uruchamiania: <code>chmod +x</code>."
+          :"On Linux make the file executable first: <code>chmod +x</code>."}</div>`:"");
     }
 
     if(d.board&&d.board.length){
