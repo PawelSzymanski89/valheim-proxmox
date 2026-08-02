@@ -1638,13 +1638,47 @@ def _launcher_cfg():
     return cfg
 
 
+# Mods that exist to run the server, not to play on it: RCON, admin consoles and the
+# like. Sending them to players installs an admin toolkit on their machine and, worse,
+# drags the mod's config along - which is where the RCON password lives.
+_SERVER_ONLY = re.compile(r"rcon|server_devcommands|servercommands|admin", re.I)
+
+# A config line that hands out a secret. Any file carrying one never leaves this box,
+# whatever mod it belongs to - config file names cannot be mapped back to packages
+# reliably, so this is checked on content rather than on the name.
+_SECRET_LINE = re.compile(rb"^\s*(password|passwd|secret|token|api[_-]?key)\s*=\s*\S",
+                          re.I | re.M)
+
+
+def _client_mods():
+    """Which installed mods a player actually needs. Server-only packages are excluded
+    by default; the admin can override either way in the Launcher tab."""
+    st = _mods_state()
+    picks = st.get("client_mods")
+    out = {}
+    for full_name in (st.get("mods") or {}):
+        if isinstance(picks, dict) and full_name in picks:
+            out[full_name] = bool(picks[full_name])
+        else:
+            out[full_name] = not _SERVER_ONLY.search(full_name)
+    return out
+
+
 def _mod_files():
-    """Every file under BepInEx that a client needs, with a hash so the launcher can tell
-    what changed. Config files are deliberately included: a server that tunes a mod expects
-    the players to run the same numbers."""
+    """Every file a client needs, with a hash so the launcher can tell what changed.
+
+    Nothing is shipped when no mod is meant for players: a server whose only mods are
+    admin tools expects players to run vanilla, and handing them BepInEx anyway would
+    mean the launcher installs a loader nobody asked for.
+
+    Config files ride along on purpose - a server that tunes a mod expects the players to
+    run the same numbers - except the ones carrying a secret."""
     root = Path(VH_SERVER) / "BepInEx"
     out = []
     if not root.exists():
+        return out
+    wanted = {m for m, on in _client_mods().items() if on}
+    if not wanted:
         return out
     for p in sorted(root.rglob("*")):
         if not p.is_file():
@@ -1652,6 +1686,14 @@ def _mod_files():
         rel = p.relative_to(root).as_posix()
         if rel.startswith("cache/") or rel.endswith(".log") or "/logs/" in rel:
             continue
+        if rel.startswith("plugins/") and rel.split("/")[1] not in wanted:
+            continue
+        if rel.startswith("config/"):
+            try:
+                if _SECRET_LINE.search(p.read_bytes()):
+                    continue
+            except Exception:
+                continue
         h = hashlib.sha256()
         with p.open("rb") as f:
             for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -1687,11 +1729,12 @@ def launcher_manifest():
 def launcher_file(path: str):
     if not _launcher_cfg().get("enabled"):
         raise HTTPException(404, "Launcher is off")
-    root = (Path(VH_SERVER) / "BepInEx").resolve()
-    target = (root / path).resolve()
-    # a client asking for ../../etc/shadow gets nothing: the path has to stay under BepInEx
-    if not str(target).startswith(str(root) + "/") or not target.is_file():
+    # Only what the manifest advertises. Serving anything under BepInEx looked equivalent
+    # and was not: it handed out the admin mods' configs, and one of those carries the
+    # RCON password. The manifest is the allow-list, so the two can never drift apart.
+    if path.replace("\\", "/").lstrip("/") not in {f["path"] for f in _mod_files()}:
         raise HTTPException(404, "No such file")
+    target = (Path(VH_SERVER) / "BepInEx" / path).resolve()
     return Response(target.read_bytes(), media_type="application/octet-stream")
 
 
@@ -1706,9 +1749,32 @@ def launcher_background():
                     headers={"Cache-Control": "public, max-age=604800"})
 
 
-# The launcher polls this every few seconds, and the status script costs real
-# seconds - one answer is shared across all players for its lifetime.
-_LAUNCHER_STATUS = {"t": 0.0, "data": None}
+# The launcher polls this every few seconds and measures the round-trip as the
+# player's "ping" - so the answer must come from memory, always. The status
+# script costs real seconds; it runs in a background thread when the cache goes
+# stale, and the request being served never waits for it.
+_LAUNCHER_STATUS = {"t": 0.0, "data": None, "busy": False}
+
+
+def _launcher_status_refresh():
+    try:
+        env = _parse_env(Path(VH_ENV).read_text().splitlines())
+        active = _sh("systemctl is-active valheim").stdout.strip() == "active"
+        started = _sh('date -d "$(systemctl show valheim -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0').stdout.strip()
+        conns = []
+        if active:
+            try:
+                conns, _h, _c, _cts, _v, _jc = _scan(_sections(_sh(VH_STATUS_SH, timeout=90).stdout).get("log", []))
+            except Exception:
+                conns = []
+        out = {"name": env["name"], "online": active,
+               "uptime": (int(time.time()) - int(started)) if active and started.isdigit() and int(started) else None,
+               "players": len(conns),
+               "names": [c.get("name") for c in conns if c.get("name")]}
+        _LAUNCHER_STATUS.update(t=time.time(), data=out)
+        return out
+    finally:
+        _LAUNCHER_STATUS["busy"] = False
 
 
 @app.get("/api/launcher/status")
@@ -1718,24 +1784,16 @@ def launcher_status():
     anyway, and the admin opted into all of this by switching the launcher on."""
     if not _launcher_cfg().get("enabled"):
         raise HTTPException(404, "Launcher is off")
-    now = time.time()
-    if _LAUNCHER_STATUS["data"] is not None and now - _LAUNCHER_STATUS["t"] < 10:
-        return _LAUNCHER_STATUS["data"]
-    env = _parse_env(Path(VH_ENV).read_text().splitlines())
-    active = _sh("systemctl is-active valheim").stdout.strip() == "active"
-    started = _sh('date -d "$(systemctl show valheim -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0').stdout.strip()
-    conns = []
-    if active:
-        try:
-            conns, _h, _c, _cts, _v, _jc = _scan(_sections(_sh(VH_STATUS_SH, timeout=90).stdout).get("log", []))
-        except Exception:
-            conns = []
-    out = {"name": env["name"], "online": active,
-           "uptime": (int(time.time()) - int(started)) if active and started.isdigit() and int(started) else None,
-           "players": len(conns),
-           "names": [c.get("name") for c in conns if c.get("name")]}
-    _LAUNCHER_STATUS.update(t=now, data=out)
-    return out
+    cached = _LAUNCHER_STATUS["data"]
+    if cached is not None:
+        if time.time() - _LAUNCHER_STATUS["t"] >= 10 and not _LAUNCHER_STATUS["busy"]:
+            _LAUNCHER_STATUS["busy"] = True
+            import threading
+            threading.Thread(target=_launcher_status_refresh, daemon=True).start()
+        return cached
+    # very first call since the panel started - nothing to serve yet
+    _LAUNCHER_STATUS["busy"] = True
+    return _launcher_status_refresh()
 
 
 @app.get("/api/launcher/download")
@@ -1804,7 +1862,23 @@ def _github_json(url):
 def launcher_get():
     cfg = _launcher_cfg()
     cfg["files"] = len(_mod_files())
+    cfg["client_mods"] = _client_mods()
     return cfg
+
+
+@app.post("/api/valheim/launcher/mods")
+def launcher_mods_set(body: dict = Body(...)):
+    """Which mods the launcher hands to players. Server-only packages start off; an admin
+    who knows better can flip any of them."""
+    st = _mods_state()
+    picks = dict(st.get("client_mods") or {})
+    for name, on in (body.get("mods") or {}).items():
+        if name in (st.get("mods") or {}):
+            picks[name] = bool(on)
+    st["client_mods"] = picks
+    _mods_save(st)
+    _log("launcher.client_mods", **{k: v for k, v in picks.items()})
+    return {"client_mods": _client_mods(), "files": len(_mod_files())}
 
 
 @app.post("/api/valheim/launcher")
