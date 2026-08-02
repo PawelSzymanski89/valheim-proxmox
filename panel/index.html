@@ -434,6 +434,14 @@
       <div class="muted">While this is off, the launcher endpoints answer 404 — no manifest, no mod files, nothing.
         While it is on, they are open without a login, because a mod list is not a secret and the launcher has no account.</div>
 
+      <div class="muted" style="margin:16px 0 6px">Ready launcher for players</div>
+      <div class="add" style="margin-bottom:6px">
+        <input id="lch-dl" readonly>
+        <button class="mini" id="lch-dl-copy">Copy</button>
+        <a class="mini" id="lch-dl-open" href="/api/launcher/download" style="text-decoration:none">Download</a>
+      </div>
+      <div class="muted" style="margin-bottom:10px">Give players this address. The panel takes the neutral engine from GitHub, injects this server's address into it and serves a configured build — the first download after a new engine release takes a while.</div>
+
       <div class="muted" style="margin:16px 0 6px">Background shown in the launcher — PNG, JPEG or MP4</div>
       <div class="add">
         <input type="file" id="lch-file" accept="image/png,image/jpeg,video/mp4">
@@ -613,6 +621,9 @@ const I18N={
  "For players":"Dla graczy","available":"dostępny","switched off":"wyłączony","Files in the manifest":"Plików w manifeście",
  "Background":"Tło","set":"ustawione","none":"brak","uploaded (video)":"wgrane (wideo)",
  "Engine and updates":"Silnik i aktualizacje","Manifest":"Manifest","Mod files":"Pliki modów","Upload":"Wgraj","Remove":"Usuń",
+ "Ready launcher for players":"Gotowy launcher dla graczy","Download":"Pobierz","Download for players":"Pobieranie dla graczy",
+ "Server status for the launcher":"Status serwera dla launchera",
+ "Give players this address. The panel takes the neutral engine from GitHub, injects this server's address into it and serves a configured build — the first download after a new engine release takes a while.":"Daj graczom ten adres. Panel bierze neutralny silnik z GitHuba, wstrzykuje w niego adres tego serwera i serwuje gotową paczkę — pierwsze pobranie po nowym wydaniu silnika chwilę trwa.",
  "Offer the launcher to players on the public page":"Udostępniaj launcher graczom na stronie publicznej",
  "While this is off, the launcher endpoints answer 404 — no manifest, no mod files, nothing.":"Przy wyłączonym adresy launchera oddają 404 — ani manifestu, ani plików modów, nic.",
  "While it is on, they are open without a login, because a mod list is not a secret and the launcher has no account.":"Przy włączonym są otwarte bez logowania, bo lista modów nie jest tajemnicą, a launcher nie ma konta.",
@@ -1064,13 +1075,17 @@ async function vhLauncher(){
     $("lch-bg-prev").innerHTML=d.background
       ? `<img src="/api/launcher/background?v=${d.bg_at}" style="max-width:420px;border:1px solid var(--line);border-radius:4px" onerror="this.replaceWith(document.createTextNode('${t("uploaded (video)")}'))">`
       : "";
+    $("lch-dl").value=location.origin+"/api/launcher/download";
     $("lch-info").innerHTML=
       `<tr><td>${t("Engine and updates")}</td><td><a href="https://github.com/${esc(d.repo)}/releases" target="_blank" rel="noopener">${esc(d.repo)}</a></td></tr>`+
+      `<tr><td>${t("Download for players")}</td><td><code>/api/launcher/download</code></td></tr>`+
       `<tr><td>${t("Manifest")}</td><td><code>/api/launcher/manifest</code></td></tr>`+
+      `<tr><td>${t("Server status for the launcher")}</td><td><code>/api/launcher/status</code></td></tr>`+
       `<tr><td>${t("Mod files")}</td><td><code>/api/launcher/files/&lt;path&gt;</code></td></tr>`;
     $("lch-err").textContent="";
   }catch(e){$("lch-err").textContent=e.message;}
 }
+$("lch-dl-copy").onclick=()=>{navigator.clipboard.writeText($("lch-dl").value).then(()=>toast(t("Copied"),"ok"));};
 $("lch-save").onclick=async()=>{
   try{await jf("/api/valheim/launcher",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({enabled:$("lch-enabled").checked,address:$("lch-address").value.trim()})});

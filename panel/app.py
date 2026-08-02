@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import Body, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 VH_DIR = os.environ.get("VH_DIR", "/opt/valheim")
@@ -1704,6 +1704,100 @@ def launcher_background():
         "image/jpeg" if head[:2] == b"\xff\xd8" else "video/mp4")
     return Response(head, media_type=kind,
                     headers={"Cache-Control": "public, max-age=604800"})
+
+
+# The launcher polls this every few seconds, and the status script costs real
+# seconds - one answer is shared across all players for its lifetime.
+_LAUNCHER_STATUS = {"t": 0.0, "data": None}
+
+
+@app.get("/api/launcher/status")
+def launcher_status():
+    """Open on purpose: the launcher shows the player whether it is worth
+    pressing Play before they join. The names are what they would see in-game
+    anyway, and the admin opted into all of this by switching the launcher on."""
+    if not _launcher_cfg().get("enabled"):
+        raise HTTPException(404, "Launcher is off")
+    now = time.time()
+    if _LAUNCHER_STATUS["data"] is not None and now - _LAUNCHER_STATUS["t"] < 10:
+        return _LAUNCHER_STATUS["data"]
+    env = _parse_env(Path(VH_ENV).read_text().splitlines())
+    active = _sh("systemctl is-active valheim").stdout.strip() == "active"
+    started = _sh('date -d "$(systemctl show valheim -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0').stdout.strip()
+    conns = []
+    if active:
+        try:
+            conns, _h, _c, _cts, _v, _jc = _scan(_sections(_sh(VH_STATUS_SH, timeout=90).stdout).get("log", []))
+        except Exception:
+            conns = []
+    out = {"name": env["name"], "online": active,
+           "uptime": (int(time.time()) - int(started)) if active and started.isdigit() and int(started) else None,
+           "players": len(conns),
+           "names": [c.get("name") for c in conns if c.get("name")]}
+    _LAUNCHER_STATUS.update(t=now, data=out)
+    return out
+
+
+@app.get("/api/launcher/download")
+def launcher_download(request: Request):
+    """The engine release on GitHub is a neutral package pointing at no server.
+    This route turns it into THIS server's launcher: the panel injects its own
+    address into panel_config.json inside the zip and hands the player a ready
+    build. Cached per engine tag, so one download from GitHub serves everyone
+    until a new engine is out."""
+    if not _launcher_cfg().get("enabled"):
+        raise HTTPException(404, "Launcher is off")
+    rel = _github_json(f"https://api.github.com/repos/{LAUNCHER_REPO}/releases/latest")
+    tag = rel.get("tag_name", "")
+    asset = next((a for a in rel.get("assets", []) if a.get("name") == "launcher.zip"), None)
+    if not tag or not asset:
+        raise HTTPException(503, "No engine release on GitHub yet")
+    # The panel's public address is whatever name this request came in on -
+    # zero configuration, and it is right for LAN and for the internet alike.
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
+    proto = request.headers.get("x-forwarded-proto", "http")
+    env = _parse_env(Path(VH_ENV).read_text().splitlines())
+    config = json.dumps({"serverName": env["name"], "panelUrl": f"{proto}://{host}",
+                         "engineRepo": LAUNCHER_REPO})
+    key = hashlib.sha256(f"{tag}|{config}".encode()).hexdigest()[:12]
+    dist = Path(VH_DIR) / "launcher-dist"
+    dist.mkdir(exist_ok=True)
+    out = dist / f"launcher-{tag}-{key}.zip"
+    if not out.exists():
+        import shutil
+        import zipfile
+        raw = dist / f"engine-{tag}.zip"
+        if not raw.exists():
+            tmp = raw.with_suffix(".part")
+            req = urllib.request.Request(asset["browser_download_url"],
+                                         headers={"User-Agent": "valheim-proxmox-panel"})
+            with urllib.request.urlopen(req, timeout=600) as r, tmp.open("wb") as f:
+                shutil.copyfileobj(r, f)
+            tmp.rename(raw)
+            for old in dist.glob("engine-*.zip"):
+                if old != raw:
+                    old.unlink(missing_ok=True)
+        cfg_path = "data/flutter_assets/assets/panel_config.json"
+        part = out.with_suffix(".part")
+        with zipfile.ZipFile(raw) as src, \
+                zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as dst:
+            for item in src.infolist():
+                if item.filename != cfg_path:
+                    dst.writestr(item, src.read(item.filename))
+            dst.writestr(cfg_path, config)
+        part.rename(out)
+        for old in dist.glob("launcher-*.zip"):
+            if old != out:
+                old.unlink(missing_ok=True)
+    name = re.sub(r"[^A-Za-z0-9._ -]", "", env["name"]) or "Valheim"
+    return FileResponse(out, filename=f"{name} Launcher.zip", media_type="application/zip")
+
+
+def _github_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "valheim-proxmox-panel",
+                                               "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        return json.loads(r.read())
 
 
 @app.get("/api/valheim/launcher")
