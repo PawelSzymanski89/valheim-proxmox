@@ -259,7 +259,7 @@ function paint(d){
       document.getElementById("launcher-box").style.display="";
       document.getElementById("launcher-body").innerHTML=
         `<a class="copy" style="display:inline-block;padding:8px 14px;text-decoration:none;border:1px solid var(--gold);border-radius:3px;color:var(--gold2)"
-            href="${esc(d.launcher.releases)}" target="_blank" rel="noopener">${PL?"Pobierz launcher":"Download the launcher"}</a>`+
+            href="${esc(d.launcher.download||d.launcher.releases)}">${PL?"Pobierz launcher":"Download the launcher"}</a>`+
         (d.launcher.note?`<div class="muted" style="margin-top:8px">${esc(d.launcher.note)}</div>`:"");
     }
 

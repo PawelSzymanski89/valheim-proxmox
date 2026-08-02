@@ -2654,7 +2654,10 @@ def public_status():
     # launcher for players - only advertised when it is actually switched on
     lch = _launcher_cfg()
     if lch.get("enabled"):
+        # download points at THIS panel, which injects its own address into the
+        # neutral engine - the GitHub release alone would not know the server.
         out["launcher"] = {"repo": lch["repo"],
+                           "download": "/api/launcher/download",
                            "releases": f"https://github.com/{lch['repo']}/releases/latest",
                            "note": lch.get("note") or None}
     if cfg.get("show_mods"):
