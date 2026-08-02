@@ -8,6 +8,8 @@
 
 [English](#-english) · [Polski](#-polski) · [Screenshots](#what-it-looks-like) · [Panel](#the-panel) · [Mods](#mods-from-a-share-code)
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-cygan-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/cygan)
+
 </div>
 
 ---
