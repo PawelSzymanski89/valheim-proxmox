@@ -196,9 +196,7 @@ function paint(d){
     document.getElementById("dot").className="dot "+(d.active?"up":"down");
     document.getElementById("state").textContent=d.active?(PL?"Działa":"Running"):(PL?"Wyłączony":"Offline");
     const bits=[];
-    if(d.uptime)bits.push((PL?"od ":"up ")+fmtDur(d.uptime));
-    if(d.day)bits.push((PL?"dzień ":"day ")+d.day);
-    if(d.clock)bits.push(d.clock.time+" "+(d.clock.night?(PL?"noc":"night"):(PL?"dzień":"day")));
+    UP0 = d.uptime ? {t0: Date.now(), v: d.uptime} : null;
     if(d.version)bits.push(d.version);
     document.getElementById("meta").textContent=bits.join(" · ");
 
@@ -219,6 +217,17 @@ function paint(d){
          <div class="kv"><span>${PL?"straty":"loss"}</span><span>${p.loss}%</span></div>`+
         (s?`<div class="kv"><span>${PL?"pasmo":"speed"}</span><span>${s.down_mbit} / ${s.up_mbit} Mbit/s</span></div>`:"")));
     }
+    // czas dzialania serwera i czas w grze to dwie rozne rzeczy - obie podpisane,
+    // bo w jednej linijce ciagiem nie dalo sie ich odroznic
+    if(d.uptime)c.push(cell(PL?"Działa nieprzerwanie":"Running for",
+      `<div class="big" style="font-size:20px" id="uplive">${fmtDur(d.uptime)}</div>
+       <div class="muted">${PL?"od ostatniego startu":"since last start"}</div>`));
+    if(d.day||d.clock)c.push(cell(PL?"Czas w grze":"In-game time",
+      `<div class="big" style="font-size:20px">${d.clock?d.clock.time:"—"}</div>
+       <div class="muted">${d.day?(PL?"dzień ":"day ")+d.day:""}${d.clock?" · "+(d.clock.night?(PL?"noc":"night"):(PL?"dzień":"daytime")):""}</div>`));
+    if(d.uptime24)c.push(cell(PL?"Dostępność":"Availability",
+      `<div class="big" style="font-size:20px">${d.uptime24.pct}%</div>
+       <div class="muted">${PL?"ostatnie 24 h":"last 24 h"} · ${d.uptime24.samples} ${PL?"pomiarów":"samples"}</div>`));
     if(d.specs){
       const gb=b=>b?(b/1073741824).toFixed(b<10*1073741824?1:0)+" GB":"—";
       c.push(cell(PL?"Maszyna":"Machine",
@@ -304,6 +313,13 @@ try{
   const c=JSON.parse(sessionStorage.getItem("vhPublic")||"null");
   if(c)paint(c);
 }catch(e){}
+// bieżący czas działania odliczany lokalnie między odpowiedziami serwera
+let UP0=null;
+setInterval(()=>{
+  if(!UP0)return;
+  const el=document.getElementById("uplive");
+  if(el)el.textContent=fmtDur(UP0.v+Math.floor((Date.now()-UP0.t0)/1000));
+},1000);
 load();setInterval(load,10000);
 
 document.getElementById("f").onsubmit=async ev=>{
