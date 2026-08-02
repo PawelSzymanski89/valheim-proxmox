@@ -1867,19 +1867,22 @@ def launcher_status():
 
 
 @app.get("/api/launcher/download")
-def launcher_download(request: Request):
-    """The engine release on GitHub is a neutral package pointing at no server.
-    This route turns it into THIS server's launcher: the panel injects its own
-    address into panel_config.json inside the zip and hands the player a ready
-    build. Cached per engine tag, so one download from GitHub serves everyone
-    until a new engine is out."""
+def launcher_download(request: Request, platform: str = ""):
+    """The engine release on GitHub is neutral: it points at no server at all.
+    This route turns it into THIS server's launcher - the panel writes its own
+    address into panel_config.json BESIDE the program (inside a signed macOS
+    bundle it would break the signature) and hands the player a ready build.
+    Cached per engine tag and platform, so one download from GitHub serves
+    everyone until a new engine is out."""
     if not _launcher_cfg().get("enabled"):
         raise HTTPException(404, "Launcher is off")
+    plat = _platform_for(platform, request.headers.get("user-agent", ""))
     rel = _github_json(f"https://api.github.com/repos/{LAUNCHER_REPO}/releases/latest")
     tag = rel.get("tag_name", "")
-    asset = next((a for a in rel.get("assets", []) if a.get("name") == "launcher.zip"), None)
+    asset = next((a for a in rel.get("assets", [])
+                  if a.get("name") == f"launcher-{plat}.zip"), None)
     if not tag or not asset:
-        raise HTTPException(503, "No engine release on GitHub yet")
+        raise HTTPException(503, f"No {plat} engine release on GitHub yet")
     # The panel's public address is whatever name this request came in on -
     # zero configuration, and it is right for LAN and for the internet alike.
     host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
@@ -1887,17 +1890,17 @@ def launcher_download(request: Request):
     env = _parse_env(Path(VH_ENV).read_text().splitlines())
     config = json.dumps({"serverName": env["name"], "panelUrl": f"{proto}://{host}",
                          "engineRepo": LAUNCHER_REPO})
-    exe_name = f"{_exe_base(env['name'])} Launcher.exe"
-    # The name of the exe is part of what makes this build this server's, so it belongs in
-    # the cache key - renaming the server must not serve the previous name from disk.
-    key = hashlib.sha256(f"{tag}|{config}|{exe_name}".encode()).hexdigest()[:12]
+    base = _exe_base(env["name"])
+    # The name of the program is part of what makes this build this server's, so it
+    # belongs in the cache key - renaming the server must not serve the old name.
+    key = hashlib.sha256(f"{tag}|{config}|{base}|{plat}".encode()).hexdigest()[:12]
     dist = Path(VH_DIR) / "launcher-dist"
     dist.mkdir(exist_ok=True)
-    out = dist / f"launcher-{tag}-{key}.zip"
+    out = dist / f"launcher-{plat}-{tag}-{key}.zip"
     if not out.exists():
         import shutil
         import zipfile
-        raw = dist / f"engine-{tag}.zip"
+        raw = dist / f"engine-{plat}-{tag}.zip"
         if not raw.exists():
             tmp = raw.with_suffix(".part")
             req = urllib.request.Request(asset["browser_download_url"],
@@ -1905,33 +1908,52 @@ def launcher_download(request: Request):
             with urllib.request.urlopen(req, timeout=600) as r, tmp.open("wb") as f:
                 shutil.copyfileobj(r, f)
             tmp.rename(raw)
-            for old in dist.glob("engine-*.zip"):
+            for old in dist.glob(f"engine-{plat}-*.zip"):
                 if old != raw:
                     old.unlink(missing_ok=True)
-        cfg_path = "data/flutter_assets/assets/panel_config.json"
-        # The player gets an exe named after the server, not "server_launcher". Renaming a
-        # Flutter build is safe - it finds its data/ folder beside itself, by position, not
-        # by name - and the updater renames the engine again after every update.
+        # What the player double-clicks, named after the server. Renaming a Flutter
+        # build is safe: it finds its data next to itself, by position, not by name.
+        rename = {"windows": ("server_launcher.exe", f"{base} Launcher.exe"),
+                  "linux": ("server_launcher", f"{base} Launcher"),
+                  "macos": ("server_launcher.app", f"{base} Launcher.app")}[plat]
         part = out.with_suffix(".part")
         with zipfile.ZipFile(raw) as src, \
                 zipfile.ZipFile(part, "w", zipfile.ZIP_DEFLATED) as dst:
             for item in src.infolist():
-                if item.filename == cfg_path:
-                    continue
-                name = exe_name if item.filename == "server_launcher.exe" else item.filename
-                dst.writestr(name, src.read(item.filename))
-            dst.writestr(cfg_path, config)
+                name = item.filename
+                if name.endswith("flutter_assets/assets/panel_config.json"):
+                    continue                       # the placeholder from the build
+                if name == rename[0] or name.startswith(rename[0] + "/"):
+                    name = rename[1] + name[len(rename[0]):]
+                info = zipfile.ZipInfo(name, date_time=item.date_time)
+                # Carry permissions over: the launcher and the macOS bundle's inner
+                # binary have to stay executable, and a plain writestr would drop that.
+                info.external_attr = item.external_attr
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.create_system = item.create_system
+                dst.writestr(info, src.read(item.filename))
+            dst.writestr("panel_config.json", config)
         part.rename(out)
-        for old in dist.glob("launcher-*.zip"):
+        for old in dist.glob(f"launcher-{plat}-*.zip"):
             if old != out:
                 old.unlink(missing_ok=True)
-    return FileResponse(out, filename=f"{_exe_base(env['name'])} Launcher.zip",
+    return FileResponse(out, filename=f"{base} Launcher ({plat}).zip",
                         media_type="application/zip")
 
 
-def _exe_base(server_name):
-    """A server name trimmed down to what Windows accepts in a file name."""
-    return re.sub(r"[^A-Za-z0-9._ -]", "", server_name).strip() or "Valheim"
+def _platform_for(asked, user_agent):
+    """Which build to hand over. An explicit ?platform= wins; otherwise the
+    browser's own user agent decides, because a player clicking Download on the
+    public page should not have to know what to pick."""
+    asked = (asked or "").strip().lower()
+    if asked in ("windows", "macos", "linux"):
+        return asked
+    ua = user_agent.lower()
+    if "mac os x" in ua or "macintosh" in ua:
+        return "macos"
+    if "linux" in ua and "android" not in ua:
+        return "linux"
+    return "windows"
 
 
 def _github_json(url):
