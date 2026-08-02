@@ -1664,7 +1664,7 @@ def _client_mods():
     return out
 
 
-_MOD_FILES_CACHE = {"sig": None, "data": []}
+_MOD_FILES_CACHE = {"sig": None, "data": [], "at": 0.0}
 
 
 def _mod_files():
@@ -1672,7 +1672,11 @@ def _mod_files():
     three admin plugins and ruinous for a seventy-mod pack — and the manifest is now the
     allow-list for downloads, so it is consulted once per file a player fetches. The cache
     key is a cheap stat sweep: a changed size or mtime anywhere re-hashes, nothing else
-    does."""
+    does. Even that sweep is skipped for a few seconds at a time, because a player pulling
+    a big pack asks hundreds of times a minute and mods do not change mid-download."""
+    now = time.time()
+    if _MOD_FILES_CACHE["sig"] is not None and now - _MOD_FILES_CACHE["at"] < 5:
+        return _MOD_FILES_CACHE["data"]
     root = Path(VH_SERVER) / "BepInEx"
     try:
         sig = (tuple(sorted((p.as_posix(), s.st_size, int(s.st_mtime))
@@ -1682,9 +1686,10 @@ def _mod_files():
     except Exception:
         sig = None
     if sig is not None and sig == _MOD_FILES_CACHE["sig"]:
+        _MOD_FILES_CACHE["at"] = now
         return _MOD_FILES_CACHE["data"]
     data = _mod_files_uncached()
-    _MOD_FILES_CACHE.update(sig=sig, data=data)
+    _MOD_FILES_CACHE.update(sig=sig, data=data, at=now)
     return data
 
 
