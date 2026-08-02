@@ -391,6 +391,9 @@
           <input id="al-disk" type="number" min="1" max="720" style="margin-top:6px"></div>
         <div class="stat"><div class="muted">Warn when CPU or RAM stays above</div>
           <input id="al-load" type="number" min="50" max="100" style="margin-top:6px"></div>
+        <div class="stat"><div class="muted">Restart when RAM passes (%, 0 = off)</div>
+          <input id="al-memrst" type="number" min="0" max="90" style="margin-top:6px">
+          <div class="muted" style="font-size:11px;margin-top:4px">The game grows a few hundred MB an hour even empty and never gives it back. Only ever restarts an empty server.</div></div>
       </div>
 
       <div class="row" style="margin-top:14px">
@@ -1674,6 +1677,7 @@ async function vhAlerts(){
     $("al-at").value=a.schedule.restart_at||"";$("al-empty").checked=!!a.schedule.only_when_empty;
     $("al-defer").value=a.schedule.defer_minutes;$("al-disk").value=a.schedule.disk_warn_gb;
     $("al-load").value=a.schedule.load_pct??95;
+    $("al-memrst").value=a.schedule.restart_mem_pct??40;
     $("al-sub").href=a.subscribe_url||"#";$("al-sub").textContent=a.subscribe_url||"";
     $("al-events").innerHTML=Object.entries(a.labels).map(([k,label])=>
       `<div class="stat"><label style="display:flex;gap:8px;align-items:center">
@@ -1688,7 +1692,8 @@ function alBody(){
           token:$("al-token").value},
     schedule:{restart_at:$("al-at").value.trim(),only_when_empty:$("al-empty").checked,
               defer_minutes:+$("al-defer").value||30,disk_warn_gb:+$("al-disk").value||3,
-              load_pct:Math.min(100,Math.max(50,+$("al-load").value||95))}};
+              load_pct:Math.min(100,Math.max(50,+$("al-load").value||95),),
+              restart_mem_pct:Math.max(0,Math.min(90,+$("al-memrst").value||0))}};
 }
 $("al-new").onclick=async()=>{
   if(!await confirmModal(t("New topic?"),t("The old name stops receiving anything — resubscribe in the app to the new one."),t("Generate")))return;

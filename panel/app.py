@@ -2684,7 +2684,13 @@ ALERTS_DEFAULT = {
                  "update_when_empty": True, "disk_warn_gb": 3,
                  "link_minutes": 10, "link_speed_hours": 6,
                  "speed_when_empty": True, "ping_when_empty": False,
-                 "load_pct": 95, "load_minutes": 1},
+                 "load_pct": 95, "load_minutes": 1,
+                 # The game server grows by a couple of hundred megabytes an hour
+                 # even with nobody playing - Unity never hands memory back. The
+                 # nightly window normally keeps that in check, but a server that
+                 # is busy every night would never get restarted, so this is the
+                 # floor under it: restart on memory, only ever on an empty server.
+                 "restart_mem_pct": 40},
 }
 
 
@@ -2948,6 +2954,11 @@ def alerts_set(body: dict = Body(...)):
     for k in ("defer_minutes", "disk_warn_gb", "link_minutes", "link_speed_hours"):
         if k in s:
             cfg["schedule"][k] = max(1, min(720, int(s[k])))
+    if "restart_mem_pct" in s:
+        # 0 turns it off; below 20 the server would restart itself constantly, and
+        # above 90 the kernel gets there first.
+        v = int(s["restart_mem_pct"] or 0)
+        cfg["schedule"]["restart_mem_pct"] = 0 if v <= 0 else max(20, min(90, v))
     VH_ALERTS.write_text(json.dumps(cfg, indent=1))
     _log("alerts.save", topic=env.get("NTFY_TOPIC") or None, enabled=cfg["enabled"],
          on=[k for k, v in cfg["events"].items() if v], schedule=cfg["schedule"])
@@ -3292,6 +3303,21 @@ def _tick():
                         f"Steam has build {latest}, the server runs {installed}.", tags="arrow_up")
         except Exception:
             pass
+
+    # memory safety net - see restart_mem_pct in ALERTS_DEFAULT for why it exists.
+    # Never touches a server with people on it: growing memory is a slow problem and
+    # kicking players out of a raid is a fast one.
+    mem_pct = cfg["schedule"].get("restart_mem_pct", 0)
+    if mem_pct and LIVE["mem"] is not None and LIVE["mem"] >= mem_pct and not now_on:
+        # One restart per hour at most: right after a restart the reading falls, but
+        # if it did not, this would otherwise loop.
+        if now - WATCH.get("mem_restart_at", 0) > 3600:
+            WATCH["mem_restart_at"] = now
+            _notify("maintenance", "Restart on memory",
+                    f"Memory at {LIVE['mem']}% with nobody playing - restarting.",
+                    tags="repeat")
+            _log("maintenance.restart_mem", mem=LIVE["mem"], limit=mem_pct)
+            _sh("systemctl restart valheim", timeout=180)
 
     # maintenance window
     at = cfg["schedule"].get("restart_at")
