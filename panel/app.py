@@ -135,6 +135,8 @@ app = FastAPI(title="Valheim panel")
 
 # The login screen and the login call are the only things reachable without a session.
 OPEN_PATHS = {"/", "/icon.svg", "/api/login", "/api/logout", "/api/public"}
+# the launcher talks to these without a panel login - see _launcher_cfg for what they expose
+OPEN_PREFIXES = ("/api/launcher/",)
 
 
 @app.exception_handler(Exception)
@@ -147,7 +149,9 @@ async def _unhandled(request: Request, exc: Exception):
 
 @app.middleware("http")
 async def guard(request: Request, call_next):
-    if request.url.path in OPEN_PATHS or _who(request):
+    if (request.url.path in OPEN_PATHS
+            or request.url.path.startswith(OPEN_PREFIXES)
+            or _who(request)):
         return await call_next(request)
     # A rejected Basic header is a guess like any other, and until now it was the one door
     # nobody was counting: no rate limit, no log line. A request with no credentials at all
@@ -1613,6 +1617,131 @@ def world_reset(body: dict = Body(default={})):
     return {"ok": True, "world": world, "removed": removed, "mods_wiped": wipe_mods, "backup": backup}
 
 
+# ---------- launcher for players ----------
+# The upstream generator hands every player an FTP account baked into the exe, and FTP is
+# plaintext. Here the launcher pulls the same things over the panel's own HTTPS: a manifest
+# of mod files with their hashes, the files themselves, and the background. Nothing here is
+# a secret - it is the mod list this server already publishes - so these routes are open,
+# and they answer 404 the moment the launcher is switched off.
+def _launcher_cfg():
+    cfg = {"enabled": False, "note": "", "bg_at": 0}
+    try:
+        cfg.update(json.loads(VH_LAUNCHER.read_text()))
+    except Exception:
+        pass
+    cfg["background"] = VH_LAUNCHER_BG.exists()
+    cfg["repo"] = LAUNCHER_REPO
+    return cfg
+
+
+def _mod_files():
+    """Every file under BepInEx that a client needs, with a hash so the launcher can tell
+    what changed. Config files are deliberately included: a server that tunes a mod expects
+    the players to run the same numbers."""
+    root = Path(VH_SERVER) / "BepInEx"
+    out = []
+    if not root.exists():
+        return out
+    for p in sorted(root.rglob("*")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(root).as_posix()
+        if rel.startswith("cache/") or rel.endswith(".log") or "/logs/" in rel:
+            continue
+        h = hashlib.sha256()
+        with p.open("rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        out.append({"path": rel, "size": p.stat().st_size, "sha256": h.hexdigest()})
+    return out
+
+
+@app.get("/api/launcher/manifest")
+def launcher_manifest():
+    cfg = _launcher_cfg()
+    if not cfg.get("enabled"):
+        raise HTTPException(404, "Launcher is off")
+    env = _parse_env(Path(VH_ENV).read_text().splitlines())
+    st = _mods_state()
+    files = _mod_files()
+    return {"server": {"name": env["name"], "port": env["port"],
+                       "password_required": bool(env["password"]),
+                       "crossplay": env["crossplay"]},
+            "mods": [{"full_name": k, "version": v.get("version"), "name": v.get("name")}
+                     for k, v in sorted(st.get("mods", {}).items())],
+            "profile_code": st.get("profile_code"),
+            "files": files,
+            "bytes": sum(f["size"] for f in files),
+            "background": ("/api/launcher/background?v=%s" % cfg.get("bg_at")) if cfg["background"] else None,
+            "engine": {"repo": LAUNCHER_REPO,
+                       "releases": f"https://api.github.com/repos/{LAUNCHER_REPO}/releases/latest"},
+            "note": cfg.get("note") or None}
+
+
+@app.get("/api/launcher/files/{path:path}")
+def launcher_file(path: str):
+    if not _launcher_cfg().get("enabled"):
+        raise HTTPException(404, "Launcher is off")
+    root = (Path(VH_SERVER) / "BepInEx").resolve()
+    target = (root / path).resolve()
+    # a client asking for ../../etc/shadow gets nothing: the path has to stay under BepInEx
+    if not str(target).startswith(str(root) + "/") or not target.is_file():
+        raise HTTPException(404, "No such file")
+    return Response(target.read_bytes(), media_type="application/octet-stream")
+
+
+@app.get("/api/launcher/background")
+def launcher_background():
+    if not _launcher_cfg().get("enabled") or not VH_LAUNCHER_BG.exists():
+        raise HTTPException(404, "No background")
+    head = VH_LAUNCHER_BG.read_bytes()
+    kind = "image/png" if head[:4] == b"\x89PNG" else (
+        "image/jpeg" if head[:2] == b"\xff\xd8" else "video/mp4")
+    return Response(head, media_type=kind,
+                    headers={"Cache-Control": "public, max-age=604800"})
+
+
+@app.get("/api/valheim/launcher")
+def launcher_get():
+    cfg = _launcher_cfg()
+    cfg["files"] = len(_mod_files())
+    return cfg
+
+
+@app.post("/api/valheim/launcher")
+def launcher_set(body: dict = Body(...)):
+    cfg = _launcher_cfg()
+    if "enabled" in body:
+        cfg["enabled"] = bool(body["enabled"])
+    if "note" in body:
+        cfg["note"] = str(body["note"] or "")[:200]
+    VH_LAUNCHER.write_text(json.dumps({k: cfg[k] for k in ("enabled", "note", "bg_at")}))
+    _log("launcher.config", enabled=cfg["enabled"])
+    return _launcher_cfg()
+
+
+@app.post("/api/valheim/launcher/background")
+async def launcher_bg_upload(data: bytes = Body(...)):
+    if not data or len(data) > 60 * 1024 * 1024:
+        raise HTTPException(400, "Expecting a file under 60 MB")
+    if not (data[:4] == b"\x89PNG" or data[:2] == b"\xff\xd8" or b"ftyp" in data[:32]):
+        raise HTTPException(400, "PNG, JPEG or MP4 only")
+    VH_LAUNCHER_BG.write_bytes(data)
+    cfg = _launcher_cfg()
+    # the launcher caches the background and only refetches when this stamp changes
+    VH_LAUNCHER.write_text(json.dumps({"enabled": cfg["enabled"], "note": cfg.get("note", ""),
+                                       "bg_at": int(time.time())}))
+    _log("launcher.background", bytes=len(data))
+    return _launcher_cfg()
+
+
+@app.delete("/api/valheim/launcher/background")
+def launcher_bg_delete():
+    VH_LAUNCHER_BG.unlink(missing_ok=True)
+    _log("launcher.background_removed")
+    return _launcher_cfg()
+
+
 @app.get("/api/valheim/world/card")
 def world_card(world: str = ""):
     if world and not VH_NAME_RE.match(world):
@@ -2213,6 +2342,9 @@ VH_LINK = Path(f"{VH_DIR}/link.json")
 VH_HEALTH = Path(f"{VH_DIR}/health.json")   # crashes and the last backup verification
 VH_SAY = Path(f"{VH_DIR}/messages.json")   # what the panel has said in game, and when
 VH_LIFE = Path(f"{VH_DIR}/uptime.json")   # availability since this world began
+VH_LAUNCHER = Path(f"{VH_DIR}/launcher.json")
+VH_LAUNCHER_BG = Path(f"{VH_DIR}/launcher-bg")   # image or video the launcher shows
+LAUNCHER_REPO = "PawelSzymanski89/valheim_launcher_proxmox"
 VH_RCON_ENV = f"{VH_DIR}/rcon.env"        # readable by the game user, unlike panel.env
 HEALTH_KEEP = 50
 
@@ -2417,6 +2549,12 @@ def public_status():
                                 "sessions": p.get("sessions", 0), "deaths": p.get("deaths", 0)}
                                for p in ps if p.get("name")),
                               key=lambda x: x["total"], reverse=True)[:20]
+    # launcher for players - only advertised when it is actually switched on
+    lch = _launcher_cfg()
+    if lch.get("enabled"):
+        out["launcher"] = {"repo": lch["repo"],
+                           "releases": f"https://github.com/{lch['repo']}/releases/latest",
+                           "note": lch.get("note") or None}
     if cfg.get("show_mods"):
         out["mods"] = [{"full_name": k, "version": v.get("version"), "name": v.get("name")}
                        for k, v in sorted(st.get("mods", {}).items(),
