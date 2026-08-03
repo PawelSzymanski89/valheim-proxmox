@@ -2001,12 +2001,35 @@ def _github_json(url):
         return json.loads(r.read())
 
 
+def _revoked_ids():
+    """Revocation list, refreshed at most daily and cached on disk. Every failure
+    path returns whatever we last knew - never an empty list, and never an
+    exception: losing the network must not change what this install is licensed
+    for."""
+    cache = Path(f"{VH_DIR}/licence-revoked.json")
+    try:
+        fresh = cache.exists() and time.time() - cache.stat().st_mtime < 86400
+        if not fresh:
+            req = urllib.request.Request(
+                licence_mod.REVOKED_URL,
+                headers={"User-Agent": "valheim-proxmox-panel"})
+            with urllib.request.urlopen(req, timeout=8) as r:
+                data = json.loads(r.read())
+            cache.write_text(json.dumps(data))
+    except Exception:
+        pass
+    try:
+        return list(json.loads(cache.read_text()).get("revoked", []))
+    except Exception:
+        return []
+
+
 @app.get("/api/valheim/licence")
 def licence_get():
     """What this install is licensed for. Nothing here gates anything - the panel
     behaves identically either way; it only stops calling itself noncommercial
     once a key signed by the author is in place."""
-    st = licence_mod.read(VH_LICENCE)
+    st = licence_mod.read(VH_LICENCE, _revoked_ids())
     return {**st, "notice": licence_mod.notice(st)}
 
 
@@ -2020,7 +2043,7 @@ def licence_set(body: dict = Body(...)):
         return {**st, "notice": licence_mod.notice(st)}
     VH_LICENCE.write_text(key)
     VH_LICENCE.chmod(0o600)
-    st = licence_mod.read(VH_LICENCE)
+    st = licence_mod.read(VH_LICENCE, _revoked_ids())
     _log("licence.set", ok=st["licensed"], holder=st.get("holder"),
          id=st.get("id"), problem=st.get("problem"))
     return {**st, "notice": licence_mod.notice(st)}

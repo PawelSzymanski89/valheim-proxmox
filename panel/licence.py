@@ -34,6 +34,13 @@ PUBLIC_KEY_HEX = "821763c2cbf1e26594f5bbed9408acbf6470ad767f7144aaa51ef3b0d97e97
 CONTACT = "pawel@howtodev.it"
 PROJECT_PAGE = "https://pawelszymanski89.github.io/valheim-proxmox/"
 
+# Revoked licences are published as a static file next to the project page, not
+# on the licence server itself - that box is the author's, behind his own network,
+# and a customer's panel has no business reaching it. Fetched at most once a day,
+# cached, and a failure to fetch changes nothing: a licence server (or a GitHub
+# outage) must never turn a paying customer into an unlicensed one.
+REVOKED_URL = "https://pawelszymanski89.github.io/valheim-proxmox/revoked.json"
+
 # ── Ed25519 verification, straight from the reference implementation ──────────
 # Written out here on purpose: a licence check must not force every install to
 # carry a compiled crypto dependency, and this runs perhaps once a day.
