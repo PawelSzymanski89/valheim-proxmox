@@ -20,6 +20,8 @@ import subprocess
 import time
 import unicodedata
 import urllib.request
+
+import icon_badge
 from datetime import datetime
 from pathlib import Path
 
@@ -1925,13 +1927,21 @@ def launcher_download(request: Request, platform: str = ""):
                     continue                       # the placeholder from the build
                 if name == rename[0] or name.startswith(rename[0] + "/"):
                     name = rename[1] + name[len(rename[0]):]
+                blob = src.read(item.filename)
+                # The icon Windows shows in Explorer lives inside the exe, so it
+                # cannot be set at runtime like the window icon - the server's
+                # initials go into the resource here, while the file is ours to
+                # rewrite. macOS is left alone on purpose: editing anything inside
+                # a signed .app breaks its seal.
+                if plat == "windows" and item.filename == "server_launcher.exe":
+                    blob = icon_badge.patch_exe_icon(blob, icon_badge.badge_png(env["name"]))
                 info = zipfile.ZipInfo(name, date_time=item.date_time)
                 # Carry permissions over: the launcher and the macOS bundle's inner
                 # binary have to stay executable, and a plain writestr would drop that.
                 info.external_attr = item.external_attr
                 info.compress_type = zipfile.ZIP_DEFLATED
                 info.create_system = item.create_system
-                dst.writestr(info, src.read(item.filename))
+                dst.writestr(info, blob)
             dst.writestr("panel_config.json", config)
         part.rename(out)
         for old in dist.glob(f"launcher-{plat}-*.zip"):
