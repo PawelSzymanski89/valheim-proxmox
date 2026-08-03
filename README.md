@@ -6,6 +6,8 @@
 
 **Valheim dedicated server in its own LXC, with a web panel to run it.**
 
+**Players get a launcher for Windows, macOS and Linux — with the server's mods working on all three.**
+
 [English](#-english) · [Polski](#-polski) · [Screenshots](#what-it-looks-like) · [Panel](#the-panel) · [Mods](#mods-from-a-share-code)
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-cygan-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/cygan)
@@ -354,6 +356,31 @@ paths carried backslashes, so `plugins\Mod.dll` landed as a single file with a b
 name, and `plugins\Translations\` was not recognised as a directory entry and became an empty
 *file*, which made every real file under it fail. Both are normalised now.
 
+## The launcher players get — Windows, macOS and Linux
+
+The mods a server runs are useless if the players cannot install them, so the panel hands out
+a launcher that does it for them. Give players one address — the **Download** button on the
+public page, or `/api/launcher/download` — and they get a build named after your server, for
+**their own system**: `.exe` on Windows, `.app` on macOS, a plain binary on Linux.
+
+**Mods work on all three.** The launcher finds the game itself (it reads Steam's own
+`libraryfolders.vdf`, so a second disk is no obstacle), downloads exactly the files this
+server ships — each one checked against its `sha256` — removes what the server has dropped,
+installs the mod loader for that platform and starts the game. On Windows that loader is
+`winhttp.dll`, on macOS and Linux it is `run_bepinex.sh` with `libdoorstop`. **On Apple
+Silicon the launcher starts the game through Rosetta on purpose**: the native arm64 process
+loads the loader but never hooks Mono, so mods silently do nothing — one line of difference
+between "72 mods running" and "no mods and no error message".
+
+Verified with a 72-mod pack: 1.5 GB in 466 files, 71 plugins loaded, game up.
+
+Server-only mods stay on the server. Anything matching RCON or admin tooling is unticked by
+default in the **Launcher** tab, and a config file carrying a password never reaches the
+manifest — that mattered here, because a mod config once carried the RCON password.
+
+The launcher updates itself from GitHub releases and keeps its server assignment through the
+update. Engine: [valheim_launcher_proxmox](https://github.com/PawelSzymanski89/valheim_launcher_proxmox).
+
 ## Mod config, without SSH and without breaking it
 
 BepInEx writes one `.cfg` per plugin. The **Mod config** tab reads them and builds a **form**:
@@ -642,6 +669,30 @@ Ten przebieg wyciągnął dwa błędy w rozpakowywaniu, oba z paczek pakowanych 
 ścieżki miały backslashe, więc `plugins\Mod.dll` lądował jako jeden plik z backslashem w nazwie,
 a `plugins\Translations\` nie było rozpoznane jako katalog i powstawał z tego pusty **plik**,
 przez co każdy prawdziwy plik pod nim się wywracał. Oba przypadki są teraz normalizowane.
+
+## Launcher dla graczy — Windows, macOS i Linux
+
+Mody na serwerze są nic niewarte, jeśli gracze nie potrafią ich sobie wgrać, więc panel wydaje
+launcher, który robi to za nich. Dajesz jeden adres — przycisk **Pobierz** na stronie
+publicznej albo `/api/launcher/download` — a gracz dostaje paczkę nazwaną Twoim serwerem, **na
+swój system**: `.exe` na Windowsie, `.app` na macOS, zwykłą binarkę na Linuksie.
+
+**Mody działają na wszystkich trzech.** Launcher sam znajduje grę (czyta `libraryfolders.vdf`
+Steama, więc drugi dysk mu nie przeszkadza), pobiera dokładnie te pliki, które wysyła serwer —
+każdy sprawdzony po `sha256` — usuwa to, czego serwer już nie używa, instaluje loader właściwy
+dla systemu i uruchamia grę. Na Windowsie loaderem jest `winhttp.dll`, na macOS i Linuksie
+`run_bepinex.sh` z `libdoorstop`. **Na Apple Silicon launcher celowo odpala grę przez Rosettę**:
+proces arm64 wczytuje loader, ale nigdy nie zahacza Mono, więc mody po cichu nic nie robią —
+jedna linijka różnicy między „72 mody działają" a „nie ma modów i nie ma komunikatu błędu".
+
+Sprawdzone na packu z 72 modami: 1,5 GB w 466 plikach, 71 pluginów załadowanych, gra wstaje.
+
+Mody serwerowe zostają na serwerze. Wszystko, co pasuje do RCON-a albo narzędzi admina, jest
+domyślnie odznaczone w zakładce **Launcher**, a config z hasłem nigdy nie trafia do manifestu —
+to nie teoria, bo config jednego moda niósł kiedyś hasło RCON.
+
+Launcher aktualizuje się sam z wydań na GitHubie i zachowuje przypisanie do serwera przez
+aktualizację. Silnik: [valheim_launcher_proxmox](https://github.com/PawelSzymanski89/valheim_launcher_proxmox).
 
 ## Konfiguracja modów — bez SSH i bez rozwalania
 
