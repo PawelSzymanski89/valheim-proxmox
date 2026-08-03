@@ -271,6 +271,16 @@ function paint(d){
     document.getElementById("cells").innerHTML=c.join("");
     if(d.note)document.getElementById("note").textContent=d.note;
 
+    // Stopka mówi, na jakich warunkach ta instancja działa. Autor i odnośnik do
+    // licencji zostają zawsze — zmienia się tylko etykieta.
+    if(d.licence){
+      const el=document.getElementById("attrib-lic");
+      if(el) el.textContent = d.licence.licensed
+        ? (PL?("licencja komercyjna — "+d.licence.holder)
+             :("commercial licence — "+d.licence.holder))
+        : (PL?"licencja niekomercyjna":"noncommercial licence");
+    }
+
     if(d.launcher){
       document.getElementById("launcher-box").style.display="";
       const dl=d.launcher.download||d.launcher.releases;

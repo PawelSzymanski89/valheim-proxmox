@@ -475,6 +475,26 @@ running process arguments, world switch/upload/delete, backup restore (checksum 
 before and after), timers, panel port change, login change. The player list and the login
 history are covered by `panel/test_parse.py`, since they need real players joining.
 
+## When memory runs away
+
+Valheim's server grows by a couple of hundred megabytes an hour with nobody playing —
+Unity does not hand memory back — so a long-lived server drifts towards the OOM killer.
+The nightly maintenance window normally deals with it, but a server busy every evening
+would keep deferring, which is what the memory guard is for.
+
+The threshold is **computed, not fixed**, because what a server uses at rest depends
+almost entirely on its mod list: this one rests near 12% bare and at 41% with
+seventy-two mods, reached within four minutes of starting. A single number would either
+loop on the modded install or never fire on the bare one. So it is a **base plus an
+allowance per installed mod** — 45% + 0.5% each by default, both editable in Settings,
+which puts a 72-mod server at 81%.
+
+Three brakes, all of them learned from getting it wrong: only ever an **empty** server,
+only one that has been **up over two hours**, and **at most once every three** — with
+that cooldown kept on disk, so restarting the panel does not quietly reset it. Every
+firing sends a notification with the reading, the threshold and how long the server had
+been up.
+
 ## Commercial licence, and how it is proved
 
 A commercial licence is a **signed key**, not a promise. The key is issued with the

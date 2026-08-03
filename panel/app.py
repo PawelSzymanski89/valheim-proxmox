@@ -2001,6 +2001,20 @@ def _github_json(url):
         return json.loads(r.read())
 
 
+def _mem_limit(cfg=None):
+    """Where memory stops being normal for THIS server. A bare server rests near
+    12%, a seventy-mod one near 41% - one fixed number would either loop on the
+    modded install or never fire on the bare one, so the allowance grows with the
+    mod list. Returns 0 when the guard is switched off."""
+    sched = (cfg or _alerts_cfg())["schedule"]
+    base = float(sched.get("restart_mem_base", 45) or 0)
+    if base <= 0:
+        return 0
+    per = float(sched.get("restart_mem_per_mod", 0.5) or 0)
+    mods = len((_mods_state().get("mods") or {}))
+    return round(min(95.0, base + per * mods), 1)
+
+
 def _revoked_ids():
     """Revocation list, refreshed at most daily and cached on disk. Every failure
     path returns whatever we last knew - never an empty list, and never an
@@ -2712,6 +2726,7 @@ VH_LIFE = Path(f"{VH_DIR}/uptime.json")   # availability since this world began
 VH_LAUNCHER = Path(f"{VH_DIR}/launcher.json")
 VH_LAUNCHER_BG = Path(f"{VH_DIR}/launcher-bg")   # image or video the launcher shows
 LAUNCHER_REPO = "PawelSzymanski89/valheim_launcher_proxmox"
+VH_MEM_GUARD = Path(f"{VH_DIR}/mem-guard.json")  # cooldown that survives a panel restart
 VH_LICENCE = Path(f"{VH_DIR}/licence.key")   # commercial licence, if the operator bought one
 VH_RCON_ENV = f"{VH_DIR}/rcon.env"        # readable by the game user, unlike panel.env
 HEALTH_KEEP = 50
@@ -2772,7 +2787,15 @@ ALERTS_DEFAULT = {
                  # nightly window normally keeps that in check, but a server that
                  # is busy every night would never get restarted, so this is the
                  # floor under it: restart on memory, only ever on an empty server.
-                 "restart_mem_pct": 40},
+                 #
+                 # The threshold cannot be one number, because what a server uses
+                 # at rest depends almost entirely on how many mods it loads: this
+                 # one sits near 12% bare and at 41% with seventy-two, reached
+                 # within minutes of starting. So it is computed - a base for the
+                 # game itself plus an allowance per installed mod - and only the
+                 # slow climb above that counts as memory running away.
+                 # A base of 0 turns the whole thing off.
+                 "restart_mem_base": 45, "restart_mem_per_mod": 0.5},
 }
 
 
@@ -2923,6 +2946,12 @@ def public_status():
                                 "sessions": p.get("sessions", 0), "deaths": p.get("deaths", 0)}
                                for p in ps if p.get("name")),
                               key=lambda x: x["total"], reverse=True)[:20]
+    # How this install is licensed. Public on purpose: on a paid instance the
+    # holder's name belongs where players can see it, and on a free one the page
+    # says so plainly - which is the whole point of the noncommercial licence.
+    _lic = licence_mod.read(VH_LICENCE, _revoked_ids())
+    out["licence"] = {"licensed": _lic["licensed"], "holder": _lic["holder"]}
+
     # launcher for players - only advertised when it is actually switched on
     lch = _launcher_cfg()
     if lch.get("enabled"):
@@ -2996,6 +3025,10 @@ def alerts_get():
     cfg["subscribe_url"] = f"{cfg['ntfy']['server']}/{cfg['ntfy']['topic']}"
     cfg["ntfy"]["token"] = "***" if cfg["ntfy"].get("token") else ""     # never echoed back
     cfg["labels"] = ALERT_EVENTS
+    # Wyliczony próg pamięci — admin ma zobaczyć konkretną liczbę dla SWOJEGO
+    # serwera, a nie samemu mnożyć bazę przez liczbę modów.
+    cfg["mem_limit"] = _mem_limit(cfg)
+    cfg["mem_mods"] = len((_mods_state().get("mods") or {}))
     return cfg
 
 
@@ -3036,11 +3069,14 @@ def alerts_set(body: dict = Body(...)):
     for k in ("defer_minutes", "disk_warn_gb", "link_minutes", "link_speed_hours"):
         if k in s:
             cfg["schedule"][k] = max(1, min(720, int(s[k])))
-    if "restart_mem_pct" in s:
-        # 0 turns it off; below 20 the server would restart itself constantly, and
-        # above 90 the kernel gets there first.
-        v = int(s["restart_mem_pct"] or 0)
-        cfg["schedule"]["restart_mem_pct"] = 0 if v <= 0 else max(20, min(90, v))
+    if "restart_mem_base" in s:
+        # 0 switches the guard off. The floor of 20 exists because anything lower
+        # is below what the game uses with no mods at all.
+        v = float(s["restart_mem_base"] or 0)
+        cfg["schedule"]["restart_mem_base"] = 0 if v <= 0 else max(20.0, min(95.0, v))
+    if "restart_mem_per_mod" in s:
+        cfg["schedule"]["restart_mem_per_mod"] = max(
+            0.0, min(3.0, float(s["restart_mem_per_mod"] or 0)))
     VH_ALERTS.write_text(json.dumps(cfg, indent=1))
     _log("alerts.save", topic=env.get("NTFY_TOPIC") or None, enabled=cfg["enabled"],
          on=[k for k, v in cfg["events"].items() if v], schedule=cfg["schedule"])
@@ -3386,19 +3422,33 @@ def _tick():
         except Exception:
             pass
 
-    # memory safety net - see restart_mem_pct in ALERTS_DEFAULT for why it exists.
+    # memory safety net - see restart_mem_base in ALERTS_DEFAULT for why it exists.
     # Never touches a server with people on it: growing memory is a slow problem and
     # kicking players out of a raid is a fast one.
-    mem_pct = cfg["schedule"].get("restart_mem_pct", 0)
+    mem_pct = _mem_limit(cfg)
     if mem_pct and LIVE["mem"] is not None and LIVE["mem"] >= mem_pct and not now_on:
-        # One restart per hour at most: right after a restart the reading falls, but
-        # if it did not, this would otherwise loop.
-        if now - WATCH.get("mem_restart_at", 0) > 3600:
-            WATCH["mem_restart_at"] = now
-            _notify("maintenance", "Restart on memory",
-                    f"Memory at {LIVE['mem']}% with nobody playing - restarting.",
+        # Two brakes, both learned the hard way. The server must have been up for
+        # a while: a fresh one climbs to its resting level in minutes, and without
+        # this it would restart into the same reading over and over. And the
+        # cooldown lives on disk, because it used to live in memory - where a panel
+        # restart wiped it and the "one per hour" rule quietly stopped applying.
+        started = _sh('date -d "$(systemctl show valheim -p ActiveEnterTimestamp '
+                     '--value)" +%s 2>/dev/null || echo 0').stdout.strip()
+        up_for = now - int(started) if started.isdigit() and int(started) else 0
+        last = 0
+        try:
+            last = int(json.loads(VH_MEM_GUARD.read_text()).get("last", 0))
+        except Exception:
+            pass
+        if up_for > 2 * 3600 and now - last > 3 * 3600:
+            VH_MEM_GUARD.write_text(json.dumps({"last": now, "mem": LIVE["mem"]}))
+            _notify("maintenance", "Restart na pamięci",
+                    f"Pamięć {LIVE['mem']}% przy progu {mem_pct}% "
+                    f"({len((_mods_state().get('mods') or {}))} modów), nikt nie grał, "
+                    f"serwer działał {round(up_for / 3600, 1)} h — restartuję.",
                     tags="repeat")
-            _log("maintenance.restart_mem", mem=LIVE["mem"], limit=mem_pct)
+            _log("maintenance.restart_mem", mem=LIVE["mem"], limit=mem_pct,
+                 up_hours=round(up_for / 3600, 1))
             _sh("systemctl restart valheim", timeout=180)
 
     # maintenance window
