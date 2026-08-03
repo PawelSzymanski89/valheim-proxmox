@@ -488,9 +488,11 @@ so that "we have a licence" is a checkable claim rather than a sentence. A forge
 edited key fails verification, an expired one stops counting, and a revoked one is listed
 at the author's licence server.
 
-What a commercial licence gets you beyond the right to use it: **signed builds** —
-Authenticode on Windows and a notarised `.app` on macOS, so your players stop seeing
-"unknown publisher" warnings — plus support and a say in what gets built next.
+Beyond the right to use it, a commercial licence comes with support and a say in what
+gets built next. **Signed builds** — Authenticode on Windows, a notarised `.app` on
+macOS, so players stop seeing "unknown publisher" warnings — are available on request:
+the release pipeline already does it, the certificates get bought for the deal that
+needs them.
 
 Write to **pawel@howtodev.it**, or see the [project page](https://pawelszymanski89.github.io/valheim-proxmox/).
 
