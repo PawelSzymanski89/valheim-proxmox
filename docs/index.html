@@ -51,6 +51,18 @@
   .shots{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));margin-top:8px}
   .shots img{width:100%;border:1px solid var(--line);border-radius:4px;display:block}
   .muted{color:var(--ink2);font-size:14px}
+  /* Trzy systemy — to jest pierwsza rzecz, o ktora pyta kazdy, kto rozwaza
+     postawienie serwera dla znajomych na roznych maszynach. */
+  .os{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin:26px auto 0;max-width:640px}
+  .os div{flex:1 1 170px;display:flex;flex-direction:column;align-items:center;gap:8px;
+    padding:18px 12px;border:1px solid var(--gold);border-radius:6px;
+    background:linear-gradient(180deg,rgba(201,162,39,.12),rgba(201,162,39,.04))}
+  .os svg{width:34px;height:34px;color:var(--gold2)}
+  .os b{font-size:17px;color:var(--ink);letter-spacing:.02em}
+  .os span{font-size:12px;color:var(--gold2);text-transform:uppercase;letter-spacing:.08em}
+  .banner{margin:22px auto 0;max-width:660px;padding:14px 18px;border-radius:6px;
+    border:1px solid var(--gold);background:rgba(201,162,39,.10);
+    color:var(--ink);font-size:clamp(16px,2.3vw,20px);line-height:1.45}
   footer{margin-top:56px;padding:26px 0 44px;border-top:1px solid var(--line);
     text-align:center;color:var(--ink2);font-size:14px}
 </style>
@@ -68,9 +80,23 @@
     <p class="sub"
        data-pl="Serwer Valheima w kontenerze na Proxmoxie — z panelem w przeglądarce, modami z kodu profilu, kopiami co dwie godziny i launcherem, który graczom wszystko poukłada sam."
        data-en="A Valheim dedicated server in its own container on Proxmox — with a web panel, mods from a share code, backups every two hours, and a launcher that sorts everything out for your players."></p>
-    <p class="sub" style="margin-top:14px;color:var(--gold2)"
-       data-pl="<strong>Mody działają na Windowsie, macOS i Linuksie</strong> — gracz klika jeden przycisk, launcher robi resztę."
-       data-en="<strong>Mods work on Windows, macOS and Linux</strong> — the player clicks once, the launcher does the rest."></p>
+    <div class="os">
+      <div>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5.5l7.5-1v7H3v-6zM11.5 4.3L21 3v8.5h-9.5v-7.2zM3 12.5h7.5v7L3 18.5v-6zM11.5 12.5H21V21l-9.5-1.3v-7.2z"/></svg>
+        <b>Windows</b><span data-pl="mody działają" data-en="mods work"></span>
+      </div>
+      <div>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16.4 12.6c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.8-3-.8-1.5 0-2.9.9-3.7 2.3-1.6 2.7-.4 6.8 1.1 9 .8 1.1 1.7 2.3 2.9 2.2 1.2 0 1.6-.7 3-.7 1.4 0 1.8.7 3 .7 1.2 0 2-1.1 2.8-2.2.9-1.2 1.2-2.5 1.2-2.5s-2.4-.9-2.4-3.6zM14.2 5.4c.6-.8 1-1.9.9-3-.9 0-2 .6-2.7 1.4-.6.7-1.1 1.8-.9 2.9 1 .1 2-.5 2.7-1.3z"/></svg>
+        <b>macOS</b><span data-pl="mody działają" data-en="mods work"></span>
+      </div>
+      <div>
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c-2 0-3.2 1.6-3.2 3.6 0 1.3.2 2-.3 2.9-.7 1.2-1.8 2.4-2.4 4C5.6 13.7 5 15 4.4 16c-.5.9-.2 1.9.7 2 .7.1 1.3.5 1.7 1 .5.6 1.3.8 2 .4.6-.3 1.4-.4 2.2-.4h2c.8 0 1.6.1 2.2.4.7.4 1.5.2 2-.4.4-.5 1-.9 1.7-1 .9-.1 1.2-1.1.7-2-.6-1-1.2-2.3-1.7-3.5-.6-1.6-1.7-2.8-2.4-4-.5-.9-.3-1.6-.3-2.9C15.2 3.6 14 2 12 2zm-1.4 3.1c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9zm2.8 0c.4 0 .7.4.7.9s-.3.9-.7.9-.7-.4-.7-.9.3-.9.7-.9zM12 8.2c.9 0 1.9.5 1.9 1s-1 .8-1.9.8-1.9-.3-1.9-.8 1-1 1.9-1z"/></svg>
+        <b>Linux</b><span data-pl="mody działają" data-en="mods work"></span>
+      </div>
+    </div>
+    <p class="banner"
+       data-pl="Launcher dla graczy działa na <strong>wszystkich trzech systemach</strong> — i na każdym z nich <strong>mody serwera faktycznie się wgrywają</strong>. Gracz klika raz, reszta dzieje się sama."
+       data-en="The player's launcher runs on <strong>all three systems</strong> — and on every one of them <strong>the server's mods actually install</strong>. One click, the rest happens by itself."></p>
     <div class="cta">
       <a class="btn" href="https://github.com/PawelSzymanski89/valheim-proxmox"
          data-pl="Kod i instalacja" data-en="Code and install"></a>
@@ -116,13 +142,35 @@
     </div>
   </div>
 
+  <h2 data-pl="Launcher — Windows, macOS, Linux" data-en="The launcher — Windows, macOS, Linux"></h2>
+  <p data-pl="Gracz dostaje jeden adres i pobiera paczkę pod swój system. Launcher sam znajduje grę w bibliotece Steama, pobiera <strong>dokładnie te mody, które ma serwer</strong> — każdy plik sprawdzony sumą kontrolną — usuwa te, których serwer już nie używa, instaluje loader właściwy dla systemu i uruchamia grę."
+     data-en="Players get one address and download the build for their system. The launcher finds the game in the Steam library, downloads <strong>exactly the mods the server runs</strong> — every file checked against its checksum — removes what the server dropped, installs the loader for that platform and starts the game."></p>
+  <table>
+    <tr>
+      <th data-pl="System" data-en="System"></th>
+      <th data-pl="Co pobiera gracz" data-en="What the player downloads"></th>
+      <th data-pl="Mody" data-en="Mods"></th>
+    </tr>
+    <tr><td><b>Windows</b></td><td><code>Nazwa Launcher.exe</code></td>
+        <td data-pl="działają" data-en="work"></td></tr>
+    <tr><td><b>macOS</b></td><td><code>Nazwa Launcher.app</code></td>
+        <td data-pl="działają — także na Apple Silicon" data-en="work — including Apple Silicon"></td></tr>
+    <tr><td><b>Linux</b></td><td><code>Nazwa Launcher</code></td>
+        <td data-pl="działają" data-en="work"></td></tr>
+  </table>
+  <p class="muted" style="margin-top:12px"
+     data-pl="Sprawdzone na packu z 72 modami: 1,5 GB w 466 plikach, 71 wtyczek załadowanych, gra wstaje z modami. Launcher aktualizuje się sam."
+     data-en="Verified with a 72-mod pack: 1.5 GB in 466 files, 71 plugins loaded, the game starts modded. The launcher updates itself."></p>
+  <div class="shots" style="margin-top:14px">
+    <img src="launcher.png" alt="The launcher after syncing the server's mods">
+  </div>
+
   <h2 data-pl="Jak to wygląda" data-en="How it looks"></h2>
   <div class="shots">
     <img src="summary.png" alt="Panel — summary">
     <img src="mods.png" alt="Panel — installing mods from a share code">
     <img src="public.png" alt="The public page">
     <img src="settings.png" alt="Panel — world settings">
-    <img src="launcher.png" alt="The player's launcher after a mod sync">
   </div>
 
   <h2 id="licencja" data-pl="Licencja" data-en="Licence"></h2>
