@@ -475,6 +475,25 @@ running process arguments, world switch/upload/delete, backup restore (checksum 
 before and after), timers, panel port change, login change. The player list and the login
 history are covered by `panel/test_parse.py`, since they need real players joining.
 
+## Commercial licence, and how it is proved
+
+A commercial licence is a **signed key**, not a promise. The key is issued with the
+author's private key (Ed25519) and verified by the panel offline — no activation call,
+no phone-home, and a panel with no internet checks it just the same. Paste it in the
+**Launcher** tab; the panel then names the licence holder instead of calling the install
+noncommercial.
+
+**Nothing is blocked either way.** An unlicensed panel runs identically — the key exists
+so that "we have a licence" is a checkable claim rather than a sentence. A forged or
+edited key fails verification, an expired one stops counting, and a revoked one is listed
+at the author's licence server.
+
+What a commercial licence gets you beyond the right to use it: **signed builds** —
+Authenticode on Windows and a notarised `.app` on macOS, so your players stop seeing
+"unknown publisher" warnings — plus support and a say in what gets built next.
+
+Write to **pawel@howtodev.it**, or see the [project page](https://pawelszymanski89.github.io/valheim-proxmox/).
+
 ## License
 
 **PolyForm Noncommercial 1.0.0** — see [LICENSE](LICENSE). Playing, and running your own
