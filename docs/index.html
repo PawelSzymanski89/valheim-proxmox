@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>valheim-proxmox — serwer Valheima z panelem i launcherem</title>
-<meta name="description" content="Serwer Valheima w LXC na Proxmoxie: panel WWW, mody z kodu profilu, kopie, alerty i launcher dla graczy na Windows, macOS i Linux. Darmowe do użytku niekomercyjnego.">
+<meta name="description" content="Valheim dedicated server in an LXC on Proxmox: web panel, mods from a share code, backups, alerts and a player launcher for Windows, macOS and Linux. Free for noncommercial use.">
 <link rel="icon" href="icon.svg">
 <style>
   :root{
@@ -16,7 +16,7 @@
     font:16px/1.65 "Iowan Old Style","Palatino Linotype",Georgia,serif}
   a{color:var(--gold2)}
   .wrap{max-width:960px;margin:0 auto;padding:0 20px}
-  header{padding:64px 0 40px;text-align:center;
+  header{padding:64px 0 40px;text-align:center;position:relative;
     background:radial-gradient(120% 80% at 50% 0,rgba(201,162,39,.10),transparent 60%);
     border-bottom:1px solid var(--line)}
   header img{width:76px;height:76px}
@@ -26,6 +26,13 @@
   .btn{display:inline-block;padding:11px 20px;border-radius:4px;text-decoration:none;
     border:1px solid var(--gold);color:var(--gold2);background:rgba(201,162,39,.07)}
   .btn.plain{border-color:var(--line);color:var(--ink2);background:transparent}
+  .btn:hover{background:rgba(201,162,39,.16)}
+  /* Przełącznik języka — mały, w rogu, żeby nie konkurował z treścią. */
+  .lang{position:absolute;top:16px;right:20px;display:flex;gap:6px}
+  .lang button{font:13px/1 inherit;padding:6px 10px;border-radius:3px;cursor:pointer;
+    background:transparent;border:1px solid var(--line);color:var(--ink2)}
+  .lang button[aria-pressed="true"]{border-color:var(--gold);color:var(--gold2);
+    background:rgba(201,162,39,.08)}
   h2{font-size:24px;margin:44px 0 14px;color:var(--gold2)}
   h3{font-size:17px;margin:22px 0 6px}
   .grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
@@ -46,115 +53,119 @@
   .muted{color:var(--ink2);font-size:14px}
   footer{margin-top:56px;padding:26px 0 44px;border-top:1px solid var(--line);
     text-align:center;color:var(--ink2);font-size:14px}
-  @media (prefers-reduced-motion:no-preference){.btn{transition:background .15s}}
-  .btn:hover{background:rgba(201,162,39,.16)}
 </style>
 </head>
 <body>
 
 <header>
+  <div class="lang">
+    <button id="b-pl" onclick="setLang('pl')">Polski</button>
+    <button id="b-en" onclick="setLang('en')">English</button>
+  </div>
   <div class="wrap">
     <img src="icon.svg" alt="">
     <h1>valheim-proxmox</h1>
-    <p class="sub">Serwer Valheima w kontenerze na Proxmoxie — z panelem w przeglądarce,
-      modami z kodu profilu, kopiami co dwie godziny i launcherem, który graczom
-      wszystko poukłada sam.</p>
-    <p class="sub" style="margin-top:14px;color:var(--gold2)">
-      <strong>Mody działają na Windowsie, macOS i Linuksie</strong> — gracz klika jeden
-      przycisk, launcher robi resztę.</p>
+    <p class="sub"
+       data-pl="Serwer Valheima w kontenerze na Proxmoxie — z panelem w przeglądarce, modami z kodu profilu, kopiami co dwie godziny i launcherem, który graczom wszystko poukłada sam."
+       data-en="A Valheim dedicated server in its own container on Proxmox — with a web panel, mods from a share code, backups every two hours, and a launcher that sorts everything out for your players."></p>
+    <p class="sub" style="margin-top:14px;color:var(--gold2)"
+       data-pl="<strong>Mody działają na Windowsie, macOS i Linuksie</strong> — gracz klika jeden przycisk, launcher robi resztę."
+       data-en="<strong>Mods work on Windows, macOS and Linux</strong> — the player clicks once, the launcher does the rest."></p>
     <div class="cta">
-      <a class="btn" href="https://github.com/PawelSzymanski89/valheim-proxmox">Kod i instalacja</a>
-      <a class="btn plain" href="#licencja">Licencja komercyjna</a>
+      <a class="btn" href="https://github.com/PawelSzymanski89/valheim-proxmox"
+         data-pl="Kod i instalacja" data-en="Code and install"></a>
+      <a class="btn plain" href="#licencja"
+         data-pl="Licencja komercyjna" data-en="Commercial licence"></a>
     </div>
   </div>
 </header>
 
 <div class="wrap">
 
-  <h2>Co dostajesz</h2>
+  <h2 data-pl="Co dostajesz" data-en="What you get"></h2>
   <div class="grid">
     <div class="card">
-      <h3>Instalacja jedną komendą</h3>
-      <p>Skrypt buduje kontener LXC na Proxmoxie albo instaluje się w gotowym
-         Debianie. Na końcu wypisuje adres, login i hasło do gry.</p>
+      <h3 data-pl="Instalacja jedną komendą" data-en="One command to install"></h3>
+      <p data-pl="Skrypt buduje kontener LXC na Proxmoxie albo instaluje się w gotowym Debianie. Na końcu wypisuje adres, login i hasło do gry."
+         data-en="The script builds an LXC on a Proxmox host, or installs into a Debian you already have. It ends by printing the address, the login and the game password."></p>
     </div>
     <div class="card">
-      <h3>Panel w przeglądarce</h3>
-      <p>Start, stop, świat, gracze, bany, ustawienia, kopie, mody i log —
-         każda akcja zapisana, własne logowanie z blokadą po nieudanych próbach.</p>
+      <h3 data-pl="Panel w przeglądarce" data-en="A panel in the browser"></h3>
+      <p data-pl="Start, stop, świat, gracze, bany, ustawienia, kopie, mody i log — każda akcja zapisana, własne logowanie z blokadą po nieudanych próbach."
+         data-en="Start, stop, worlds, players, bans, settings, backups, mods and the log — every action recorded, with its own login and a lockout after failed attempts."></p>
     </div>
     <div class="card">
-      <h3>Mody z kodu profilu</h3>
-      <p>Wklejasz kod z Thunderstore Mod Managera, panel rozwija go i instaluje
-         dokładnie te wersje, które mają gracze.</p>
+      <h3 data-pl="Mody z kodu profilu" data-en="Mods from a share code"></h3>
+      <p data-pl="Wklejasz kod z Thunderstore Mod Managera, panel rozwija go i instaluje dokładnie te wersje, które mają gracze."
+         data-en="Paste a code from Thunderstore Mod Manager; the panel expands it and installs exactly the versions your players already run."></p>
     </div>
     <div class="card">
-      <h3>Launcher dla graczy — trzy systemy</h3>
-      <p><strong>Windows, macOS i Linux</strong>, każdy z działającymi modami. Sam znajduje
-         grę w bibliotece Steama, pobiera mody serwera z kontrolą sum, usuwa zbędne,
-         aktualizuje się z GitHuba i wchodzi na serwer jednym przyciskiem. Sprawdzone na
-         packu z 72 modami.</p>
+      <h3 data-pl="Launcher dla graczy — trzy systemy" data-en="A launcher for players — three systems"></h3>
+      <p data-pl="<strong>Windows, macOS i Linux</strong>, każdy z działającymi modami. Sam znajduje grę w bibliotece Steama, pobiera mody serwera z kontrolą sum, usuwa zbędne, aktualizuje się z GitHuba i wchodzi na serwer jednym przyciskiem. Sprawdzone na packu z 72 modami."
+         data-en="<strong>Windows, macOS and Linux</strong>, with mods working on all three. It finds the game in the Steam library, downloads the server's mods with checksums, removes what the server dropped, updates itself from GitHub and joins with one button. Verified with a 72-mod pack."></p>
     </div>
     <div class="card">
-      <h3>Kopie, które się sprawdza</h3>
-      <p>Co dwie godziny, trzydzieści sztuk, świat zapisywany przed spakowaniem,
-         a raz dziennie archiwum jest otwierane i czytane na dowód, że da się je odtworzyć.</p>
+      <h3 data-pl="Kopie, które się sprawdza" data-en="Backups that get verified"></h3>
+      <p data-pl="Co dwie godziny, trzydzieści sztuk, świat zapisywany przed spakowaniem, a raz dziennie archiwum jest otwierane i czytane na dowód, że da się je odtworzyć."
+         data-en="Every two hours, thirty kept, the world saved before packing — and once a day the newest archive is opened and read through, as proof it can actually be restored."></p>
     </div>
     <div class="card">
-      <h3>Alerty na telefon</h3>
-      <p>Pad serwera z podaniem przyczyny, wejście gracza, brak miejsca, nieudana
-         kopia, aktualizacja gry — przez ntfy, bez zakładania konta.</p>
+      <h3 data-pl="Alerty na telefon" data-en="Alerts on your phone"></h3>
+      <p data-pl="Pad serwera z podaniem przyczyny, wejście gracza, brak miejsca, nieudana kopia, aktualizacja gry — przez ntfy, bez zakładania konta."
+         data-en="The server going down and why, a player joining, disk filling up, a failed backup, a game update — over ntfy, no account needed."></p>
     </div>
   </div>
 
-  <h2>Jak to wygląda</h2>
+  <h2 data-pl="Jak to wygląda" data-en="How it looks"></h2>
   <div class="shots">
-    <img src="summary.png" alt="Panel — podsumowanie serwera">
-    <img src="mods.png" alt="Panel — instalacja modów z kodu profilu">
-    <img src="public.png" alt="Strona publiczna serwera">
-    <img src="settings.png" alt="Panel — ustawienia świata">
-    <img src="launcher.png" alt="Launcher gracza po pobraniu modów serwera">
+    <img src="summary.png" alt="Panel — summary">
+    <img src="mods.png" alt="Panel — installing mods from a share code">
+    <img src="public.png" alt="The public page">
+    <img src="settings.png" alt="Panel — world settings">
+    <img src="launcher.png" alt="The player's launcher after a mod sync">
   </div>
 
-  <h2 id="licencja">Licencja</h2>
-  <p>Projekt jest udostępniony na <strong>PolyForm Noncommercial 1.0.0</strong>.
-     Krótko, bez prawniczego żargonu:</p>
+  <h2 id="licencja" data-pl="Licencja" data-en="Licence"></h2>
+  <p data-pl="Projekt jest udostępniony na <strong>PolyForm Noncommercial 1.0.0</strong>. Krótko, bez prawniczego żargonu:"
+     data-en="Published under <strong>PolyForm Noncommercial 1.0.0</strong>. In plain words:"></p>
 
   <table>
-    <tr><th style="width:52%">Do czego wolno bez pytania i bez opłat</th>
-        <th>Na co potrzebna jest licencja komercyjna</th></tr>
     <tr>
-      <td>Własny serwer dla siebie i znajomych. Klan, społeczność, serwer, na
-          którym nikt nie płaci za wstęp. Nauka, badania, testy, majsterkowanie
-          w domowej serwerowni. Zmiany w kodzie na własny użytek.</td>
-      <td>Hosting Valheima za pieniądze — i to niezależnie od tego, czy klient
-          płaci za sam serwer, czy za pakiet z panelem. Sprzedawanie panelu albo
-          launchera, także jako części większej usługi. Używanie tego wewnątrz
-          firmy do jej działalności.</td>
+      <th style="width:52%" data-pl="Do czego wolno bez pytania i bez opłat"
+          data-en="Free, and no need to ask"></th>
+      <th data-pl="Na co potrzebna jest licencja komercyjna"
+          data-en="Needs a commercial licence"></th>
+    </tr>
+    <tr>
+      <td data-pl="Własny serwer dla siebie i znajomych. Klan, społeczność, serwer, na którym nikt nie płaci za wstęp. Nauka, badania, testy, majsterkowanie w domowej serwerowni. Zmiany w kodzie na własny użytek."
+          data-en="Your own server, for you and your friends. A clan, a community, any server nobody pays to join. Study, research, testing, tinkering in a home lab. Changing the code for your own use."></td>
+      <td data-pl="Hosting Valheima za pieniądze — i to niezależnie od tego, czy klient płaci za sam serwer, czy za pakiet z panelem. Sprzedawanie panelu albo launchera, także jako części większej usługi. Używanie tego wewnątrz firmy do jej działalności."
+          data-en="Hosting Valheim for money — whether the customer pays for the server alone or for a package with the panel. Selling the panel or the launcher, including as part of a larger service. Using it inside a business for that business."></td>
     </tr>
   </table>
 
   <div class="price">
-    <p><strong>Chcesz użyć komercyjnie?</strong> Cenę ustalam indywidualnie —
-       zależy od skali, tego, czy potrzebujesz wsparcia i czy ma być z Twoim
-       oznaczeniem. Napisz, co planujesz, a odpiszę z konkretną propozycją.</p>
+    <p data-pl="<strong>Chcesz użyć komercyjnie?</strong> Cenę ustalam indywidualnie — zależy od skali, tego, czy potrzebujesz wsparcia i czy ma być z Twoim oznaczeniem. Napisz, co planujesz, a odpiszę z konkretną propozycją."
+       data-en="<strong>Want to use it commercially?</strong> Pricing is per case — it depends on scale, whether you need support, and whether it should carry your branding. Tell me what you are planning and you will get a concrete offer."></p>
     <p style="margin-bottom:0">
-      <a class="btn" href="mailto:pawel@howtodev.it?subject=Licencja%20komercyjna%20valheim-proxmox">pawel@howtodev.it</a>
+      <a class="btn" href="mailto:pawel@howtodev.it?subject=Commercial%20licence%20valheim-proxmox">pawel@howtodev.it</a>
       <a class="btn plain" href="https://www.linkedin.com/in/pszym89/">LinkedIn</a>
-      <a class="btn plain" href="https://github.com/PawelSzymanski89/valheim-proxmox/issues">Pytania techniczne</a>
+      <a class="btn plain" href="https://github.com/PawelSzymanski89/valheim-proxmox/issues"
+         data-pl="Pytania techniczne" data-en="Technical questions"></a>
     </p>
   </div>
 
-  <p class="muted">Kod sprzed zmiany licencji pozostaje na dawnych warunkach —
-     licencja nie działa wstecz. Składniki innych autorów (BepInEx, UnityDoorstop,
-     Flutter i biblioteki) mają własne licencje.</p>
+  <p class="muted"
+     data-pl="Kod sprzed zmiany licencji pozostaje na dawnych warunkach — licencja nie działa wstecz. Składniki innych autorów (BepInEx, UnityDoorstop, Flutter i biblioteki) mają własne licencje."
+     data-en="Code released before the licence changed stays on the old terms — this does not apply retroactively. Third-party components (BepInEx, UnityDoorstop, Flutter and its packages) keep their own licences."></p>
 
-  <h2>Zacznij</h2>
-  <p>Na hoście Proxmox VE, jako root — skrypt zbuduje kontener i wypisze dane dostępowe:</p>
+  <h2 data-pl="Zacznij" data-en="Get started"></h2>
+  <p data-pl="Na hoście Proxmox VE, jako root — skrypt zbuduje kontener i wypisze dane dostępowe:"
+     data-en="On a Proxmox VE host, as root — the script builds the container and prints how to reach it:"></p>
   <p><code>bash -c "$(curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/install.sh)"</code></p>
-  <p class="muted">Nie masz Proxmoxa? Ten sam projekt instaluje się w dowolnym
-     Debianie 12/13 skryptem <code>setup.sh</code>. Szczegóły, wymagania i opis
-     wszystkich funkcji są w <a href="https://github.com/PawelSzymanski89/valheim-proxmox">README na GitHubie</a>.</p>
+  <p class="muted"
+     data-pl="Nie masz Proxmoxa? Ten sam projekt instaluje się w dowolnym Debianie 12/13 skryptem <code>setup.sh</code>. Szczegóły, wymagania i opis wszystkich funkcji są w <a href='https://github.com/PawelSzymanski89/valheim-proxmox'>README na GitHubie</a>."
+     data-en="No Proxmox? The same project installs into any Debian 12/13 with <code>setup.sh</code>. Details, requirements and the full feature list are in the <a href='https://github.com/PawelSzymanski89/valheim-proxmox'>README on GitHub</a>."></p>
 
 </div>
 
@@ -164,11 +175,33 @@
     <a href="mailto:pawel@howtodev.it">pawel@howtodev.it</a> ·
     <a href="https://github.com/PawelSzymanski89/valheim-proxmox">GitHub</a> ·
     <a href="https://github.com/PawelSzymanski89/valheim-proxmox/blob/main/LICENSE">PolyForm Noncommercial</a> ·
-    <a href="https://buymeacoffee.com/cygan">☕ Postaw kawę</a>
-    <div style="margin-top:10px">Valheim® jest znakiem towarowym Iron Gate AB.
-      To niezależne, nieoficjalne narzędzie.</div>
+    <a href="https://buymeacoffee.com/cygan" data-pl="☕ Postaw kawę" data-en="☕ Buy me a coffee"></a>
+    <div style="margin-top:10px"
+         data-pl="Valheim® jest znakiem towarowym Iron Gate AB. To niezależne, nieoficjalne narzędzie."
+         data-en="Valheim® is a trademark of Iron Gate AB. This is an independent, unofficial tool."></div>
   </div>
 </footer>
+
+<script>
+// Obie wersje siedzą w atrybutach elementów, więc nie ma dwóch kopii strony do
+// utrzymania ani przeskoku treści przy przełączeniu. Wybór pamiętany, a domyślny
+// bierze się z języka przeglądarki — Polak trafia na polski, reszta świata na
+// angielski, bez klikania.
+function setLang(lang){
+  document.documentElement.lang = lang;
+  document.querySelectorAll('[data-pl]').forEach(el => {
+    const v = el.dataset[lang];
+    if (v !== undefined) el.innerHTML = v;
+  });
+  document.getElementById('b-pl').setAttribute('aria-pressed', lang === 'pl');
+  document.getElementById('b-en').setAttribute('aria-pressed', lang === 'en');
+  try { localStorage.setItem('vp_lang', lang); } catch (e) {}
+}
+setLang((() => {
+  try { const s = localStorage.getItem('vp_lang'); if (s) return s; } catch (e) {}
+  return (navigator.language || 'en').toLowerCase().startsWith('pl') ? 'pl' : 'en';
+})());
+</script>
 
 </body>
 </html>
