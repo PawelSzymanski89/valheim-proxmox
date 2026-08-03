@@ -374,6 +374,8 @@ between "72 mods running" and "no mods and no error message".
 
 Verified with a 72-mod pack: 1.5 GB in 466 files, 71 plugins loaded, game up.
 
+![The launcher after a mod sync](docs/launcher.png)
+
 Server-only mods stay on the server. Anything matching RCON or admin tooling is unticked by
 default in the **Launcher** tab, and a config file carrying a password never reaches the
 manifest — that mattered here, because a mod config once carried the RCON password.
@@ -686,6 +688,8 @@ proces arm64 wczytuje loader, ale nigdy nie zahacza Mono, więc mody po cichu ni
 jedna linijka różnicy między „72 mody działają" a „nie ma modów i nie ma komunikatu błędu".
 
 Sprawdzone na packu z 72 modami: 1,5 GB w 466 plikach, 71 pluginów załadowanych, gra wstaje.
+
+![Launcher po synchronizacji modów](docs/launcher.png)
 
 Mody serwerowe zostają na serwerze. Wszystko, co pasuje do RCON-a albo narzędzi admina, jest
 domyślnie odznaczone w zakładce **Launcher**, a config z hasłem nigdy nie trafia do manifestu —
