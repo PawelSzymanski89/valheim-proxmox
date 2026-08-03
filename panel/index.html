@@ -523,7 +523,7 @@
   <div class="attrib">
     <a href="https://github.com/PawelSzymanski89/valheim-proxmox" target="_blank" rel="noopener">valheim-proxmox</a>
     <span class="sep">·</span>© 2026 Paweł Szymański<span class="sep">·</span>
-    <a href="https://github.com/PawelSzymanski89/valheim-proxmox/blob/main/LICENSE" target="_blank" rel="noopener">PolyForm NC</a>
+    <a href="https://github.com/PawelSzymanski89/valheim-proxmox/blob/main/LICENSE" target="_blank" rel="noopener" id="attrib-lic">PolyForm NC</a>
   </div>
 </div>
 
@@ -1131,10 +1131,20 @@ async function vhLicence(){
   try{
     const d=await jf("/api/valheim/licence");
     const el=$("lic-state");
-    el.textContent=d.notice;
-    el.style.color = d.licensed ? "var(--gold2)" : (d.problem ? "var(--bad,#c86)" : "");
+    if(el){
+      el.textContent=d.notice;
+      el.style.color = d.licensed ? "var(--gold2)" : (d.problem ? "var(--bad,#c86)" : "");
+    }
+    // Stopka mówi, na jakich warunkach ta instalacja działa — "PolyForm NC"
+    // przy wykupionej licencji komercyjnej wyglądało jak pomyłka. Autor i
+    // odnośnik do licencji zostają zawsze, zmienia się tylko etykieta.
+    const f=$("attrib-lic");
+    if(f) f.textContent = d.licensed ? ("licencja komercyjna — "+d.holder) : "PolyForm NC";
   }catch(e){}
 }
+// Stopka jest widoczna od razu, więc stan licencji czytamy przy starcie panelu,
+// nie dopiero po wejściu w zakładkę Launcher.
+vhLicence();
 $("lic-save").onclick=async()=>{
   try{
     const d=await jf("/api/valheim/licence",{method:"POST",headers:{"Content-Type":"application/json"},
