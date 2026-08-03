@@ -206,9 +206,28 @@ LOGIN_WINDOW = 900      # ...within this many seconds
 LOGIN_BLOCK = 600       # lockout length, doubling on repeat
 
 
+# Only a proxy we run ourselves may say who the client is. A reverse proxy APPENDS the
+# address it sees to X-Forwarded-For, so a header the caller sent lands on the LEFT and the
+# proxy's own truth on the RIGHT. Reading the leftmost value - which this did until
+# 4 August 2026 - let anyone name their own address, and with it their own rate-limit
+# bucket: password guessing without any lockout, against a panel that sits on a public
+# name, plus a log and phone alerts full of addresses the attacker chose. Verified with
+# `curl -H 'X-Forwarded-For: 9.9.9.9'` from another machine: the panel wrote 9.9.9.9.
+#
+# Set TRUSTED_PROXIES in the panel env to the address of your reverse proxy. Unset means
+# only loopback is believed - the panel then logs the proxy's own address instead of the
+# player's, which is a worse log, not an open door.
+def _trusted_proxies():
+    raw = _env_file(VH_PANEL_ENV).get("TRUSTED_PROXIES", "127.0.0.1,::1")
+    return {p.strip() for p in raw.split(",") if p.strip()}
+
+
 def _client_ip(request):
-    fwd = request.headers.get("x-forwarded-for", "")
-    return (fwd.split(",")[0].strip() if fwd else None) or (request.client.host if request.client else "?")
+    peer = request.client.host if request.client else "?"
+    if peer not in _trusted_proxies():
+        return peer
+    fwd = request.headers.get("x-forwarded-for", "").strip()
+    return fwd.split(",")[-1].strip() if fwd else peer
 
 
 def _login_guard(ip):
