@@ -477,7 +477,10 @@ history are covered by `panel/test_parse.py`, since they need real players joini
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+**PolyForm Noncommercial 1.0.0** — see [LICENSE](LICENSE). Playing, and running your own
+server for friends, is free. Commercial use — paid hosting, resale, or use inside a
+business — needs a separate licence: **pawel@howtodev.it**
+([project page](https://pawelszymanski89.github.io/valheim-proxmox/)).
 
 ---
 
@@ -867,4 +870,7 @@ Listę graczy i historię pokrywa `panel/test_parse.py`, bo wymagają realnych w
 
 ## Licencja
 
-MIT — patrz [LICENSE](LICENSE).
+**PolyForm Noncommercial 1.0.0** — patrz [LICENSE](LICENSE). Granie i własny serwer dla
+znajomych są za darmo. Użycie komercyjne — hosting za pieniądze, odsprzedaż albo użycie
+w firmie — wymaga osobnej licencji: **pawel@howtodev.it**
+([strona projektu](https://pawelszymanski89.github.io/valheim-proxmox/)).
