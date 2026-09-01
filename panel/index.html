@@ -1581,6 +1581,8 @@ async function vhLaunch(){
   $("launch-ui").innerHTML=`
     ${c.released?`<div style="margin-bottom:8px">Last release: build <code>${esc(c.released_build||"?")}</code>
       on ${esc(c.released_at?new Date(c.released_at*1000).toLocaleString():"—")}. ${esc(c.note||"")}</div>`:""}
+    ${c.released&&c.restore_mods?`<div style="margin-bottom:8px">Admin tooling:
+      ${c.mods_restored?"<b>back</b>":"pending"} — ${esc(c.mods_note||"not looked yet")}</div>`:""}
     <div class="grid">
       <div class="stat"><div class="muted">Opens at (your local time)</div>
         <input type="datetime-local" id="lch-target" value="${esc(toLocalInput(c.target))}"></div>
@@ -1594,7 +1596,8 @@ async function vhLaunch(){
       <div class="stat"><div class="muted">On release</div>
         ${ck("wipe_world","Start on a fresh world (backs the old one up first)",c.wipe_world)}
         ${ck("wipe_mods","…and without the mods it had",c.wipe_mods)}
-        ${ck("stop_server","Stop the server now and keep it down until then",c.stop_server)}</div>
+        ${ck("stop_server","Stop the server now and keep it down until then",c.stop_server)}
+        ${ck("restore_mods","Afterwards, put the admin tooling (RCON, console) back by itself",c.restore_mods)}</div>
     </div>
     <div class="add" style="margin-top:8px"><button id="lch-on">Arm launch mode</button></div>
     <div class="muted" style="margin-top:6px">The date is when the panel <i>starts looking</i>.

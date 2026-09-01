@@ -1710,6 +1710,11 @@ LAUNCH_DEFAULT = {
     "baseline_build": "",         # build id at the moment of arming; anything else is the release
     "timer_was": "",              # is-enabled before arming, so it goes back exactly as found
     "game_was": "",               # ditto for the game service itself
+    "restore_mods": True,         # bring the admin tooling back once the launch is done
+    "mods_restored": False,
+    "mods_tried": None,           # the version set that took the server down, if one did
+    "mods_checked": 0,
+    "mods_note": "",
     "released": False,            # the build landed, the release ran, the placeholder is gone
     "released_at": 0,
     "released_build": "",
@@ -1822,6 +1827,108 @@ def _launch_release(cfg, latest):
     return cfg
 
 
+# Narzedzia admina, nie mody gracza: powitania na ekranie, mapa z pozycjami i „zapisz swiat
+# przed kopia" mowia przez RCON, a RCON jest tu modem. Premiera nie konczy sie wiec w chwili,
+# gdy serwer wstanie — konczy sie, gdy to wroci.
+LAUNCH_MODS = ["AviiNL-rcon", "JereKuusela-Rcon_Commands", "JereKuusela-Server_devcommands"]
+MODS_POLL = 3600
+MODS_SETTLE = 600            # niech nowy build sie ustoi, zanim cokolwiek do niego dokladamy
+
+
+def _ts_latest(full):
+    ns, _, name = full.partition("-")
+    return _ts_package(ns, name)["latest"]["version_number"]
+
+
+def _server_healthy(wait=150):
+    """Czy wstal i *zostal* wstany.
+
+    Odczyt zaraz po `systemctl start` nic nie znaczy: usluga melduje sie jako active w chwili,
+    gdy proces ruszyl, a mod zbudowany pod poprzednia wersje gry kladzie ja kilka sekund pozniej.
+    Stad odczekanie, a do tego dowod z samej gry — linia z wersja pada dopiero, gdy silnik
+    faktycznie doszedl do startu, wiec proces zywy, ale wiszacy, nie przejdzie.
+    """
+    time.sleep(wait)
+    if _sh("systemctl is-active valheim").stdout.strip() != "active":
+        return False
+    since = _sh('systemctl show valheim -p ActiveEnterTimestamp --value').stdout.strip()
+    log = _sh(f'journalctl -u valheim --since "{since}" --no-pager -o cat 2>/dev/null'
+              ' | grep -c "Valheim version:"', timeout=60).stdout.strip()
+    return log.isdigit() and int(log) > 0
+
+
+def _mods_restore_tick(now):
+    """Po premierze oddaj adminowi jego narzedzia — sam, ale nigdy kosztem zywego serwera.
+
+    Daty wydania na Thunderstore NIE nadaja sie na bramke „czy juz pod 1.0": `AviiNL-rcon` nie
+    byl ruszany od 2024 roku, a mod, ktory dalej dziala, nie dostanie nowej wersji tylko po to,
+    zeby nam cos udowodnic. Czekanie na przebudowe czekaloby wiec w nieskonczonosc. Jedyna
+    uczciwa odpowiedz na „czy te mody dzialaja z nowa gra" to zainstalowac je i zobaczyc —
+    co jest bezpieczne wylacznie dlatego, ze nieudana proba sie wycofuje.
+
+    Daty sluza do czegos innego: zeby nie powtarzac w kolko tej samej nieudanej proby. Po
+    wpadce panel czeka, az na Thunderstore pojawi sie INNY zestaw wersji niz ten, ktory polegl.
+    """
+    cfg = _launch_cfg()
+    if not (cfg.get("released") and cfg.get("restore_mods")) or cfg.get("mods_restored"):
+        return
+    if _LAUNCH_BUSY["at"] or now - cfg.get("mods_checked", 0) < MODS_POLL:
+        return
+    if now - (cfg.get("released_at") or 0) < MODS_SETTLE:
+        return
+    cfg["mods_checked"] = now
+
+    try:
+        avail = {full: _ts_latest(full) for full in LAUNCH_MODS}
+    except Exception as e:
+        cfg["mods_note"] = f"Thunderstore unreachable: {type(e).__name__}"
+        _launch_save(cfg)
+        return
+    if avail == cfg.get("mods_tried"):
+        cfg["mods_note"] = ("these exact versions already took the server down; waiting for a "
+                            "rebuild of " + ", ".join(f"{k} {v}" for k, v in avail.items()))
+        _launch_save(cfg)
+        return
+
+    _LAUNCH_BUSY["at"] = now
+
+    def run():
+        c = _launch_cfg()
+        try:
+            rep = mods_install(ModPick(mods=[{"full_name": k, "version": v}
+                                             for k, v in avail.items()], restart=True))
+            ok = not rep.get("failed") and _server_healthy()
+            if ok:
+                c.update(mods_restored=True, mods_tried=None,
+                         mods_note="installed " + ", ".join(f"{k} {v}" for k, v in avail.items()))
+                _notify("maintenance", "Admin tooling is back",
+                        "RCON and the server console are in. In-game messages, the player map "
+                        "and the world save before each backup work again.", tags="wrench")
+            else:
+                # Wycofanie, a nie zostawienie trupa: to chodzi bez nadzoru, a mod zbudowany pod
+                # poprzednia wersje gry zabiera ze soba caly serwer. Lepszy waniliowy i zywy.
+                mods_clear(ModClear(start=True))
+                c.update(mods_tried=avail, mods_checked=int(time.time()),
+                         mods_note="rolled back — the server did not stay up with them")
+                _notify("mod_failed", "Admin tooling rolled back",
+                        "The mods installed but the server did not stay up, so they were removed "
+                        "and it is running clean again. Will retry when they are rebuilt.",
+                        priority="high", tags="warning")
+            _launch_save(c)
+            _log("launch.mods_restore", ok=ok, versions=avail, note=c["mods_note"])
+        except Exception as e:
+            c = _launch_cfg()
+            c.update(mods_tried=avail,
+                     mods_note=f"restore failed: {type(e).__name__}: {e}"[:200])
+            _launch_save(c)
+            _log("launch.mods_restore", ok=False, error=c["mods_note"])
+        finally:
+            _LAUNCH_BUSY["at"] = 0
+
+    import threading
+    threading.Thread(target=run, daemon=True).start()
+
+
 def _launch_tick(now):
     """Called once a minute. Cheap unless it is actually waiting for something."""
     cfg = _launch_cfg()
@@ -1899,7 +2006,7 @@ def launch_get():
 def launch_set(body: dict = Body(...)):
     cfg = _launch_cfg()
     was = _launch_waiting(cfg)
-    for k in ("wipe_world", "wipe_mods", "stop_server"):
+    for k in ("wipe_world", "wipe_mods", "stop_server", "restore_mods"):
         if k in body:
             cfg[k] = bool(body[k])
     for k, n in (("target", 40), ("title", 120), ("message", 280)):
@@ -3625,6 +3732,7 @@ def _tick():
     # to take the crash watch and the backup verification down with it.
     try:
         _launch_tick(now)
+        _mods_restore_tick(now)
     except Exception as e:
         _log("launch.tick_error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
 

@@ -124,9 +124,80 @@ assert utc == cest == 1788937200, (utc, cest)
 assert app._launch_target_ts({"target": ""}) == 0
 assert app._launch_target_ts({"target": "nonsense"}) == 0
 
+# --- bringing the admin tooling back, without ever leaving a dead server ---------------
+# Release dates are useless as a "is it ready for the new game" gate: AviiNL-rcon has not been
+# touched since 2024, and a mod that still works never gets a rebuild to prove it. So the panel
+# tries and verifies, and the dates only stop it repeating an attempt that already failed.
+INSTALLED, CLEARED = [], []
+app._sh = lambda c, **k: type("R", (), {"stdout": "active", "returncode": 0})()
+app.mods_install = lambda p: (INSTALLED.append(p), {"installed": [], "failed": []})[1]
+app.mods_clear = lambda c: CLEARED.append(True)
+app._ts_latest = lambda full: {"AviiNL-rcon": "1.0.5",
+                               "JereKuusela-Rcon_Commands": "1.2.0",
+                               "JereKuusela-Server_devcommands": "1.109.0"}[full]
+VERS = {"AviiNL-rcon": "1.0.5", "JereKuusela-Rcon_Commands": "1.2.0",
+        "JereKuusela-Server_devcommands": "1.109.0"}
+
+
+def released(**over):
+    cfg = dict(app.LAUNCH_DEFAULT)
+    cfg.update(armed=False, released=True, released_at=TARGET, restore_mods=True,
+               mods_restored=False, mods_tried=None, mods_checked=0)
+    cfg.update(over)
+    app._launch_save(cfg)
+
+
+def mtick(now, healthy=True):
+    INSTALLED.clear(); CLEARED.clear()
+    app._LAUNCH_BUSY["at"] = 0
+    app._server_healthy = lambda wait=0: healthy
+    app._mods_restore_tick(now)
+    time.sleep(0.3)
+    return len(INSTALLED), len(CLEARED)
+
+# nothing before the launch has even happened
+released(released=False)
+assert mtick(TARGET + 9999) == (0, 0), "restored mods before the launch"
+
+# nothing while the new build is still settling
+released()
+assert mtick(TARGET + 10) == (0, 0), "did not let the new build settle first"
+
+# switched off by the operator: stays off
+released(restore_mods=False)
+assert mtick(TARGET + 99999) == (0, 0), "restored mods although the option was off"
+
+# the happy path: install, verify, mark done
+released()
+assert mtick(TARGET + app.MODS_SETTLE + 60, healthy=True) == (1, 0)
+c = app._launch_cfg()
+assert c["mods_restored"] is True, c
+assert "installed" in c["mods_note"], c["mods_note"]
+
+# ...and once done it never runs again
+assert mtick(TARGET + 999999) == (0, 0), "reinstalled mods that were already restored"
+
+# the unhappy path: a mod built for the old game takes the server down -> roll back to vanilla
+released()
+assert mtick(TARGET + app.MODS_SETTLE + 60, healthy=False) == (1, 1), "did not roll back"
+c = app._launch_cfg()
+assert c["mods_restored"] is False, "called a failed restore a success"
+assert c["mods_tried"] == VERS, c["mods_tried"]
+assert "rolled back" in c["mods_note"], c["mods_note"]
+
+# ...and the identical versions are not tried again an hour later
+c["mods_checked"] = 0; app._launch_save(c)
+assert mtick(TARGET + app.MODS_SETTLE + 7200, healthy=True) == (0, 0), "retried the same broken versions"
+
+# ...but a rebuild is picked up
+c = app._launch_cfg(); c["mods_checked"] = 0; app._launch_save(c)
+app._ts_latest = lambda full: "9.9.9" if full == "AviiNL-rcon" else VERS[full]
+assert mtick(TARGET + app.MODS_SETTLE + 7200, healthy=True)[0] == 1, "ignored a rebuilt mod"
+assert app._launch_cfg()["mods_restored"] is True
+
 # --- the placeholder is up exactly while armed and unreleased --------------------------
 assert app._launch_waiting({"armed": True, "released": False}) is True
 assert app._launch_waiting({"armed": True, "released": True}) is False
 assert app._launch_waiting({"armed": False, "released": False}) is False
 
-print("OK — releases on the server build, survives a reboot, honours the timezone")
+print("OK — release, reboot, timezone, and a mod restore that rolls itself back")
