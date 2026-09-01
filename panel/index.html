@@ -270,6 +270,11 @@
       </div>
 
       <div class="stat" style="margin-top:14px">
+        <div class="muted">Launch mode — the public page becomes a countdown, and the server comes up on the new build by itself</div>
+        <div id="launch-ui" style="margin-top:8px" class="muted">…</div>
+      </div>
+
+      <div class="stat" style="margin-top:14px">
         <div class="muted">Panel login — the password is the same on every install, change it here</div>
         <div class="add" style="margin-top:8px">
           <input id="vh-au-user" placeholder="user" autocomplete="username">
@@ -1508,7 +1513,7 @@ function vhSettings(v){
       `<label style="display:block"><input type="checkbox" data-vhkey="${k}" ${(s.keys||[]).includes(k)?"checked":""}> ${KEY_PL[k]||k}</label>`).join("")}</div>
   </div>`;
   if(!$("vh-au-user").value)$("vh-au-user").value=s.panel_user||"admin";
-  if(!$("pub-flags").children.length)vhPublic();
+  if(!$("pub-flags").children.length){vhPublic();vhLaunch();}
 }
 const PUB_LABELS={enabled:"Show the page at all",show_link:"Link quality (latency, loss, speed)",show_specs:"Machine specs and live load",show_players:"Number of players online",
   show_names:"Their names",show_board:"Ranking: time played, sessions and deaths (names only)",show_mods:"Mod list and share code",show_metrics:"Load charts",
@@ -1529,6 +1534,83 @@ $("pub-save").onclick=async()=>{
     toast(t("Saved"),"ok");}
   catch(e){toast(e.message,"bad");}
 };
+
+// Launch mode. The date only says when to start watching Steam — what actually releases the
+// server is its build id changing, because on a Valheim launch day the client updates before
+// the dedicated server does. The panel says that out loud here, so nobody sets the timer and
+// then wonders at 18:01 why nothing happened.
+// datetime-local nie niesie strefy, a kontener chodzi na UTC. Bez zamiany na moment
+// absolutny "09:00" wpisane w Polsce ladowalo w panelu jako 09:00 UTC — czyli 11:00 u nas.
+// Tu i z powrotem: do serwera idzie ISO z przesunieciem, do pola wraca czas przegladarki.
+const toIso=v=>{const d=new Date(v);return isNaN(d)?"":d.toISOString().replace(/\.\d+Z$/,"+00:00");};
+function toLocalInput(iso){
+  const d=new Date(iso||""); if(isNaN(d))return "";
+  const p=n=>String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+async function vhLaunch(){
+  let c;
+  try{c=await jf("/api/launch");}catch(e){$("launch-ui").textContent=e.message;return;}
+  const ck=(k,l,v)=>`<label style="display:block"><input type="checkbox" data-lch="${k}" ${v?"checked":""}> ${l}</label>`;
+  const when=c.target_ts?new Date(c.target_ts*1000).toLocaleString():"—";
+  if(c.waiting||c.busy){
+    $("launch-ui").innerHTML=`
+      <div><b>Armed</b> — the page shows a countdown to ${esc(when)}.</div>
+      <div style="margin-top:4px">Watching Steam for a server build newer than
+        <code>${esc(c.baseline_build||"?")}</code>, every five minutes once the timer runs out.</div>
+      <div style="margin-top:4px">On release: ${c.wipe_world
+        ?`back up and wipe <b>${esc(c.world)}</b>${c.wipe_mods?" and the mods":""}`
+        :"keep the world"}, install the build, start the server.</div>
+      <div style="margin-top:6px">${esc(c.note||"")}</div>
+      <div class="add" style="margin-top:8px">
+        <button id="lch-off">Disarm</button>
+        <button class="mini" id="lch-now" ${c.busy?"disabled":""}>${c.busy?"Releasing…":"Release now"}</button>
+      </div>`;
+    $("lch-off").onclick=async()=>{
+      try{await jf("/api/launch",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({armed:false})});toast("Launch mode off","ok");vhLaunch();}
+      catch(e){toast(e.message,"bad");}
+    };
+    $("lch-now").onclick=async()=>{
+      if(!confirm("Release now: install the newest build"+(c.wipe_world?" and wipe "+c.world:"")+"?"))return;
+      try{await jf("/api/launch/now",{method:"POST"});toast("Releasing — this takes a few minutes","ok");vhLaunch();}
+      catch(e){toast(e.message,"bad");}
+    };
+    return;
+  }
+  $("launch-ui").innerHTML=`
+    ${c.released?`<div style="margin-bottom:8px">Last release: build <code>${esc(c.released_build||"?")}</code>
+      on ${esc(c.released_at?new Date(c.released_at*1000).toLocaleString():"—")}. ${esc(c.note||"")}</div>`:""}
+    <div class="grid">
+      <div class="stat"><div class="muted">Opens at (your local time)</div>
+        <input type="datetime-local" id="lch-target" value="${esc(toLocalInput(c.target))}"></div>
+      <div class="stat"><div class="muted">Headline on the page</div>
+        <input id="lch-title" placeholder="Valheim 1.0" value="${esc(c.title||"")}"></div>
+    </div>
+    <div class="add" style="margin-top:8px">
+      <input id="lch-msg" placeholder="a line under it — what the players should expect" value="${esc(c.message||"")}">
+    </div>
+    <div class="grid" style="margin-top:8px">
+      <div class="stat"><div class="muted">On release</div>
+        ${ck("wipe_world","Start on a fresh world (backs the old one up first)",c.wipe_world)}
+        ${ck("wipe_mods","…and without the mods it had",c.wipe_mods)}
+        ${ck("stop_server","Stop the server now and keep it down until then",c.stop_server)}</div>
+    </div>
+    <div class="add" style="margin-top:8px"><button id="lch-on">Arm launch mode</button></div>
+    <div class="muted" style="margin-top:6px">The date is when the panel <i>starts looking</i>.
+      The server goes up when Steam actually has a newer dedicated-server build — on a launch day
+      the game client updates first, so a server started by the clock would have nothing to start on.
+      While armed, the stock update timer is stood down so it cannot bring the old world up on the new build.</div>`;
+  $("lch-on").onclick=async()=>{
+    const body={armed:true,target:toIso($("lch-target").value),title:$("lch-title").value,message:$("lch-msg").value};
+    document.querySelectorAll("[data-lch]").forEach(x=>body[x.dataset.lch]=x.checked);
+    if(!body.target){toast("Set the date first","bad");return;}
+    if(body.wipe_world&&!confirm("When the new build lands, "+c.world+" will be backed up and wiped. Arm?"))return;
+    try{await jf("/api/launch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      toast("Launch mode armed","ok");vhLaunch();}
+    catch(e){toast(e.message,"bad");}
+  };
+}
 async function vhSaveSettings(restart){
   const mods={};Object.keys((VH.options||{}).modifiers||{}).forEach(k=>{const el=$("vh-s-m-"+k);if(el&&el.value)mods[k]=el.value;});
   const keys=[...document.querySelectorAll("[data-vhkey]")].filter(c=>c.checked).map(c=>c.dataset.vhkey);

@@ -1622,28 +1622,25 @@ def player_positions():
     return out
 
 
-@app.post("/api/valheim/world/reset")
-def world_reset(body: dict = Body(default={})):
-    """Start over: new world, empty statistics, counters from zero.
+def _wipe_world(world, wipe_mods=False):
+    """Back up, stop, and erase the world together with everything counted about it.
 
     The order matters and every step here was learned the hard way. The backup goes first
     and it is the only way back. The login history is not deleted but *watermarked* - the
     panel rebuilds it from the journal, so an empty file simply fills up again with the
-    players who were here yesterday. And the world file only appears on the first save,
-    so the server is asked to write one, otherwise the public page shows no day or clock
-    until the first autosave twenty minutes later.
-    """
-    world = _parse_env(Path(VH_ENV).read_text().splitlines())["world"]
-    if body.get("confirm") != world:
-        raise HTTPException(400, "Confirm with the world name")
+    players who were here yesterday.
 
+    The server is deliberately left stopped: the caller decides what happens next. A manual
+    reset starts it again immediately, while the launch installs the new game build first -
+    starting in between would put the old world back up on the old build for as long as the
+    download takes.
+    """
     backup = _sh_ok(f"{VH_DIR}/backup.sh", timeout=180).strip()[-120:]
     _sh_ok("systemctl stop valheim", timeout=180)
 
     # Mods are optional here on purpose. A fresh world with the same mod set is a normal
     # thing to want; so is going back to vanilla. Wiping them also drops the share code,
     # so the players have to be told either way.
-    wipe_mods = bool(body.get("mods"))
     if wipe_mods:
         _sh_ok(f"cd {VH_SERVER} && rm -rf BepInEx doorstop_libs unstripped_corlib "
                f"doorstop_config.ini start_game_bepinex.sh start_server_bepinex.sh .doorstop_version")
@@ -1663,12 +1660,314 @@ def world_reset(body: dict = Body(default={})):
     GREETED.clear()
     JOKED.clear()
     WATCH["online"], WATCH["death_ts"] = {}, 0
+    return backup, removed
+
+
+@app.post("/api/valheim/world/reset")
+def world_reset(body: dict = Body(default={})):
+    """Start over: new world, empty statistics, counters from zero.
+
+    The world file only appears on the first save, so the public page shows no day or
+    clock until the server has written one - up to an autosave away.
+    """
+    world = _parse_env(Path(VH_ENV).read_text().splitlines())["world"]
+    if body.get("confirm") != world:
+        raise HTTPException(400, "Confirm with the world name")
+
+    wipe_mods = bool(body.get("mods"))
+    backup, removed = _wipe_world(world, wipe_mods)
 
     _sh_ok("systemctl start valheim", timeout=180)
     _log("world.reset", world=world, files=len(removed), mods_wiped=wipe_mods, backup=backup)
     _notify("maintenance", "World reset",
             f"{world} started over. The old one is in {backup or 'the backups'}.", tags="new")
     return {"ok": True, "world": world, "removed": removed, "mods_wiped": wipe_mods, "backup": backup}
+
+
+# ---------- launch mode: the countdown, and the release that ends it ----------
+# Written for the 1.0 release, and general enough for any release after it. While it is armed
+# the public page is a placeholder with a timer, the server stays down, and the panel waits.
+#
+# What it waits for is the point. On a Valheim release day the game client updates before the
+# dedicated server does - the version-mismatch window is a known part of every one of them -
+# so a countdown that started the server when the clock ran out would start it on a build that
+# does not exist yet, and the players would get "failed to connect" instead of a launch. So the
+# clock only decides when to *start looking*: what actually triggers the release is Steam's
+# build id for the dedicated server app itself moving off the one installed here. When that
+# number changes the new server build is real and downloadable, and only then does anything
+# happen. A late release is therefore handled by doing nothing, which is the correct response.
+STEAM_APP = 896660                # Valheim Dedicated Server; the game client is 892970
+VH_LAUNCH = Path(f"{VH_DIR}/launch.json")
+LAUNCH_POLL = 300                 # a steamcmd round trip every five minutes while waiting
+LAUNCH_DEFAULT = {
+    "armed": False,               # placeholder up, build being watched
+    "target": "",                 # ISO 8601 local time the timer counts down to
+    "title": "",                  # headline on the placeholder; blank uses a default
+    "message": "",                # a line under it - what the players should expect
+    "wipe_world": True,           # bring the new build up on a fresh map
+    "wipe_mods": False,           # and, if asked, without the mods the old one carried
+    "stop_server": True,          # keep the server down until the build lands
+    "baseline_build": "",         # build id at the moment of arming; anything else is the release
+    "timer_was": "",              # is-enabled before arming, so it goes back exactly as found
+    "game_was": "",               # ditto for the game service itself
+    "released": False,            # the build landed, the release ran, the placeholder is gone
+    "released_at": 0,
+    "released_build": "",
+    "checked": 0,                 # last Steam round trip, so the tick can pace itself
+    "note": "",                   # what the last check or release had to say
+}
+_LAUNCH_BUSY = {"at": 0}          # a release runs in a thread and takes minutes; never twice
+
+
+def _launch_cfg():
+    cfg = dict(LAUNCH_DEFAULT)
+    try:
+        cfg.update(json.loads(VH_LAUNCH.read_text()))
+    except Exception:
+        pass
+    return cfg
+
+
+def _launch_save(cfg):
+    VH_LAUNCH.write_text(json.dumps(cfg, indent=1))
+    return cfg
+
+
+def _launch_waiting(cfg=None):
+    """Armed and not yet released - the state in which the public page is a placeholder."""
+    cfg = cfg or _launch_cfg()
+    return bool(cfg.get("armed")) and not cfg.get("released")
+
+
+def _launch_target_ts(cfg):
+    """The timer's target as a unix timestamp, 0 if it was never set or does not parse."""
+    try:
+        return int(datetime.fromisoformat(cfg["target"]).timestamp())
+    except Exception:
+        return 0
+
+
+def _update_timer(on, was="enabled"):
+    """The stock update timer installs a new build and starts the server the moment it is
+    done. That is right on any ordinary day and wrong on this one: it would bring the old
+    world up on the new build, for however long it takes the tick to notice and wipe it out
+    from under whoever had already joined. So it is stood down while the launch is armed.
+
+    disable, not stop: the wait is measured in days, and a container that reboots in the
+    middle of one would otherwise come back with the timer running and the launch quietly
+    sabotaged. What it was before is remembered, so putting it back cannot switch on a timer
+    the operator had deliberately switched off.
+    """
+    if not on:
+        return _sh("systemctl disable --now valheim-update.timer", timeout=30)
+    if was == "enabled":
+        return _sh("systemctl enable --now valheim-update.timer", timeout=30)
+    return None
+
+
+def _game_service(on, was="enabled"):
+    """Stopping the game is not enough to keep it stopped, and this was learned in the worst
+    possible way: eighteen minutes into the first armed window CT 108 rebooted, and the game
+    service - being enabled - brought the old world straight back up behind a page that was
+    still counting down to its replacement. A launch waits for days, so anything it switches
+    off has to stay off across a reboot.
+    """
+    if not on:
+        return _sh("systemctl disable --now valheim", timeout=180)
+    _sh("systemctl start valheim", timeout=180)
+    if was != "disabled":          # never switch on autostart the operator had switched off
+        _sh("systemctl enable valheim", timeout=30)
+    return None
+
+
+def _launch_release(cfg, latest):
+    """The new server build exists: install it, optionally start over, take the page down."""
+    world = _parse_env(Path(VH_ENV).read_text().splitlines())["world"]
+    steps, backup, removed = [], "", []
+    try:
+        if cfg.get("wipe_world"):
+            backup, removed = _wipe_world(world, bool(cfg.get("wipe_mods")))
+            steps.append(f"wiped {world} ({len(removed)} files)")
+        else:
+            backup = _sh_ok(f"{VH_DIR}/backup.sh", timeout=180).strip()[-120:]
+            _sh_ok("systemctl stop valheim", timeout=180)
+            steps.append("kept the world")
+
+        # steamcmd directly rather than update.sh, which would start the server itself the
+        # second it finished - before the panel could record anything about the release.
+        up = _sh(f"runuser -u valheim -- env HOME={VH_DIR} {VH_DIR}/steamcmd/steamcmd.sh "
+                 f"+force_install_dir {VH_SERVER} +login anonymous "
+                 f"+app_update {STEAM_APP} validate +quit", timeout=3600)
+        if up.returncode != 0:
+            # Not fatal, and deliberately so. A server that is up on the old build is a
+            # server people can play on; one left stopped because a download failed at 98%
+            # is an outage nobody is awake to fix. The panel says what happened either way.
+            steps.append(f"steamcmd failed (rc={up.returncode})")
+        else:
+            steps.append(f"installed build {latest}")
+    finally:
+        _game_service(True, cfg.get("game_was"))
+        _update_timer(True, cfg.get("timer_was"))
+
+    cfg.update(armed=False, released=True, released_at=int(time.time()),
+               released_build=latest, note="; ".join(steps))
+    _launch_save(cfg)
+    _log("launch.released", build=latest, world=world, wiped=bool(cfg.get("wipe_world")),
+         files=len(removed), backup=backup, steps=steps)
+    _notify("maintenance", "Launch — server is up",
+            f"Build {latest} is installed and {world} is live. " +
+            (f"Fresh world; the old one is in {backup or 'the backups'}." if removed
+             else "The world carried over."),
+            priority="high", tags="rocket")
+    return cfg
+
+
+def _launch_tick(now):
+    """Called once a minute. Cheap unless it is actually waiting for something."""
+    cfg = _launch_cfg()
+    if not _launch_waiting(cfg) or _LAUNCH_BUSY["at"]:
+        return
+    target = _launch_target_ts(cfg)
+    if not target:
+        return
+    # Two speeds, for two different jobs. Before the timer runs out nothing can be released,
+    # so the hourly check exists only to keep the baseline current: Iron Gate can ship an
+    # ordinary patch in the days before a launch, and a stale baseline would still be reading
+    # "there is a newer build" when the timer expired - releasing on the patch instead of on
+    # the launch, and wiping the world for it. After the target the check is frequent, because
+    # that window is the entire reason this exists.
+    before = now < target
+    if now - cfg.get("checked", 0) < (3600 if before else LAUNCH_POLL):
+        return
+    cfg["checked"] = now
+    try:
+        installed, latest = _steam_latest_build()
+    except Exception as e:
+        cfg["note"] = f"Steam check failed: {type(e).__name__}"
+        _launch_save(cfg)
+        return
+    if not latest:
+        cfg["note"] = "Steam did not answer with a build id"
+        _launch_save(cfg)
+        return
+    if before:
+        cfg["baseline_build"] = latest
+        cfg["note"] = f"waiting for the timer — current server build {latest}"
+        _launch_save(cfg)
+        return
+    base = cfg.get("baseline_build") or installed
+    if latest == base:
+        cfg["note"] = f"timer is up, Steam still has build {latest} — waiting for the server build"
+        _launch_save(cfg)
+        return
+
+    _LAUNCH_BUSY["at"] = now
+    _log("launch.detected", baseline=base, latest=latest)
+    _notify("update_available", "Launch — new server build",
+            f"Steam has build {latest} (was {base}). Installing it now.", tags="rocket")
+
+    def run():
+        try:
+            _launch_release(_launch_cfg(), latest)
+        except Exception as e:
+            c = _launch_cfg()
+            c["note"] = f"release failed: {type(e).__name__}: {e}"[:200]
+            _launch_save(c)
+            _log("launch.failed", ok=False, error=c["note"])
+            _notify("maintenance", "Launch failed", c["note"], priority="urgent", tags="warning")
+        finally:
+            _LAUNCH_BUSY["at"] = 0
+
+    # In a thread because steamcmd downloads the whole game and _tick blocks the event
+    # loop while it runs - a panel frozen for twenty minutes is how you end up rebooting
+    # the box during the one window you cannot afford to.
+    import threading
+    threading.Thread(target=run, daemon=True).start()
+
+
+@app.get("/api/launch")
+def launch_get():
+    cfg = _launch_cfg()
+    cfg["target_ts"] = _launch_target_ts(cfg)
+    cfg["waiting"] = _launch_waiting(cfg)
+    cfg["busy"] = bool(_LAUNCH_BUSY["at"])
+    cfg["world"] = _parse_env(Path(VH_ENV).read_text().splitlines())["world"]
+    return cfg
+
+
+@app.post("/api/launch")
+def launch_set(body: dict = Body(...)):
+    cfg = _launch_cfg()
+    was = _launch_waiting(cfg)
+    for k in ("wipe_world", "wipe_mods", "stop_server"):
+        if k in body:
+            cfg[k] = bool(body[k])
+    for k, n in (("target", 40), ("title", 120), ("message", 280)):
+        if k in body:
+            cfg[k] = str(body[k])[:n]
+    if "armed" in body:
+        cfg["armed"] = bool(body["armed"])
+
+    if cfg["armed"] and not was:
+        if not _launch_target_ts(cfg):
+            raise HTTPException(400, "Set a target date the timer can count down to")
+        # Snapshot the build being replaced. Read now rather than at release time, because
+        # by then the thing we would be comparing against is the answer itself.
+        try:
+            installed, _ = _steam_latest_build()
+        except Exception:
+            installed = ""
+        cfg["baseline_build"] = installed
+        cfg["timer_was"] = _sh("systemctl is-enabled valheim-update.timer").stdout.strip()
+        cfg.update(released=False, released_at=0, released_build="", checked=0,
+                   note=f"waiting for a build newer than {installed or 'the one installed'}")
+        _update_timer(False)
+        cfg["game_was"] = _sh("systemctl is-enabled valheim").stdout.strip()
+        if cfg.get("stop_server"):
+            _game_service(False)
+    elif was and not cfg["armed"]:
+        _update_timer(True, cfg.get("timer_was"))
+        if cfg.get("stop_server"):
+            _game_service(True, cfg.get("game_was"))
+        cfg["note"] = "disarmed"
+
+    _launch_save(cfg)
+    _log("launch.config", armed=cfg["armed"], target=cfg["target"],
+         wipe_world=cfg["wipe_world"], baseline=cfg["baseline_build"])
+    return launch_get()
+
+
+@app.post("/api/launch/now")
+def launch_now():
+    """Release by hand: the build is out but the panel has not got there yet, or the timer
+    was set to the wrong hour. Same path as the automatic one, so it wipes and installs
+    exactly the same way."""
+    cfg = _launch_cfg()
+    if not _launch_waiting(cfg):
+        raise HTTPException(400, "Launch mode is not armed")
+    if _LAUNCH_BUSY["at"]:
+        raise HTTPException(409, "A release is already running")
+    _LAUNCH_BUSY["at"] = int(time.time())
+    try:
+        _, latest = _steam_latest_build()
+    except Exception:
+        latest = ""
+
+    def run():
+        try:
+            _launch_release(_launch_cfg(), latest or "manual")
+        except Exception as e:
+            c = _launch_cfg()
+            c["note"] = f"release failed: {type(e).__name__}: {e}"[:200]
+            _launch_save(c)
+            _log("launch.failed", ok=False, error=c["note"])
+        finally:
+            _LAUNCH_BUSY["at"] = 0
+
+    import threading
+    threading.Thread(target=run, daemon=True).start()
+    _log("launch.manual", build=latest)
+    return {"ok": True, "build": latest}
 
 
 # ---------- launcher for players ----------
@@ -2912,6 +3211,19 @@ def public_status():
     cfg = _public_cfg()
     if not cfg.get("enabled"):
         raise HTTPException(404, "Not enabled")
+
+    # Waiting for a release: the page is a placeholder and a timer, and nothing else. This
+    # returns early rather than adding a flag to the full payload on purpose - a server that
+    # is deliberately down would otherwise publish an empty player count, a flat load chart
+    # and a stale day number, all of which read as "broken" rather than "not started yet".
+    lch = _launch_cfg()
+    if _launch_waiting(lch):
+        env = _parse_env(Path(VH_ENV).read_text().splitlines())
+        return {"name": env["name"], "launch": {
+            "target": lch["target"], "target_ts": _launch_target_ts(lch),
+            "title": lch.get("title") or None, "message": lch.get("message") or None,
+            "now": int(time.time())}}
+
     env = _parse_env(Path(VH_ENV).read_text().splitlines())
     st = _mods_state()
     active = _sh("systemctl is-active valheim").stdout.strip() == "active"
@@ -3307,6 +3619,14 @@ def _tick():
     cfg = _alerts_cfg()
     s = status()
     now = int(time.time())
+
+    # Isolated, because everything below it is the monitoring this server runs on every day
+    # and the launch is a thing that happens once. A bug in the new code should not be able
+    # to take the crash watch and the backup verification down with it.
+    try:
+        _launch_tick(now)
+    except Exception as e:
+        _log("launch.tick_error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
 
     # the game server going away, and coming back
     if WATCH["active"] is not None and s["active"] != WATCH["active"]:

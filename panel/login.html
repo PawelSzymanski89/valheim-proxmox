@@ -44,6 +44,82 @@
   .kv span:first-child{color:var(--dim);font-size:12px;min-width:52px}
   .cell .muted{font-size:12px}
   .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
+  /* ---- zaslepka premiery: kamien runiczny zamiast karty serwera --------------------
+     Cala scena jest rysowana CSS-em i jednym inline SVG. Zadnych obrazkow: strona ma sie
+     pokazac natychmiast na telefonie w lesie, a nie czekac na 300 kB tekstury. */
+  #launch-box{text-align:center;padding:0;overflow:hidden;
+    background:
+      radial-gradient(120% 90% at 50% 0%, rgba(201,162,39,.09) 0%, transparent 55%),
+      linear-gradient(180deg,#1d242b,#0f1419)}
+  /* podwojne kucie w kamieniu — zewnetrzna ramka .box:before plus druga, cienzsza */
+  #launch-box:before{inset:8px;border-color:rgba(201,162,39,.20)}
+  #launch-box:after{content:"";position:absolute;inset:14px;border:1px solid rgba(201,162,39,.06);
+    border-radius:2px;pointer-events:none}
+  #launch-inner{position:relative;z-index:2;padding:44px 24px 40px}
+  /* zar ogniska pod godlem, oddycha wolno */
+  .glow{position:absolute;left:50%;top:-40px;width:560px;height:360px;transform:translateX(-50%);
+    pointer-events:none;z-index:1;
+    background:radial-gradient(50% 50% at 50% 45%, rgba(201,162,39,.15), transparent 70%);
+    animation:breathe 7s ease-in-out infinite}
+  @keyframes breathe{0%,100%{opacity:.5}50%{opacity:1}}
+
+  #sigil{width:186px;height:186px;display:block;margin:0 auto 6px;
+    filter:drop-shadow(0 0 14px rgba(201,162,39,.28))}
+  #sigil .valknut path{fill:none;stroke:var(--gold2);stroke-width:2.4;
+    stroke-linejoin:round;opacity:.92}
+  #sigil .ring{fill:none;stroke:rgba(201,162,39,.30);stroke-width:1}
+  #sigil .ring2{fill:none;stroke:rgba(201,162,39,.12);stroke-width:6;stroke-dasharray:2 9;
+    stroke-linecap:round}
+  #rune-ring text{fill:var(--gold);font-size:13px;opacity:.55;
+    font-family:"Noto Sans Runic",Segoe UI Symbol,system-ui,serif}
+  #rune-ring{transform-origin:120px 120px;animation:turn 240s linear infinite}
+  @keyframes turn{to{transform:rotate(360deg)}}
+
+  #launch-title{font:600 clamp(22px,4.2vw,38px)/1.15 Georgia,"Times New Roman",serif;
+    letter-spacing:.14em;text-transform:uppercase;margin:14px 0 4px;
+    background:linear-gradient(180deg,#f0dc9a,var(--gold) 70%,#8a6f18);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+    text-shadow:0 2px 26px rgba(201,162,39,.22)}
+  /* pasek runiczny jako przerywnik, ten sam motyw co w naglowku strony */
+  .band{color:var(--gold);opacity:.34;letter-spacing:.62em;font-size:11px;margin:10px 0 18px}
+  #launch-msg{max-width:600px;margin:0 auto 30px;font-size:15px;line-height:1.7}
+
+  .cd{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+  /* kazda liczba to osobna plyta kamienna: fazowana gora, cien od dolu, zlota wlosowa */
+  .cd div{position:relative;min-width:104px;padding:16px 10px 12px;border-radius:3px;
+    background:linear-gradient(180deg,#232b33,#141a20);
+    border:1px solid var(--line);
+    box-shadow:inset 0 1px 0 rgba(227,192,90,.20),inset 0 -18px 30px rgba(0,0,0,.45),
+      0 12px 26px rgba(0,0,0,.5)}
+  .cd div:before{content:"";position:absolute;inset:4px;border:1px solid rgba(201,162,39,.10);
+    border-radius:2px;pointer-events:none}
+  .cd b{display:block;font:700 clamp(30px,6vw,46px)/1 Georgia,serif;color:var(--gold2);
+    font-variant-numeric:tabular-nums;text-shadow:0 2px 14px rgba(201,162,39,.30)}
+  .cd span{display:block;margin-top:6px;color:var(--dim);font-size:10px;
+    text-transform:uppercase;letter-spacing:.20em}
+  /* sekundy tykaja — delikatnie, zeby oko lapalo ruch, ale nie skakala szerokosc */
+  .cd div:last-child b{animation:tick 1s ease-out infinite}
+  @keyframes tick{0%{opacity:.72}12%{opacity:1}100%{opacity:.72}}
+  #launch-when{margin-top:26px;font-size:13px}
+
+  /* iskry z ogniska — kilkanascie kropek, kazda z wlasnym torem i tempem */
+  #embers{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:1}
+  #embers i{position:absolute;bottom:-12px;width:3px;height:3px;border-radius:50%;
+    background:var(--gold);opacity:0;animation:rise linear infinite}
+  @keyframes rise{
+    0%{opacity:0;transform:translateY(0) scale(.6)}
+    12%{opacity:.75}
+    75%{opacity:.5}
+    100%{opacity:0;transform:translateY(-320px) translateX(var(--dx)) scale(1.1)}}
+  @media(prefers-reduced-motion:reduce){
+    #rune-ring,.glow,.cd div:last-child b{animation:none}
+    #embers{display:none}}
+  /* W trybie premiery nie ma na stronie nic poza kamieniem: ani karty serwera, ani
+     formularza. Gracz ma zobaczyc odliczanie, a nie pytanie o haslo, ktorego nie zna.
+     Formularz jest ukryty, nie usuniety — patrz "furtka" w skrypcie nizej. */
+  body.launching .cols{display:none}
+  body.launching.unlocked .cols{display:grid;grid-template-columns:340px;justify-content:center}
+  body.launching #sigil{cursor:pointer}
   .dot.up{background:var(--ok);box-shadow:0 0 10px rgba(93,122,74,.8)}
   .dot.down{background:var(--bad)}
   code{background:#0d1114;padding:2px 7px;border-radius:4px;font-size:12px}
@@ -94,6 +170,31 @@
     <div class="runes">ᚠ ᚢ ᚦ ᚨ ᚱ ᚲ</div>
     <div class="muted" id="sub">—</div>
   </header>
+
+  <div class="box" id="launch-box" style="display:none;margin-bottom:16px">
+    <div class="glow"></div>
+    <div id="embers"></div>
+    <div id="launch-inner">
+      <!-- Valknut: trzy jednakowe trojkaty obrocone co 120° wokol wspolnego srodka.
+           Godlo Odyna i znak, ktory gra ma we wlasnym interfejsie — czytelny w jednej
+           linii, wiec nie potrzebuje ani obrazka, ani czcionki ikon. -->
+      <svg id="sigil" viewBox="0 0 240 240" aria-hidden="true">
+        <g id="rune-ring"></g>
+        <circle class="ring2" cx="120" cy="120" r="92"/>
+        <circle class="ring" cx="120" cy="120" r="80"/>
+        <g class="valknut">
+          <path d="M120 68 L165 146 L75 146 Z"/>
+          <path d="M120 68 L165 146 L75 146 Z" transform="rotate(120 120 120)"/>
+          <path d="M120 68 L165 146 L75 146 Z" transform="rotate(240 120 120)"/>
+        </g>
+      </svg>
+      <div id="launch-title"></div>
+      <div class="band">ᚠ ᚢ ᚦ ᚨ ᚱ ᚲ ᚷ ᚹ</div>
+      <div class="muted" id="launch-msg"></div>
+      <div class="cd" id="cd"></div>
+      <div class="muted" id="launch-when"></div>
+    </div>
+  </div>
 
   <div class="cols">
     <div class="box" id="status-box">
@@ -217,7 +318,77 @@ function chart(title,pts,color,unit,max){
 
 // Same trick as the panel: paint the last answer at once so the page does not assemble
 // itself in front of the visitor, then repaint when the fresh one arrives.
+// Odliczanie do premiery. Pozostały czas bierze się z różnicy dwóch liczb, które przyszły
+// w tej samej odpowiedzi — czasu serwera i celu — a nie z zegara przeglądarki. Zegar na
+// maszynie gracza bywa przestawiony o godziny i wtedy timer kłamałby u tego jednego gracza,
+// pokazując mu start wczoraj albo pojutrze.
+let CD=null,DRESSED=false;
+// Pierscien runiczny i iskry buduja sie raz, przy pierwszym pokazaniu zaslepki. W HTML-u
+// ich nie ma, bo to 24 wezly dekoracji, ktorych 51 tygodni w roku nikt nie oglada.
+function dressLaunch(){
+  if(DRESSED)return; DRESSED=true;
+  const runes=[..."ᚠᚢᚦᚨᚱᚲᚷᚹᚺᚾᛁᛃᛇᛈᛉᛊᛏᛒᛖᛗᛚᛜᛞᛟ"];
+  document.getElementById("rune-ring").innerHTML=runes.map((r,i)=>
+    `<text x="120" y="24" text-anchor="middle" transform="rotate(${i*(360/runes.length)} 120 120)">${r}</text>`).join("");
+  if(matchMedia("(prefers-reduced-motion: reduce)").matches)return;
+  const e=document.getElementById("embers");
+  e.innerHTML=Array.from({length:18},()=>{
+    const dur=6+Math.random()*7;
+    return `<i style="left:${(Math.random()*100).toFixed(1)}%;--dx:${(Math.random()*80-40).toFixed(0)}px;`
+         + `animation-duration:${dur.toFixed(1)}s;animation-delay:-${(Math.random()*dur).toFixed(1)}s"></i>`;
+  }).join("");
+}
+function paintLaunch(d){
+  dressLaunch();
+  document.body.classList.add("launching");
+  // Furtka dla admina. Formularz jest schowany, a nie wylaczony: ukrycie jedynej drogi do
+  // panelu na osiem dni to sposob na odkrycie w najgorszym momencie, ze wejscia nie ma.
+  // Klikniecie w godlo je przywraca — gracz nie ma powodu tam klikac, admin wie.
+  document.getElementById("sigil").onclick=()=>{
+    document.body.classList.add("unlocked");
+    document.getElementById("u").focus();
+  };
+  document.getElementById("sub").textContent=d.name;
+  ["status-box","board-box","launcher-box","mods-box","chart-box"]
+    .forEach(id=>{const el=document.getElementById(id);if(el)el.style.display="none";});
+  document.getElementById("launch-box").style.display="";
+  document.getElementById("launch-title").textContent=
+    d.launch.title||(PL?"Serwer rusza wkrótce":"The server opens soon");
+  const m=document.getElementById("launch-msg");
+  m.textContent=d.launch.message||"";
+  m.style.display=d.launch.message?"":"none";
+  CD=d.launch.target_ts?{at:Date.now(),left:d.launch.target_ts-d.launch.now}:null;
+  document.getElementById("launch-when").textContent=d.launch.target_ts
+    ?(PL?"Start: ":"Opens: ")+new Date(d.launch.target_ts*1000).toLocaleString(
+      PL?"pl-PL":"en-GB",{day:"numeric",month:"long",hour:"2-digit",minute:"2-digit"}):"";
+  tickCd();
+}
+function tickCd(){
+  const el=document.getElementById("cd");
+  if(!el)return;
+  if(!CD){el.innerHTML="";return;}
+  const s=CD.left-Math.floor((Date.now()-CD.at)/1000);
+  if(s<=0){
+    // Zero na zegarze nie znaczy, że serwer już stoi. Build serwera dedykowanego wychodzi
+    // po kliencie gry, więc panel czeka na niego dalej — i strona ma to powiedzieć wprost,
+    // zamiast pokazywać ujemne liczby albo udawać, że można wchodzić.
+    el.innerHTML=`<div style="min-width:auto;padding:14px 22px"><b style="font-size:22px">${
+      PL?"Lada moment":"Any moment now"}</b><span>${
+      PL?"czekamy na aktualizację serwera":"waiting for the server update"}</span></div>`;
+    return;
+  }
+  el.innerHTML=[[Math.floor(s/86400),PL?"dni":"days"],[Math.floor(s%86400/3600),PL?"godz":"hours"],
+                [Math.floor(s%3600/60),PL?"min":"min"],[s%60,PL?"sek":"sec"]]
+    .map(([v,l])=>`<div><b>${String(v).padStart(2,"0")}</b><span>${l}</span></div>`).join("");
+}
+setInterval(tickCd,1000);
+
 function paint(d){
+  if(d.launch){paintLaunch(d);return;}
+  CD=null;
+  document.body.classList.remove("launching","unlocked");
+  document.getElementById("launch-box").style.display="none";
+  document.getElementById("status-box").style.display="";
   try{
     document.getElementById("sub").textContent=d.name+(d.world?" · "+(PL?"świat":"world")+" "+d.world:"");
     document.getElementById("dot").className="dot "+(d.active?"up":"down");
