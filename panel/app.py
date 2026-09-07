@@ -1721,6 +1721,15 @@ def _launch_waiting(cfg=None):
     return bool(cfg.get("armed")) and not cfg.get("released")
 
 
+def _launch_stood_down(cfg=None):
+    """Armed, not released, and the game is meant to stay down until the new build lands.
+    Everything that restarts the server on its own has to ask this first - the 05:00
+    window did not, and on 2026-09-06 it brought the old world back up behind a page that
+    was still counting down to its replacement."""
+    cfg = cfg or _launch_cfg()
+    return _launch_waiting(cfg) and bool(cfg.get("stop_server", True))
+
+
 def _launch_target_ts(cfg):
     """The timer's target as a unix timestamp, 0 if it was never set or does not parse."""
     try:
@@ -3659,6 +3668,19 @@ def _tick():
     except Exception as e:
         _log("launch.tick_error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
 
+    # While the launch is armed the game is stood down on purpose (see _game_service). If it is
+    # up anyway - a maintenance restart, a reboot, a hand on the start button - it goes back
+    # down, and the two automatic restarts below sit this one out. The launch itself starts
+    # it, on the new build, with the fresh world.
+    stood_down = _launch_stood_down()
+    if stood_down and s["active"] and not _LAUNCH_BUSY["at"]:
+        _log("launch.stood_down_again", players=len(s["online"]))
+        _notify("maintenance", "Launch — server put back down",
+                "The game came up while the launch is armed; stopping it until the new build.",
+                tags="hourglass")
+        _game_service(False)
+        s = status()
+
     # the game server going away, and coming back
     if WATCH["active"] is not None and s["active"] != WATCH["active"]:
         if s["active"]:
@@ -3796,7 +3818,7 @@ def _tick():
     # Never touches a server with people on it: growing memory is a slow problem and
     # kicking players out of a raid is a fast one.
     mem_pct = _mem_limit(cfg)
-    if mem_pct and LIVE["mem"] is not None and LIVE["mem"] >= mem_pct and not now_on:
+    if mem_pct and LIVE["mem"] is not None and LIVE["mem"] >= mem_pct and not now_on and not stood_down:
         # Two brakes, both learned the hard way. The server must have been up for
         # a while: a fresh one climbs to its resting level in minutes, and without
         # this it would restart into the same reading over and over. And the
@@ -3821,9 +3843,9 @@ def _tick():
                  up_hours=round(up_for / 3600, 1))
             _sh("systemctl restart valheim", timeout=180)
 
-    # maintenance window
+    # maintenance window - not while the launch keeps the game down (see stood_down above)
     at = cfg["schedule"].get("restart_at")
-    if at:
+    if at and not stood_down:
         stamp = datetime.now().strftime("%Y-%m-%d") + " " + at
         due = datetime.now().strftime("%H:%M") == at and WATCH["restart_done"] != stamp
         deferred_due = WATCH["deferred_until"] and now >= WATCH["deferred_until"]

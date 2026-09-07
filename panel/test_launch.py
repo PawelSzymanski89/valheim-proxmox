@@ -200,4 +200,13 @@ assert app._launch_waiting({"armed": True, "released": False}) is True
 assert app._launch_waiting({"armed": True, "released": True}) is False
 assert app._launch_waiting({"armed": False, "released": False}) is False
 
+# --- stood down: the automatic restarts (05:00 window, memory guard) must ask this first ---
+# 2026-09-06 05:00 the window restarted a game the launch had switched off; the old world
+# ran for a day behind the countdown page.
+assert app._launch_stood_down({"armed": True, "released": False, "stop_server": True}) is True
+assert app._launch_stood_down({"armed": True, "released": False}) is True, "stop_server defaults to on"
+assert app._launch_stood_down({"armed": True, "released": False, "stop_server": False}) is False
+assert app._launch_stood_down({"armed": True, "released": True, "stop_server": True}) is False, "released = ordinary day again"
+assert app._launch_stood_down({"armed": False, "released": False, "stop_server": True}) is False
+
 print("OK — release, reboot, timezone, and a mod restore that rolls itself back")
