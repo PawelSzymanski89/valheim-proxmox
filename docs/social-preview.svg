@@ -47,5 +47,5 @@
   <rect x="80" y="492" width="1120" height="62" rx="6" fill="#0f0d0a" stroke="#2f2820" stroke-width="2"/>
   <text x="104" y="531" font-family="Avenir Next, Helvetica Neue, Arial" font-size="22" fill="#b9ae95">Full panel: mods from a share code · worlds · players &amp; bans · verified backups · phone alerts</text>
 
-  <text x="80" y="594" font-family="Avenir Next, Helvetica Neue, Arial" font-size="19" fill="#7d7361">github.com/PawelSzymanski89/valheim-proxmox  ·  free for noncommercial use</text>
+  <text x="80" y="594" font-family="Avenir Next, Helvetica Neue, Arial" font-size="19" fill="#7d7361">github.com/PawelSzymanski89/valheim-proxmox  ·  MIT licence</text>
 </svg>

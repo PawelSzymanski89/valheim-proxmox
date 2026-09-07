@@ -495,33 +495,11 @@ that cooldown kept on disk, so restarting the panel does not quietly reset it. E
 firing sends a notification with the reading, the threshold and how long the server had
 been up.
 
-## Commercial licence, and how it is proved
-
-A commercial licence is a **signed key**, not a promise. The key is issued with the
-author's private key (Ed25519) and verified by the panel offline — no activation call,
-no phone-home, and a panel with no internet checks it just the same. Paste it in the
-**Launcher** tab; the panel then names the licence holder instead of calling the install
-noncommercial.
-
-**Nothing is blocked either way.** An unlicensed panel runs identically — the key exists
-so that "we have a licence" is a checkable claim rather than a sentence. A forged or
-edited key fails verification, an expired one stops counting, and a revoked one is listed
-at the author's licence server.
-
-Beyond the right to use it, a commercial licence comes with support and a say in what
-gets built next. **Signed builds** — Authenticode on Windows, a notarised `.app` on
-macOS, so players stop seeing "unknown publisher" warnings — are available on request:
-the release pipeline already does it, the certificates get bought for the deal that
-needs them.
-
-Write to **pawel@howtodev.it**, or see the [project page](https://pawelszymanski89.github.io/valheim-proxmox/).
-
 ## License
 
-**PolyForm Noncommercial 1.0.0** — see [LICENSE](LICENSE). Playing, and running your own
-server for friends, is free. Commercial use — paid hosting, resale, or use inside a
-business — needs a separate licence: **pawel@howtodev.it**
-([project page](https://pawelszymanski89.github.io/valheim-proxmox/)).
+**MIT** — see [LICENSE](LICENSE). Use it, change it, run it for friends or for money;
+keep the copyright notice. Signed builds of the launcher (Authenticode, notarised `.app`)
+and support are available on request: **pawel@howtodev.it**.
 
 ---
 
@@ -911,7 +889,6 @@ Listę graczy i historię pokrywa `panel/test_parse.py`, bo wymagają realnych w
 
 ## Licencja
 
-**PolyForm Noncommercial 1.0.0** — patrz [LICENSE](LICENSE). Granie i własny serwer dla
-znajomych są za darmo. Użycie komercyjne — hosting za pieniądze, odsprzedaż albo użycie
-w firmie — wymaga osobnej licencji: **pawel@howtodev.it**
-([strona projektu](https://pawelszymanski89.github.io/valheim-proxmox/)).
+**MIT** — patrz [LICENSE](LICENSE). Używaj, zmieniaj, stawiaj dla znajomych albo za
+pieniądze; zostaw notkę o prawach autorskich. Podpisane wydania launchera i wsparcie
+na życzenie: **pawel@howtodev.it**.
