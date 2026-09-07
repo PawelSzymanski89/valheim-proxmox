@@ -209,4 +209,16 @@ assert app._launch_stood_down({"armed": True, "released": False, "stop_server": 
 assert app._launch_stood_down({"armed": True, "released": True, "stop_server": True}) is False, "released = ordinary day again"
 assert app._launch_stood_down({"armed": False, "released": False, "stop_server": True}) is False
 
+# --- the gate every automatic restart asks (window, memory guard, game update) ---------
+arm(stop_server=True)
+assert app._game_may_restart({}) is False, "a stood-down launch must block every restart"
+assert app._game_may_restart({}, need_empty=False) is False
+arm(stop_server=False)
+assert app._game_may_restart({}) is True
+assert app._game_may_restart({"p1": "Eir"}) is False, "someone playing blocks a restart"
+assert app._game_may_restart({"p1": "Eir"}, need_empty=False) is True, "the window has its own player rule"
+app._LAUNCH_BUSY["at"] = 1
+assert app._game_may_restart({}) is False, "a release in progress blocks a restart"
+app._LAUNCH_BUSY["at"] = 0
+
 print("OK — release, reboot, timezone, and a mod restore that rolls itself back")

@@ -1,0 +1,59 @@
+# A fresh install on every push - the class of bug production never shows.
+# (2026-09-07: setup.sh had not shipped panel/icon_badge.py for weeks; the one server
+# that mattered had the file added by hand, so nobody noticed.)
+name: fresh install
+on:
+  push:
+  pull_request:
+jobs:
+  panel:
+    name: panel self-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -q fastapi "uvicorn[standard]" pyyaml
+      - run: bash -n setup.sh install.sh docker/firstboot.sh docker/entry.sh
+      - run: cd panel && python test_launch.py && python test_parse.py
+  docker:
+    name: docker install, game from Steam
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t valheim-proxmox -f docker/Dockerfile .
+      - name: start (systemd as PID 1, host networking)
+        run: |
+          docker run -d --name vh --privileged --cgroupns=host --network host \
+            --tmpfs /run --tmpfs /run/lock --tmpfs /tmp -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
+            -e GAME_PORT=2556 -e PANEL_PORT=2560 -e SERVER_NAME=CI -e WORLD_NAME=CI \
+            -e PANEL_PASS=ci-password-1 --stop-signal SIGRTMIN+3 valheim-proxmox
+      - name: wait for the first boot (Steam download)
+        run: |
+          for i in $(seq 1 120); do
+            st=$(docker exec vh systemctl is-active valheim-firstboot 2>/dev/null || true)
+            [ "$st" = active ] && break
+            [ "$st" = failed ] && { docker exec vh journalctl -u valheim-firstboot --no-pager | tail -40; exit 1; }
+            sleep 10
+          done
+          docker exec vh journalctl -u valheim-firstboot --no-pager | tail -3
+      - name: the panel answers, on the port from the environment
+        run: |
+          for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:2560/ && break; sleep 2; done
+          curl -sf -o /dev/null http://127.0.0.1:2560/
+          curl -sf -X POST http://127.0.0.1:2560/api/login -H 'Content-Type: application/json' \
+            -d '{"user":"admin","password":"ci-password-1"}' -c ck.txt
+          curl -sf -b ck.txt http://127.0.0.1:2560/api/valheim | tee status.json
+          python3 -c "import json; d=json.load(open('status.json')); assert d['settings']['port']=='2556', d['settings']"
+      - name: the game comes up
+        run: |
+          for i in $(seq 1 60); do
+            docker exec vh journalctl -u valheim --no-pager | grep -q "Game server connected" && exit 0
+            sleep 5
+          done
+          docker exec vh journalctl -u valheim --no-pager | tail -40; exit 1
+      - name: nothing else failed
+        run: docker exec vh systemctl list-units --failed --no-legend | tee failed.txt; test ! -s failed.txt
+      - if: always()
+        run: docker logs vh 2>&1 | tail -20; docker rm -f vh || true

@@ -147,23 +147,9 @@ EOF
 
 cat >"$VH_DIR/update.sh" <<'EOF'
 #!/bin/bash
-# Only restarts when Steam actually has a newer build — a blind restart would kick
-# players for nothing.
-APP=896660
-MANIFEST=/opt/valheim/server/steamapps/appmanifest_$APP.acf
-installed=$(awk -F\" "/\"buildid\"/{print \$4; exit}" "$MANIFEST" 2>/dev/null)
-latest=$(runuser -u valheim -- env HOME=/opt/valheim /opt/valheim/steamcmd/steamcmd.sh +login anonymous +app_info_update 1 +app_info_print $APP +quit 2>/dev/null \
-  | sed -n "/\"branches\"/,/^}/p" | sed -n "/\"public\"/,/}/p" | grep -m1 "\"buildid\"" | grep -oE "[0-9]+")
-if [ -z "$latest" ]; then echo "no latest buildid (skipping, no restart)"; exit 0; fi
-if [ "$installed" = "$latest" ]; then echo "up to date (build $installed)"; exit 0; fi
-# the panel writes the current player count once a minute; do not drop people mid-raid
-players=$(cat /opt/valheim/players.count 2>/dev/null || echo 0)
-if [ "${players:-0}" -gt 0 ]; then echo "update $latest waiting - $players playing"; exit 0; fi
-echo "UPDATE $installed -> $latest"
-systemctl stop valheim
-runuser -u valheim -- env HOME=/opt/valheim /opt/valheim/steamcmd/steamcmd.sh +force_install_dir /opt/valheim/server +login anonymous +app_update $APP validate +quit >/opt/valheim/steam-update.log 2>&1
-systemctl start valheim
-echo "updated to $latest and started"
+# Since 2026-09-07 the panel installs game updates itself (valheim-update.timer is the
+# on/off switch it reads). This script stays so the timer has something to run.
+echo "game updates are handled by the panel - see the Log tab"
 EOF
 
 for f in adminlist bannedlist permittedlist; do
@@ -241,6 +227,36 @@ chmod 600 $ENV
 echo "panel login is now $USER_ / $PASS (no restart needed)"
 EOF
 chmod +x "$VH_DIR/panel-passwd.sh"
+
+# Panel update from GitHub, with a way back. The previous files stay in panel.prev and
+# come back on their own if the new panel does not answer within half a minute.
+cat >"$VH_DIR/panel-update.sh" <<'EOF'
+#!/bin/bash
+# Update the panel from GitHub: /opt/valheim/panel-update.sh  (also the button in Settings)
+set -euo pipefail
+VH=/opt/valheim
+RAW=${REPO_RAW:-https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main}
+[ -d /opt/valheim-image ] && { echo "docker install: rebuild the image instead (docker compose up -d --build)"; exit 2; }
+PORT=$(grep -oP "PANEL_PORT='\K[^']*" $VH/panel.env 2>/dev/null || echo 2460)
+FILES="app.py icon_badge.py index.html login.html icon.svg greetings.json jokes.json"
+TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+for f in $FILES; do curl -fsSL "$RAW/panel/$f" -o "$TMP/$f"; done
+$VH/panel/.venv/bin/python -m py_compile "$TMP/app.py" "$TMP/icon_badge.py"
+sha=$(curl -fsSL -H "Accept: application/vnd.github.sha" https://api.github.com/repos/PawelSzymanski89/valheim-proxmox/commits/main 2>/dev/null | cut -c1-7 || true)
+rm -rf $VH/panel.prev && mkdir -p $VH/panel.prev
+for f in $FILES; do [ -f "$VH/panel/$f" ] && cp -a "$VH/panel/$f" $VH/panel.prev/; done
+cp -a "$TMP"/. $VH/panel/
+echo "${sha:-unknown} $(date -u +%FT%TZ)" >$VH/panel.version
+systemctl restart valheim-panel
+for _ in $(seq 1 30); do sleep 1; curl -sf -o /dev/null "http://127.0.0.1:$PORT/" && { echo "panel updated to ${sha:-unknown}"; exit 0; }; done
+echo "the new panel did not come up - rolling back"
+cp -a $VH/panel.prev/. $VH/panel/
+echo "$(cat $VH/panel.version 2>/dev/null) rollback" >$VH/panel.version
+systemctl restart valheim-panel
+exit 1
+EOF
+chmod +x "$VH_DIR/panel-update.sh"
+[ -f "$VH_DIR/panel.version" ] || echo "setup $(date -u +%FT%TZ)" >"$VH_DIR/panel.version"
 
 # ---------- systemd ----------
 cat >/etc/systemd/system/valheim.service <<'EOF'

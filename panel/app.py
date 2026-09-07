@@ -57,8 +57,7 @@ VH_BAK_RE = re.compile(r"^world-\d{8}-\d{6}\.tar\.gz$")
 VH_ACTIONS = {"start": ("systemctl start valheim", 60),
               "stop": ("systemctl stop valheim", 180),
               "restart": ("systemctl restart valheim", 180),
-              "backup": (f"{VH_DIR}/backup.sh", 120),
-              "update": ("systemctl start --no-block valheim-update.service", 30)}
+              "backup": (f"{VH_DIR}/backup.sh", 120)}
 
 
 def _env_file(path):
@@ -805,6 +804,12 @@ def player_stats():
 
 @app.post("/api/valheim/action/{action}")
 def action(action: str):
+    if action == "update":
+        r = _game_update_tick(dict(WATCH["online"]), manual=True)
+        if r.get("held"):
+            raise HTTPException(409, f"Update {r['latest']} is waiting: {r['held']}")
+        return {"ok": True, "out": (f"updated to build {r['latest']}" if r["updated"]
+                                    else f"already on build {r['installed']}")}
     cmd = VH_ACTIONS.get(action)
     if not cmd:
         raise HTTPException(400, "Unknown action")
@@ -822,6 +827,46 @@ def action(action: str):
                 priority="high" if action == "stop" else "default",
                 tags={"start": "green_circle", "stop": "red_circle", "restart": "repeat"}[action])
     return {"ok": True, "out": out}
+
+
+UPDATE_SH_STUB = """#!/bin/bash
+# Since 2026-09-07 the panel installs game updates itself (valheim-update.timer is the
+# on/off switch it reads). This script stays so the timer has something to run.
+echo "game updates are handled by the panel - see the Log tab"
+"""
+VH_PANEL_VERSION = Path(f"{VH_DIR}/panel.version")   # written by panel-update.sh and setup.sh
+_PANEL_LATEST = {"at": 0, "sha": ""}
+
+
+@app.get("/api/panel/version")
+def panel_version():
+    """What is installed, what GitHub has, and whether this install can update itself
+    (a Docker install cannot - the image is the unit of update there)."""
+    installed = VH_PANEL_VERSION.read_text().strip() if VH_PANEL_VERSION.exists() else "unknown"
+    if time.time() - _PANEL_LATEST["at"] > 3600:
+        _PANEL_LATEST["at"] = time.time()
+        try:
+            _PANEL_LATEST["sha"] = _github_json(
+                "https://api.github.com/repos/PawelSzymanski89/valheim-proxmox/commits/main")["sha"][:7]
+        except Exception:
+            pass
+    return {"installed": installed, "latest": _PANEL_LATEST["sha"],
+            "docker": Path("/opt/valheim-image").exists(),
+            "can_update": Path(f"{VH_DIR}/panel-update.sh").exists() and not Path("/opt/valheim-image").exists()}
+
+
+@app.post("/api/panel/update")
+def panel_update():
+    """Runs panel-update.sh detached - it restarts this very process, so it cannot be
+    awaited from here. The script keeps the previous panel and rolls back if the new one
+    does not come up; the page polls /api/panel/version to see the result."""
+    if Path("/opt/valheim-image").exists():
+        raise HTTPException(400, "Docker install: rebuild the image (docker compose up -d --build)")
+    if not Path(f"{VH_DIR}/panel-update.sh").exists():
+        raise HTTPException(400, "panel-update.sh is missing - run setup.sh once to get it")
+    _log("panel.update")
+    _sh(f"systemd-run --on-active=1 --unit=valheim-panel-update {VH_DIR}/panel-update.sh")
+    return {"ok": True}
 
 
 @app.get("/api/panel/log")
@@ -1730,6 +1775,24 @@ def _launch_stood_down(cfg=None):
     return _launch_waiting(cfg) and bool(cfg.get("stop_server", True))
 
 
+def _game_may_restart(now_on, need_empty=True):
+    """The one question every automatic restart asks before touching the game. A launch that
+    keeps the game down wins over everything, a release in progress too, and - unless the
+    caller has its own rule for that - so does anyone playing. Until 2026-09-07 the
+    maintenance window, the memory guard and update.sh each asked something slightly
+    different, and the window won against the launch."""
+    if _launch_stood_down() or _LAUNCH_BUSY["at"]:
+        return False
+    return not (need_empty and now_on)
+
+
+def _steam_install():
+    """steamcmd, straight: the caller decides what to stop first and what to start after."""
+    return _sh(f"runuser -u valheim -- env HOME={VH_DIR} {VH_DIR}/steamcmd/steamcmd.sh "
+               f"+force_install_dir {VH_SERVER} +login anonymous "
+               f"+app_update {STEAM_APP} validate +quit", timeout=3600)
+
+
 def _launch_target_ts(cfg):
     """The timer's target as a unix timestamp, 0 if it was never set or does not parse."""
     try:
@@ -1784,11 +1847,7 @@ def _launch_release(cfg, latest):
             _sh_ok("systemctl stop valheim", timeout=180)
             steps.append("kept the world")
 
-        # steamcmd directly rather than update.sh, which would start the server itself the
-        # second it finished - before the panel could record anything about the release.
-        up = _sh(f"runuser -u valheim -- env HOME={VH_DIR} {VH_DIR}/steamcmd/steamcmd.sh "
-                 f"+force_install_dir {VH_SERVER} +login anonymous "
-                 f"+app_update {STEAM_APP} validate +quit", timeout=3600)
+        up = _steam_install()
         if up.returncode != 0:
             # Not fatal, and deliberately so. A server that is up on the old build is a
             # server people can play on; one left stopped because a download failed at 98%
@@ -3654,6 +3713,45 @@ def _crash_watch(now):
     return crash
 
 
+def _update_timer_on():
+    return _sh("systemctl is-enabled valheim-update.timer").stdout.strip() == "enabled"
+
+
+def _game_update_tick(now_on, manual=False):
+    """Install a newer server build when there is one and nothing forbids a restart.
+    `manual` is the panel button: it still asks the gate, but ignores the timer switch."""
+    installed, latest = _steam_latest_build()
+    if not latest or not installed or installed == latest:
+        return {"updated": False, "installed": installed, "latest": latest}
+    if not manual and not _update_timer_on():
+        if WATCH.get("update_notified") != latest:
+            WATCH["update_notified"] = latest
+            _notify("update_available", "Valheim update available",
+                    f"Steam has build {latest}, the server runs {installed}. "
+                    "Automatic updates are off - the Update button installs it.", tags="arrow_up")
+        return {"updated": False, "installed": installed, "latest": latest, "held": "timer off"}
+    if not _game_may_restart(now_on):
+        why = "launch" if _launch_stood_down() or _LAUNCH_BUSY["at"] else f"{len(now_on)} playing"
+        if WATCH.get("update_notified") != latest:
+            WATCH["update_notified"] = latest
+            _notify("update_available", "Valheim update waiting",
+                    f"Build {latest} is out; installing when the server is free ({why}).", tags="hourglass")
+        _log("update.held", latest=latest, why=why)
+        return {"updated": False, "installed": installed, "latest": latest, "held": why}
+    _log("update.start", installed=installed, latest=latest, manual=manual)
+    _sh("systemctl stop valheim", timeout=180)
+    up = _steam_install()
+    _sh("systemctl start valheim", timeout=180)
+    WATCH["active"] = True
+    ok = up.returncode == 0
+    _log("update.done", ok=ok, latest=latest, rc=up.returncode)
+    _notify("maintenance", "Valheim updated" if ok else "Valheim update failed",
+            (f"Build {installed} → {latest}, server restarted." if ok
+             else f"steamcmd returned {up.returncode}; the server is back on build {installed}."),
+            tags="arrow_up" if ok else "warning")
+    return {"updated": ok, "installed": installed, "latest": latest}
+
+
 def _tick():
     cfg = _alerts_cfg()
     s = status()
@@ -3803,22 +3901,21 @@ def _tick():
                 f"{round(d['avail'] / 2**30, 1)} GB left. Backups stop being written long before it hits zero.",
                 priority="high", tags="warning")
 
-    # steam build check, every six hours - it costs a steamcmd round trip
-    if now - WATCH["build_checked"] > 6 * 3600:
+    # Game updates, every two hours - a steamcmd round trip. The install happens here, not
+    # in update.sh: one place asks _game_may_restart, so an update can no longer slip past
+    # the launch or a full server. valheim-update.timer stays the operator's on/off switch.
+    if now - WATCH["build_checked"] > 2 * 3600:
         WATCH["build_checked"] = now
         try:
-            installed, latest = _steam_latest_build()
-            if latest and installed and installed != latest:
-                _notify("update_available", "Valheim update available",
-                        f"Steam has build {latest}, the server runs {installed}.", tags="arrow_up")
-        except Exception:
-            pass
+            _game_update_tick(now_on)
+        except Exception as e:
+            _log("update.error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
 
     # memory safety net - see restart_mem_base in ALERTS_DEFAULT for why it exists.
     # Never touches a server with people on it: growing memory is a slow problem and
     # kicking players out of a raid is a fast one.
     mem_pct = _mem_limit(cfg)
-    if mem_pct and LIVE["mem"] is not None and LIVE["mem"] >= mem_pct and not now_on and not stood_down:
+    if mem_pct and LIVE["mem"] is not None and LIVE["mem"] >= mem_pct and _game_may_restart(now_on):
         # Two brakes, both learned the hard way. The server must have been up for
         # a while: a fresh one climbs to its resting level in minutes, and without
         # this it would restart into the same reading over and over. And the
@@ -3843,9 +3940,10 @@ def _tick():
                  up_hours=round(up_for / 3600, 1))
             _sh("systemctl restart valheim", timeout=180)
 
-    # maintenance window - not while the launch keeps the game down (see stood_down above)
+    # maintenance window - it has its own rule for players (defer and retry), so it asks
+    # the gate only about the launch
     at = cfg["schedule"].get("restart_at")
-    if at and not stood_down:
+    if at and _game_may_restart(now_on, need_empty=False):
         stamp = datetime.now().strftime("%Y-%m-%d") + " " + at
         due = datetime.now().strftime("%H:%M") == at and WATCH["restart_done"] != stamp
         deferred_due = WATCH["deferred_until"] and now >= WATCH["deferred_until"]
@@ -3888,6 +3986,16 @@ async def _start_watcher():
             except Exception as e:
                 _log("live.error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
             await asyncio.sleep(10)
+    # One-time migration for installs older than 2026-09-07: their update.sh still stops,
+    # installs and starts the game on its own - a second updater next to the panel's, and
+    # one that does not ask the gate. It becomes the stub setup.sh now writes.
+    try:
+        up = Path(f"{VH_DIR}/update.sh")
+        if up.exists() and "app_update" in up.read_text():
+            up.write_text(UPDATE_SH_STUB)
+            _log("update.sh_retired")
+    except Exception as e:
+        _log("update.sh_retire_error", ok=False, error=str(e)[:120])
     import asyncio
     asyncio.create_task(run())
     asyncio.create_task(live())

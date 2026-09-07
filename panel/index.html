@@ -275,6 +275,12 @@
       </div>
 
       <div class="stat" style="margin-top:14px">
+        <div class="row"><div class="muted" id="pv-state">Panel version — …</div>
+          <button class="mini" id="pv-update" style="display:none">Update panel</button></div>
+        <div class="muted" id="pv-msg" style="margin-top:6px;font-size:12px"></div>
+      </div>
+
+      <div class="stat" style="margin-top:14px">
         <div class="muted">Panel login — the password is the same on every install, change it here</div>
         <div class="add" style="margin-top:8px">
           <input id="vh-au-user" placeholder="user" autocomplete="username">
@@ -757,6 +763,11 @@ const I18N={
  "Admins":"Adminów",
  "Summary":"Podsumowanie","Players":"Gracze","Access & bans":"Dostęp i bany","World":"Świat",
  "Backups":"Kopie","Settings":"Ustawienia","Mods":"Mody","Log":"Log",
+ "Panel version":"Wersja panelu","up to date":"aktualny","GitHub has":"na GitHubie jest",
+ "Docker install: rebuild the image to update.":"Instalacja Docker: aktualizacja przez przebudowę obrazu.",
+ "Updating — the panel restarts in a moment…":"Aktualizuję — panel za chwilę się zrestartuje…",
+ "Update the panel from GitHub? It restarts itself; the previous version comes back by itself if the new one fails.":"Zaktualizować panel z GitHuba? Zrestartuje się sam; jeśli nowy nie wstanie, poprzedni wraca automatycznie.",
+ "Panel updated":"Panel zaktualizowany","Update panel":"Aktualizuj panel",
  "Start":"Start","Stop":"Stop","Restart":"Restart","Back up now":"Kopia teraz","Check update":"Sprawdź aktualizację",
  "Running":"Działa","Stopped":"Zatrzymany","connecting…":"łączę…",
  "Connectivity checks":"Testy łączności","Run checks again":"Sprawdź ponownie",
@@ -1583,6 +1594,24 @@ async function vhSaveSettings(restart){
     setTimeout(load,restart?9000:600);
   }catch(e){$("vh-set-msg").textContent=e.message;toast("Not saved","bad");}
 }
+async function pvLoad(){
+  try{
+    const d=await jf("/api/panel/version");
+    const same=d.latest&&d.installed.startsWith(d.latest);
+    $("pv-state").textContent=t("Panel version")+" — "+d.installed+(d.latest?(same?" · "+t("up to date"):" · "+t("GitHub has")+" "+d.latest):"");
+    $("pv-update").style.display=d.can_update?"":"none";
+    $("pv-msg").textContent=d.docker?t("Docker install: rebuild the image to update."):"";
+  }catch(e){$("pv-state").textContent=t("Panel version")+" — ?";}
+}
+pvLoad();
+$("pv-update").onclick=async()=>{
+  if(!confirm(t("Update the panel from GitHub? It restarts itself; the previous version comes back by itself if the new one fails.")))return;
+  try{
+    await jf("/api/panel/update",{method:"POST"});
+    $("pv-msg").textContent=t("Updating — the panel restarts in a moment…");
+    setTimeout(async()=>{await pvLoad();toast(t("Panel updated"),"ok");},25000);
+  }catch(e){toast(e.message,"bad");}
+};
 $("vh-au-save").onclick=async()=>{
   const user=$("vh-au-user").value.trim()||((VH&&VH.settings&&VH.settings.panel_user)||"admin");
   $("vh-au-msg").textContent="Saving…";

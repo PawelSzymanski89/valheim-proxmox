@@ -14,7 +14,7 @@ mkdir -p "$VH"
 cp -an "$IMG/." "$VH/"
 # ...except the code, which follows the image
 cp -a "$IMG/panel/." "$VH/panel/"
-cp -a "$IMG"/{start.sh,backup.sh,update.sh,rcon-save.py,panel-passwd.sh} "$VH/"
+cp -a "$IMG"/{start.sh,backup.sh,update.sh,rcon-save.py,panel-passwd.sh,panel-update.sh} "$VH/"
 
 if [ ! -f "$VH/panel.env" ]; then
   cat >"$VH/panel.env" <<ENV

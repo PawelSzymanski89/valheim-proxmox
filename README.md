@@ -169,8 +169,9 @@ homelab uses: secrets in the env file, "what to send" in `alerts.json`.
 **Scheduled restart.** Valheim grows in memory over days, so a nightly restart is ordinary
 hygiene — but not on top of a running raid. Set a time, keep **only when nobody is playing** on,
 and if someone is on at that hour the restart is put off and retried later, with a notification
-either way. `update.sh` reads the same player count, so an automatic game update also waits for
-an empty server.
+either way. Game updates go through the same gate: the panel checks Steam every two hours and
+installs a new build only when the launch mode allows it and nobody is on. The **Update** button
+does the same on demand; `valheim-update.timer` is the on/off switch for the automatic part.
 
 ### Playtime and when the server is busy
 
@@ -414,6 +415,17 @@ reversible too. Twenty versions per file.
 
 Mods read their config at startup, so **Save** and **Save & restart** are separate buttons.
 
+## Updating the panel
+
+Settings shows the installed panel version next to what GitHub has, and an **Update panel**
+button. It runs `/opt/valheim/panel-update.sh`: fetches `panel/*` from the repository, checks
+that the new `app.py` compiles, keeps the previous files in `panel.prev`, restarts the panel and
+waits for it to answer — if it does not within half a minute, the previous version comes back on
+its own. On a Docker install the button is replaced by a note: rebuild the image instead.
+
+The repository runs the same thing on every push: a fresh install in a container, Steam download
+included, then the panel and the game have to come up (`.github/workflows/install.yml`).
+
 ## Panel log
 
 The panel writes its own log of every action to `/opt/valheim/panel.log` — mod installs with
@@ -466,7 +478,9 @@ bash -c "$(curl -fsSL .../install.sh)" -- --ram 12288 --disk 40 --ip 192.168.89.
 ├── players.json       login history (the journal rotates, this does not)
 ├── start.sh           assembles the launch arguments from server.env
 ├── backup.sh          world snapshot + retention
-├── update.sh          Steam build check, restarts only when there is a new build
+├── update.sh          stub — game updates are done by the panel (valheim-update.timer = the switch)
+├── panel-update.sh    panel update from GitHub, with rollback (also the button in Settings)
+├── panel.version      what panel-update.sh installed, and when
 └── panel/             app.py, index.html, .venv
 ```
 
@@ -778,8 +792,10 @@ homelaba: sekrety w pliku env, „co wysyłać" w `alerts.json`.
 **Zaplanowany restart.** Valheim puchnie w pamięci przez kolejne dni, więc nocny restart to
 zwykła higiena — ale nie w środku najazdu. Ustawiasz godzinę, zostawiasz **tylko gdy nikt nie
 gra**, a jeśli o tej porze ktoś siedzi na serwerze, restart zostaje przełożony i ponowiony
-później; w obu przypadkach dostajesz powiadomienie. `update.sh` czyta ten sam licznik graczy, więc
-automatyczna aktualizacja gry też czeka na pusty serwer.
+później; w obu przypadkach dostajesz powiadomienie. Aktualizacje gry przechodzą przez tę samą
+bramkę: panel sprawdza Steam co dwie godziny i instaluje nowy build tylko wtedy, gdy tryb premiery
+na to pozwala i nikt nie gra. Przycisk **Update** robi to samo na żądanie; `valheim-update.timer`
+to włącznik części automatycznej.
 
 ### Czas gry i pory, w których serwer żyje
 
@@ -825,6 +841,17 @@ zapomnienia ani niczego do sprzątania ręcznie:
 
 Test przepustowości nie zostawia po sobie nic poza plikiem tymczasowym, który sam kasuje, a te
 200 MB idzie do `/dev/null`.
+
+## Aktualizacja panelu
+
+Ustawienia pokazują wersję panelu obok tego, co jest na GitHubie, i przycisk **Aktualizuj panel**.
+Uruchamia on `/opt/valheim/panel-update.sh`: pobiera `panel/*` z repozytorium, sprawdza, czy nowy
+`app.py` się kompiluje, zostawia poprzednie pliki w `panel.prev`, restartuje panel i czeka na
+odpowiedź — jeśli nie ma jej w pół minuty, poprzednia wersja wraca sama. Na instalacji Docker
+zamiast przycisku jest notka: przebuduj obraz.
+
+Repozytorium robi to samo przy każdym pushu: świeża instalacja w kontenerze, z pobraniem ze Steama,
+po której panel i gra muszą wstać (`.github/workflows/install.yml`).
 
 ## Dziennik panelu
 
