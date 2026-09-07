@@ -45,7 +45,7 @@ jobs:
           curl -sf -X POST http://127.0.0.1:2560/api/login -H 'Content-Type: application/json' \
             -d '{"user":"admin","password":"ci-password-1"}' -c ck.txt
           curl -sf -b ck.txt http://127.0.0.1:2560/api/valheim | tee status.json
-          python3 -c "import json; d=json.load(open('status.json')); assert d['settings']['port']=='2556', d['settings']"
+          python3 -c "import json; d=json.load(open('status.json')); assert int(d['settings']['port'])==2556, d['settings']"
       - name: the game comes up
         run: |
           for i in $(seq 1 60); do
