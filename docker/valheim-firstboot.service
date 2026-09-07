@@ -1,0 +1,17 @@
+[Unit]
+Description=Valheim: bring the install into the data volume, download the game once
+DefaultDependencies=no
+After=local-fs.target network-online.target
+Wants=network-online.target
+Before=valheim.service valheim-panel.service valheim-backup.timer valheim-update.timer
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=-/run/valheim/env
+ExecStart=/usr/local/bin/valheim-firstboot
+# the first boot downloads ~1.5 GB from Steam
+TimeoutStartSec=3600
+
+[Install]
+WantedBy=multi-user.target

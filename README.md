@@ -18,7 +18,7 @@
 
 ## Install
 
-Two ways in, depending on what you are installing onto. Both end with the same thing:
+Three ways in, depending on what you are installing onto. All end with the same thing:
 the game server, the panel, backup and update timers.
 
 ### On a Proxmox VE host — creates the container for you
@@ -44,6 +44,23 @@ curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/ma
 
 Same environment variables as the flags above (`RAM=` and `DISK=` do not apply here —
 the machine is whatever you are running on).
+
+### Docker — on any Linux box that already runs Docker
+
+One container with systemd inside, so the panel works exactly as on the other two paths.
+The game downloads from Steam on the first start; ports, names and passwords come from
+`.env` and are read once — after that the panel owns them.
+
+```bash
+git clone https://github.com/PawelSzymanski89/valheim-proxmox && cd valheim-proxmox/docker
+cp .env.example .env    # optional
+docker compose up -d --build
+```
+
+Host networking: `GAME_PORT` (udp, plus the next one) and `PANEL_PORT` (tcp) are the ports
+inside and outside, nothing to map. Details, the plain `docker run` form and what it needs
+(`privileged`) are in [docker/README.md](docker/README.md). Not for Docker Desktop on
+macOS/Windows.
 
 Either way it takes a few minutes, most of it Steam pulling ~1.5 GB. Afterwards the panel
 is on **http://ADDRESS:2460**, login `admin` / `valheim123`, and the panel nags until you
@@ -886,6 +903,20 @@ Każda akcja panelu przeszła test na prawdziwym kontenerze: propagacja ustawie�
 argumentów działającego procesu, przełączanie/wgrywanie/kasowanie światów, przywracanie
 kopii (suma kontrolna zgodna przed i po), timery, zmiana portu panelu, zmiana logowania.
 Listę graczy i historię pokrywa `panel/test_parse.py`, bo wymagają realnych wejść na serwer.
+
+## Docker
+
+Trzecia droga obok LXC i gołego Debiana: jeden kontener z systemd w środku, więc panel
+działa identycznie. Gra pobiera się ze Steama przy pierwszym starcie; porty, nazwy i hasła
+z `.env` (czytane raz, potem rządzi panel). Sieć hosta: `GAME_PORT` (udp, plus kolejny) i
+`PANEL_PORT` (tcp) to porty w środku i na zewnątrz, bez mapowania.
+
+```bash
+git clone https://github.com/PawelSzymanski89/valheim-proxmox && cd valheim-proxmox/docker
+cp .env.example .env && docker compose up -d --build
+```
+
+Szczegóły w [docker/README.md](docker/README.md). Nie dla Docker Desktop na macOS/Windows.
 
 ## Licencja
 

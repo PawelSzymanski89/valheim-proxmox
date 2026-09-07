@@ -2,7 +2,12 @@
 # Installs the Valheim dedicated server + admin panel inside a Debian 12 system.
 # Called by install.sh inside a fresh LXC, but it also runs fine on its own on any
 # Debian 12 box: bash setup.sh
+#
+# SETUP_MODE=image (docker/Dockerfile): lay the files down and stop there - no game
+# download, no panel.env, nothing started. The container's first boot does those, so the
+# image carries no stale build and no ntfy topic shared by everyone who pulls it.
 set -euo pipefail
+IMAGE=${SETUP_MODE:-}; [ "$IMAGE" = image ] || IMAGE=
 
 VH_DIR=${VH_DIR:-/opt/valheim}
 PANEL_PORT=${PANEL_PORT:-2460}
@@ -54,6 +59,9 @@ say "Fetching SteamCMD"
 runuser -u valheim -- env HOME="$VH_DIR" bash -c "cd $VH_DIR/steamcmd && curl -sqL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar zxf -"
 info "done"
 
+if [ -n "$IMAGE" ]; then
+  say "Image build - the game downloads on the container's first boot"
+else
 say "Downloading the Valheim server (~1.5 GB, this is the slow part)"
 # First run of steamcmd updates steamcmd itself and re-executes, dropping whatever else
 # was on the command line — the app_update then dies with "Missing configuration".
@@ -72,6 +80,7 @@ runuser -u valheim -- env HOME="$VH_DIR" "$VH_DIR/steamcmd/steamcmd.sh" +force_i
            print "      " $0; fflush() }'
 set -e
 [ -x "$VH_DIR/server/valheim_server.x86_64" ] || die "Steam download failed — see $VH_DIR/steam-install.log"
+fi
 
 # ---------- launch config ----------
 # Settings live here, not in start.sh, so the panel has something to edit.
@@ -194,9 +203,9 @@ chown -R valheim:valheim "$VH_DIR"
 # ---------- panel ----------
 say "Installing the admin panel (FastAPI in its own venv)"
 if [ -f "$0" ] && [ -d "$(dirname "$0")/panel" ]; then
-  cp "$(dirname "$0")"/panel/{app.py,index.html,login.html,icon.svg,greetings.json,jokes.json} "$VH_DIR/panel/"
+  cp "$(dirname "$0")"/panel/{app.py,icon_badge.py,index.html,login.html,icon.svg,greetings.json,jokes.json} "$VH_DIR/panel/"
 else
-  for f in app.py index.html login.html icon.svg greetings.json jokes.json; do curl -fsSL "$REPO_RAW/panel/$f" -o "$VH_DIR/panel/$f"; done
+  for f in app.py icon_badge.py index.html login.html icon.svg greetings.json jokes.json; do curl -fsSL "$REPO_RAW/panel/$f" -o "$VH_DIR/panel/$f"; done
 fi
 python3 -m venv "$VH_DIR/panel/.venv"
 "$VH_DIR/panel/.venv/bin/pip" install -q --upgrade pip
@@ -205,7 +214,7 @@ python3 -m venv "$VH_DIR/panel/.venv"
 # The first password is fixed and printed, so there is never a "what was it again" moment.
 # It is the same on every install of this repo, which is exactly why the panel keeps warning
 # until it is changed — and why the panel has no business being on the internet before that.
-if [ ! -f "$VH_DIR/panel.env" ]; then
+if [ -z "$IMAGE" ] && [ ! -f "$VH_DIR/panel.env" ]; then
   cat >"$VH_DIR/panel.env" <<EOF
 PANEL_USER='$PANEL_USER'
 PANEL_PASS='$PANEL_PASS'
@@ -304,6 +313,11 @@ OnUnitActiveSec=2h
 WantedBy=timers.target
 EOF
 
+if [ -n "$IMAGE" ]; then
+  say "Enabling services for the container's first boot"
+  systemctl enable valheim.service valheim-panel.service valheim-backup.timer valheim-update.timer >/dev/null 2>&1
+  exit 0
+fi
 say "Starting services"
 systemctl daemon-reload
 systemctl enable --now valheim.service valheim-panel.service valheim-backup.timer valheim-update.timer >/dev/null 2>&1
