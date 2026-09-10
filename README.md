@@ -8,7 +8,7 @@
 
 **Players get a launcher for Windows, macOS and Linux — with the server's mods working on all three.**
 
-[English](#-english) · [Polski](#-polski) · [Screenshots](#what-it-looks-like) · [Panel](#the-panel) · [Mods](#mods-from-a-share-code)
+[Polski →](README.pl.md) · [Screenshots](#what-it-looks-like) · [Panel](#the-panel) · [Mods](#mods-from-a-share-code)
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-cygan-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/cygan)
 
@@ -67,13 +67,6 @@ is on **http://ADDRESS:2460**, login `admin` / `valheim123`, and the panel nags 
 change it.
 
 ---
-
-## 🇬🇧 English
-
-<sub>[Skip to the Polish version ↓](#-polski)</sub>
-
-> **Installation** is [at the top of this page](#install) — either on a Proxmox host, which
-> creates the container, or straight into a Debian 12/13 system you already have.
 
 ## The public page
 
@@ -144,122 +137,7 @@ plus the panel login.
 
 Plus Start / Stop / Restart / Back up now / Check update.
 
-### Alerts on your phone, and a restart window
-
-The panel watches the server once a minute on its own — it no longer only looks when someone
-opens the page — and pushes what changed to **[ntfy](https://ntfy.sh)**: an app that needs no
-account, no login and no server of your own.
-
-**Setup is two steps.** The installer generates an unguessable topic name (`valheim-a1b2c3d4e5`)
-and prints it. Install the ntfy app ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) ·
-[F-Droid](https://f-droid.org/packages/io.heckel.ntfy/) ·
-[iOS](https://apps.apple.com/app/ntfy/id1625396347) · [browser](https://ntfy.sh/app)), subscribe
-to that name, press **Send a test** in the panel. Everyone who should get alerts subscribes to the
-same topic; the name is the only secret, which is why it is random and can be regenerated with one
-click if it leaks.
-
-Each alert is a separate switch: **server stopped / came back**, **player joined / left**,
-**backup failed**, **disk almost full**, **game update on Steam**, **someone signed in to the
-panel**, **mod install failed**, **scheduled restart**. A private ntfy server works too — set the
-URL and a token.
-
-The topic and server live in `panel.env` (600) next to the login, the same split the rest of this
-homelab uses: secrets in the env file, "what to send" in `alerts.json`.
-
-**Scheduled restart.** Valheim grows in memory over days, so a nightly restart is ordinary
-hygiene — but not on top of a running raid. Set a time, keep **only when nobody is playing** on,
-and if someone is on at that hour the restart is put off and retried later, with a notification
-either way. Game updates go through the same gate: the panel checks Steam every two hours and
-installs a new build only when the launch mode allows it and nobody is on. The **Update** button
-does the same on demand; `valheim-update.timer` is the on/off switch for the automatic part.
-
-### Playtime and when the server is busy
-
-The **Players** tab keeps a leaderboard — total time played, longest single session, number of
-sessions, last seen — and a bar per hour of the day showing when people actually play. All of it
-comes out of the session log the panel already keeps, so nothing extra runs on the game server and
-nothing is asked of the players.
-
-## Admin only tools, and messages in game
-
-Vanilla Valheim gives an admin no way into a running server — no RCON, no console socket, no
-chat. Three **server-side** mods provide one, and the **Mods** tab installs and configures all
-three from a single button:
-
-| Package | What it is for |
-|---|---|
-| `AviiNL-rcon` | carries the RCON protocol |
-| `JereKuusela-Rcon_Commands` | puts the server console behind it |
-| `JereKuusela-Server_devcommands` | the commands worth sending |
-
-**Players install nothing.** These run on the server only and vanilla clients join as before.
-Everything that depends on them stays hidden in the panel until they answer.
-
-RCON is enabled with a generated password on port **2465** — deliberately not the mod's default
-2458, which sits inside the 2456-2458 range a router forward points at. It listens for the panel
-on the same machine; there is no reason to expose it, and every reason not to.
-
-With them installed, the **Messages** tab can:
-
-- send a line to everyone playing, in the middle of the screen or in the corner,
-- keep a **schedule** of messages — *N in-game hours before nightfall*, *at an in-game hour*, or
-  *every N real minutes*. A rule fires once per in-game day and never into an empty server.
-- show what was sent, when, and by which rule.
-
-Backups also get better: with the tools installed, `backup.sh` asks the server to write the world
-before it copies it. Without that, a backup is only as fresh as the last autosave — up to twenty
-minutes behind.
-
-### The in-game clock, with no mod at all
-
-Game time runs at wall-clock rate while somebody is connected and stands still when nobody is, so
-the panel extrapolates it from the world file: the day, the time of day, and how long until it
-turns. The public page shows it too. One in-game hour is 75 real seconds, and of the 30-minute
-cycle roughly 21 minutes are daylight.
-
-What no source documents is the phase — which clock time the saved counter's zero corresponds to.
-The panel assumes 06:00; if it reads differently from the sky in your world, `VH_CLOCK_OFFSET`
-shifts it.
-
-## Link quality
-
-For a game server the line matters more than the CPU — Valheim is UDP, so latency and packet
-loss decide how it feels. Two costs, two rules. **The ping keeps running while people play** — five packets over four
-seconds, and that is exactly when the evidence is worth having, because *"it was lagging last
-night"* is unanswerable if the graph has a hole in it. **Throughput waits for an empty server**,
-because it pushes 200 MB through the line those same people are using. Every ten minutes and every six hours by default; both intervals and both rules are settings.
-
-The numbers are honest because the method is: **four parallel streams, summed**. Measured on a
-1000/600 line, a single 25 MB download reported 551 Mbit/s and a single 100 MB upload 492 — on a
-10 ms path most of a short transfer is TLS and TCP ramp-up, not the line. Four streams of the same
-size reported **890–923 down and 618–637 up**, which is the line. 25 MB per stream is also the
-practical ceiling: Cloudflare answers 403 above 100 MB.
-
-Latency, download and upload each get their own chart, next to the players, CPU and memory ones —
-same shape, same page. The throughput lines are sparse by design: they only gain a point when the
-server was empty at the six-hour mark.
-
-A test moves about 200 MB. **Test the link now** in the panel runs it on demand — and refuses while people are playing unless you insist; a bad result
-(over 10 % loss or above 150 ms) raises an alert, because that is the point at which players start
-blaming the server.
-
-### What the panel keeps, and for how long
-
-Nothing grows without a ceiling. Each file trims itself on write, so there is no cron job to
-forget about and nothing to clean up by hand:
-
-| File | Kept | Roughly |
-|---|---|---|
-| `metrics.json` | 1440 points | 24 h of players, CPU and memory, one a minute (~90 KB) |
-| `link.json` | 1008 entries | a week of latency and loss at ten-minute steps (~150 KB) |
-| `players.json` | 60 sessions per player | totals stay forever, the session list does not |
-| `panel.log` | 4000 lines / 2 MB | trimmed when it crosses the size |
-| `BepInEx/config/.history` | 20 versions per file | older ones are dropped on the next save |
-
-The throughput test writes nothing but a temporary file it deletes itself, and the 200 MB it
-moves goes to `/dev/null`.
-
-## Panel login and getting back in
+### Panel login and getting back in
 
 Login happens on the panel's own screen, not the browser's grey box: session cookie, signed
 with a secret **and** the current password hash, so changing the password ends every session.
@@ -309,7 +187,6 @@ the log repeats `begin PlayFab create and join network` every 30 s and the join 
 out empty — a server that nobody can reach by any route. The installer pulls it in; the
 diagnosis was `ldd libparty.so`. With crossplay working the panel reads the **join code**
 out of the log and shows it on Summary (it changes on every restart).
-
 
 **Keep the panel off the internet.** It can delete worlds and hand out world downloads.
 LAN or VPN only. If you must expose it, put it behind a reverse proxy with its own auth.
@@ -415,6 +292,121 @@ reversible too. Twenty versions per file.
 
 Mods read their config at startup, so **Save** and **Save & restart** are separate buttons.
 
+## Admin only tools, and messages in game
+
+Vanilla Valheim gives an admin no way into a running server — no RCON, no console socket, no
+chat. Three **server-side** mods provide one, and the **Mods** tab installs and configures all
+three from a single button:
+
+| Package | What it is for |
+|---|---|
+| `AviiNL-rcon` | carries the RCON protocol |
+| `JereKuusela-Rcon_Commands` | puts the server console behind it |
+| `JereKuusela-Server_devcommands` | the commands worth sending |
+
+**Players install nothing.** These run on the server only and vanilla clients join as before.
+Everything that depends on them stays hidden in the panel until they answer.
+
+RCON is enabled with a generated password on port **2465** — deliberately not the mod's default
+2458, which sits inside the 2456-2458 range a router forward points at. It listens for the panel
+on the same machine; there is no reason to expose it, and every reason not to.
+
+With them installed, the **Messages** tab can:
+
+- send a line to everyone playing, in the middle of the screen or in the corner,
+- keep a **schedule** of messages — *N in-game hours before nightfall*, *at an in-game hour*, or
+  *every N real minutes*. A rule fires once per in-game day and never into an empty server.
+- show what was sent, when, and by which rule.
+
+Backups also get better: with the tools installed, `backup.sh` asks the server to write the world
+before it copies it. Without that, a backup is only as fresh as the last autosave — up to twenty
+minutes behind.
+
+### The in-game clock, with no mod at all
+
+Game time runs at wall-clock rate while somebody is connected and stands still when nobody is, so
+the panel extrapolates it from the world file: the day, the time of day, and how long until it
+turns. The public page shows it too. One in-game hour is 75 real seconds, and of the 30-minute
+cycle roughly 21 minutes are daylight.
+
+What no source documents is the phase — which clock time the saved counter's zero corresponds to.
+The panel assumes 06:00; if it reads differently from the sky in your world, `VH_CLOCK_OFFSET`
+shifts it.
+
+## Alerts on your phone, and a restart window
+
+The panel watches the server once a minute on its own — it no longer only looks when someone
+opens the page — and pushes what changed to **[ntfy](https://ntfy.sh)**: an app that needs no
+account, no login and no server of your own.
+
+**Setup is two steps.** The installer generates an unguessable topic name (`valheim-a1b2c3d4e5`)
+and prints it. Install the ntfy app ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) ·
+[F-Droid](https://f-droid.org/packages/io.heckel.ntfy/) ·
+[iOS](https://apps.apple.com/app/ntfy/id1625396347) · [browser](https://ntfy.sh/app)), subscribe
+to that name, press **Send a test** in the panel. Everyone who should get alerts subscribes to the
+same topic; the name is the only secret, which is why it is random and can be regenerated with one
+click if it leaks.
+
+Each alert is a separate switch: **server stopped / came back**, **player joined / left**,
+**backup failed**, **disk almost full**, **game update on Steam**, **someone signed in to the
+panel**, **mod install failed**, **scheduled restart**. A private ntfy server works too — set the
+URL and a token.
+
+The topic and server live in `panel.env` (600) next to the login, the same split the rest of this
+homelab uses: secrets in the env file, "what to send" in `alerts.json`.
+
+**Scheduled restart.** Valheim grows in memory over days, so a nightly restart is ordinary
+hygiene — but not on top of a running raid. Set a time, keep **only when nobody is playing** on,
+and if someone is on at that hour the restart is put off and retried later, with a notification
+either way. Game updates go through the same gate: the panel checks Steam every two hours and
+installs a new build only when the launch mode allows it and nobody is on. The **Update** button
+does the same on demand; `valheim-update.timer` is the on/off switch for the automatic part.
+
+### Playtime and when the server is busy
+
+The **Players** tab keeps a leaderboard — total time played, longest single session, number of
+sessions, last seen — and a bar per hour of the day showing when people actually play. All of it
+comes out of the session log the panel already keeps, so nothing extra runs on the game server and
+nothing is asked of the players.
+
+## Link quality
+
+For a game server the line matters more than the CPU — Valheim is UDP, so latency and packet
+loss decide how it feels. Two costs, two rules. **The ping keeps running while people play** — five packets over four
+seconds, and that is exactly when the evidence is worth having, because *"it was lagging last
+night"* is unanswerable if the graph has a hole in it. **Throughput waits for an empty server**,
+because it pushes 200 MB through the line those same people are using. Every ten minutes and every six hours by default; both intervals and both rules are settings.
+
+The numbers are honest because the method is: **four parallel streams, summed**. Measured on a
+1000/600 line, a single 25 MB download reported 551 Mbit/s and a single 100 MB upload 492 — on a
+10 ms path most of a short transfer is TLS and TCP ramp-up, not the line. Four streams of the same
+size reported **890–923 down and 618–637 up**, which is the line. 25 MB per stream is also the
+practical ceiling: Cloudflare answers 403 above 100 MB.
+
+Latency, download and upload each get their own chart, next to the players, CPU and memory ones —
+same shape, same page. The throughput lines are sparse by design: they only gain a point when the
+server was empty at the six-hour mark.
+
+A test moves about 200 MB. **Test the link now** in the panel runs it on demand — and refuses while people are playing unless you insist; a bad result
+(over 10 % loss or above 150 ms) raises an alert, because that is the point at which players start
+blaming the server.
+
+### What the panel keeps, and for how long
+
+Nothing grows without a ceiling. Each file trims itself on write, so there is no cron job to
+forget about and nothing to clean up by hand:
+
+| File | Kept | Roughly |
+|---|---|---|
+| `metrics.json` | 1440 points | 24 h of players, CPU and memory, one a minute (~90 KB) |
+| `link.json` | 1008 entries | a week of latency and loss at ten-minute steps (~150 KB) |
+| `players.json` | 60 sessions per player | totals stay forever, the session list does not |
+| `panel.log` | 4000 lines / 2 MB | trimmed when it crosses the size |
+| `BepInEx/config/.history` | 20 versions per file | older ones are dropped on the next save |
+
+The throughput test writes nothing but a temporary file it deletes itself, and the 200 MB it
+moves goes to `/dev/null`.
+
 ## Updating the panel
 
 Settings shows the installed panel version next to what GitHub has, and an **Update panel**
@@ -464,7 +456,6 @@ bash -c "$(curl -fsSL .../install.sh)" -- --ram 12288 --disk 40 --ip 192.168.89.
 ```
 
 `--help` prints the list with the current defaults.
-
 
 ## Layout
 
@@ -531,422 +522,3 @@ been up.
 **MIT** — see [LICENSE](LICENSE). Use it, change it, run it for friends or for money;
 keep the copyright notice. Signed builds of the launcher (Authenticode, notarised `.app`)
 and support are available on request: **pawel@howtodev.it**.
-
----
-
-## 🇵🇱 Polski
-
-<sub>[English version ↑](#-english)</sub>
-
-> **Instalacja** jest opisana [na samej górze](#install) — w dwóch wariantach: na hoście
-> Proxmoxa (tworzy kontener) albo wprost w istniejącym Debianie 12/13.
-
-## Strona publiczna
-
-Adres logowania to jedyna strona, którą obcy w ogóle zobaczą, więc jest zarazem **stroną
-statusu**: czy serwer działa, od kiedy, ilu gra i jak wejść — a obok formularz logowania.
-
-Jest **celowo minimalna**. Każde pole jest wyłączone, dopóki go nie włączysz w
-**Ustawieniach → Strona publiczna**, bo to widzi cały internet: numer wersji zawęża listę rzeczy
-do wypróbowania przeciw serwerowi, a lista modów i wykres obciążenia mówią obcemu, co tam chodzi
-i kiedy nikt nie patrzy. Do włączenia: liczba graczy, ich nicki, parametry maszyny z odczytem CPU i pamięci na żywo, lista modów z kodem udostępniania
-(wygodne — gracz ma wszystko, zanim zapyta), wykresy obciążenia, wersja serwera, port i to, czy
-potrzebne jest hasło. Plus własne zdanie, np. o której serwer się restartuje.
-
-**Hasło do gry nie pojawia się przy żadnym ustawieniu.** Ani nic innego, co panel wie: dysk, logi,
-testy i ustawienia siedzą za logowaniem, a `/api/public` to jedyna trasa odpowiadająca bez niego.
-
-Przy dużym zestawie strona układa się inaczej: status i logowanie dzielą górny rząd, lista modów
-zajmuje całą szerokość jako siatka kafelków z wyszukiwarką, a wykresy idą pod spód. Siedemdziesiąt
-dwa mody w wąskiej kolumnie obok pustego miejsca to była pierwsza wersja i tak właśnie wyglądała.
-
-![Strona publiczna](docs/public.png)
-
-## Jak to wygląda
-
-Panel ma własną mroczną nordycką skórę — kamień, sadza i przygaszone złoto — na ekranie
-logowania i w środku. Interfejs po polsku albo angielsku, przełącznik w prawym górnym rogu.
-
-| | |
-|---|---|
-| ![Mody](docs/mods.png) | ![Konfiguracja](docs/modconfig.png) |
-| **Mody** — wklejasz kod i wybierasz, co zainstalować | **Konfiguracja** — formularz z metadanych samego pliku |
-
-![Podsumowanie](docs/summary.png)
-
-**Podsumowanie** — adresy do wklejenia z przyciskiem kopiowania, żywe obciążenie kontenera
-i testy, które mówią wprost, czego dowodzą. Adresy i sekrety na tych zrzutach maskuje sam
-panel: otwierasz go z `?demo=1` i każde IP, hasło, kod dołączenia i kod profilu zamienia się
-na wartość przykładową — zrzut nigdy nie wynosi sieci, w której powstał.
-
-![Ustawienia](docs/settings.png)
-
-**Ustawienia** — nazwa serwera, świat, porty, widoczność, crossplay, preset i modyfikatory
-świata oraz logowanie do panelu.
-
-## Co dostajesz
-
-| | |
-|---|---|
-| **Serwer gry** | Valheim dedicated, systemd z czystym stopem (`SIGINT`, więc świat się zapisuje) |
-| **Panel** | WWW na porcie **2460**, autoryzacja HTTP Basic, hasło losowane przy instalacji |
-| **Backupy** | kopia świata co 2 h, trzyma 30, przywracanie jednym klikiem |
-| **Aktualizacje** | sprawdza Steama co 2 h i restartuje **tylko** gdy jest nowy build |
-| **Domyślnie** | 4 rdzenie, 6 GB RAM, 30 GB dysku, kontener wstaje z hostem |
-
-## Panel
-
-| Zakładka | Co daje |
-|---|---|
-| **Summary** | adresy do wklejenia — z LAN-u i z internetu (z kopiowaniem), żywe obciążenie / RAM / dysk kontenera oraz testy łączności, które mówią wprost, czego dowodzą, a czego nie |
-| **Players** | kto gra teraz — nick, identyfikator, **licznik czasu sesji na żywo** — oraz trwała historia logowań (pierwszy raz / ostatnio / ile wejść) |
-| **Access & bans** | lista adminów, lista banów, whitelista; ban prosto z listy online albo z historii. **Niepusta whitelista wpuszcza wyłącznie wpisanych** — to reguła samego Valheima, nie panelu |
-| **World** | lista światów, przełączanie aktywnego, pobieranie, kasowanie, wgrywanie pary `.db` + `.fwl` |
-| **Backups** | przywróć, pobierz, usuń; przełączniki timerów auto-backup i auto-update |
-| **Settings** | nazwa serwera, świat, hasło, **port gry**, **port panelu**, widoczność na liście serwerów, crossplay, preset i modyfikatory świata (walka, kara za śmierć, surowce, najazdy, portale) oraz przełączniki (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
-| **Mods** | wklejasz **kod udostępniania** z Thunderstore Mod Managera / r2modman: panel go rozwija, pokazuje zawartość i instaluje zaznaczone paczki (BepInEx w komplecie, świat najpierw do kopii). Umie też pojedyncze paczki po nazwie |
-| **Log** | zdarzenia serwera, bez szumu keepalive od PlayFaba |
-
-Plus Start / Stop / Restart / Backup teraz / Sprawdź update.
-
-### Logowanie do panelu i odzyskiwanie dostępu
-
-Logujesz się na własnym ekranie panelu, nie w szarym okienku przeglądarki: ciasteczko sesji
-podpisane sekretem **i** skrótem aktualnego hasła, więc zmiana hasła kończy wszystkie sesje.
-HTTP Basic dalej działa — dla `curl`a i skryptów.
-
-Pierwsze logowanie jest **zawsze takie samo, celowo**: **`admin` / `valheim123`**. Żadnego
-szukania wylosowanego ciągu w wyjściu instalatora. Panel pokazuje czerwony baner, dopóki
-hasła nie zmienisz w **Ustawieniach → Logowanie do panelu**, i nie pozwoli ustawić
-domyślnego z powrotem.
-
-Zablokowałeś się? Nie ma żadnej procedury resetu — ustawiasz nowe hasło z hosta Proxmoxa:
-
-```bash
-pct exec <CTID> -- /opt/valheim/panel-passwd.sh 'nowe-haslo-min-8-znakow'
-pct exec <CTID> -- /opt/valheim/panel-passwd.sh nowyuser 'nowe-haslo'   # razem z loginem
-```
-
-Skrypt zapisuje `/opt/valheim/panel.env` (600, root) i działa od następnego zapytania —
-bez restartu. Login możesz też podać przy instalacji: `--panel-user` / `--panel-pass`.
-
-### Porty
-
-| Port | Co |
-|---|---|
-| `2456-2458/udp` | gra (Valheim zawsze zajmuje trzy kolejne porty od tego, który ustawisz) |
-| `2460/tcp` | panel — celowo tuż obok portów gry, żeby się pamiętało, i z dala od zajeżdżonych 8080, 8000, 9000, 8006… |
-
-Oba zmienisz w **Settings**. Zmiana portu panelu restartuje go przez `systemd-run`, żeby
-zapytanie, które tę zmianę zleciło, zdążyło dostać odpowiedź. Panel nie pozwoli ustawić
-portu, który wpadłby w trzyportowy zakres gry.
-
-## Granie z internetu
-
-Przekieruj na routerze **UDP 2456-2458** na kontener. Tyle wystarczy — Valheim to goły
-UDP, nie idzie przez reverse proxy i nie potrzebuje certyfikatu.
-
-### Crossplay zmienia znaczenie słowa „port"
-
-**Zmierzone, nie założone:** przy włączonym crossplayu serwer rozmawia przez relay PlayFaba i
-**w ogóle nie otwiera portu gry** — `ss -uln` pokazuje wyłącznie port zapytań. Gracze wchodzą
-z listy crossplay przez kod dołączenia, a przekierowanie portów na routerze nie robi nic.
-
-Przy wyłączonym crossplayu serwer nasłuchuje na `2456` i wchodzi się po adresie — i po to
-właśnie jest forward opisany wyżej. Dlatego instalator zostawia crossplay **wyłączony**;
-włączysz go w Settings, jeśli wolisz graczy z Xboxa/Game Passa zamiast wejścia po adresie.
-**Crossplay wymaga `libpulse-mainloop-glib0`.** Bez tego PlayFab Party nigdy się nie
-inicjalizuje, log co 30 s powtarza `begin PlayFab create and join network`, a kod dołączenia
-wychodzi pusty — czyli serwer, do którego nikt nie wejdzie żadną drogą. Instalator ją dokłada;
-diagnoza to `ldd libparty.so`. Przy działającym crossplayu panel wyciąga **kod dołączenia**
-z logu i pokazuje go na Summary (zmienia się przy każdym restarcie).
-
-
-**Panelu nie wystawiaj na świat.** Umie kasować światy i wydawać je do pobrania. Tylko
-LAN albo VPN. Jeśli musisz — schowaj go za reverse proxy z własną autoryzacją.
-
-## Mody z kodu udostępniania
-
-Wyeksportuj profil w Thunderstore Mod Managerze albo r2modmanie (**Settings → Export profile →
-as a code**) i wklej kod w zakładce **Mods**. Panel ściąga profil z Thunderstore, wypisuje
-paczki z dokładnymi wersjami i instaluje te, które zostawisz zaznaczone — razem z BepInEx-em,
-jeśli go jeszcze nie ma.
-
-Po co przez kod, a nie klikając mody z listy: wersje w kodzie to dokładnie te, które mają już
-Twoi gracze, a to niezgodność wersji odbija ludzi przy wejściu. Kod jest potem widoczny na
-zakładce **Summary**, więc możesz go oddać każdemu, kto ma się dostroić.
-
-Profile zawierają też mody czysto klienckie (UI, mapy, dźwięki). Na serwerze zwykle nie
-przeszkadzają, ale kilka potrafi rzucić wyjątkiem, więc odznacz to, czego serwer nie
-potrzebuje. Przed pierwszym modem świat trafia do kopii — mody potrafią popsuć zapis
-nieodwracalnie.
-
-Instalacja najpierw **zatrzymuje serwer**, a po wgraniu podnosi go z powrotem — pisanie do
-`BepInEx/plugins` pod działającym serwerem zostawia stare assembly w pamięci i wygląda
-dokładnie jak „mod się nie zainstalował".
-
-**Usuń wszystkie mody** wrzuca świat do kopii, zatrzymuje serwer, kasuje BepInEx i wszystkie
-pluginy, a potem pyta, czy podnieść go czystego, czy zostawić wyłączony, żebyś wgrał inny
-zestaw. Plik świata zostaje nietknięty, ale to, co mod do niego dodał, przestaje istnieć.
-
-Zainstalowane mody leżą w `server/BepInEx/plugins/<autor>-<Paczka>/`, a `start.sh` sam włącza
-loader doorstop, gdy tylko pojawi się katalog `BepInEx/`.
-
-### Trzymanie wersji w jednej linii
-
-**Sprawdź aktualizacje** pyta Thunderstore o najnowszą wersję każdej zainstalowanej paczki i
-zaznacza to, co zostało w tyle. **Zaktualizuj wszystkie** bierze tylko te, zatrzymuje serwer,
-aktualizuje i podnosi go z powrotem.
-
-**Przypnij** paczkę, a nigdy więcej nie zostanie zaproponowana — bo liczą się te wersje, które
-mają Twoi gracze, a serwer, który po cichu ucieka do przodu, odbija wszystkich przy wejściu.
-Przypięte paczki odrzuca samo wywołanie aktualizacji, nie tylko interfejs.
-
-**Zrób kod udostępniania** zamienia to, co stoi na serwerze, w profil Thunderstore i oddaje jeden
-kod. Gracze wklejają go w swoim managerze i mają dokładnie te wersje — ten sam mechanizm co import,
-tylko w drugą stronę.
-
-### Sprawdzone na prawdziwym zestawie 72 modów
-
-Cały przepływ przeszedł na realnym kodzie udostępniania z 72 paczkami („Januszheim"):
-podgląd, instalacja, restart, edycja konfiguracji, zapis, restart, przywrócenie.
-
-- **72 zainstalowane, 0 nieudanych**, 1455 MB pobrane z Thunderstore; gra wstała z
-  **71 załadowanymi wtyczkami** i doszła do `Game server connected`.
-- Proces serwera ustabilizował się na **6,7 GB RSS** z tym zestawem — warto to wiedzieć przed
-  wyborem `--ram`. Domyślne 6 GB to liczba dla czystej gry.
-- **69 plików konfiguracyjnych** pojawiło się po pierwszym uruchomieniu modów; samo
-  `PlantEverything` rozkłada się na **147 pozycji formularza** z opisami, typami i domyślnymi.
-- Zapis zmienił **dokładnie jedną linię w pliku mającym 760**, serwer wstał z kompletem wtyczek,
-  a poprzednia wersja wróciła jednym kliknięciem.
-
-Ten przebieg wyciągnął dwa błędy w rozpakowywaniu, oba z paczek pakowanych na Windowsie:
-ścieżki miały backslashe, więc `plugins\Mod.dll` lądował jako jeden plik z backslashem w nazwie,
-a `plugins\Translations\` nie było rozpoznane jako katalog i powstawał z tego pusty **plik**,
-przez co każdy prawdziwy plik pod nim się wywracał. Oba przypadki są teraz normalizowane.
-
-## Launcher dla graczy — Windows, macOS i Linux
-
-Mody na serwerze są nic niewarte, jeśli gracze nie potrafią ich sobie wgrać, więc panel wydaje
-launcher, który robi to za nich. Dajesz jeden adres — przycisk **Pobierz** na stronie
-publicznej albo `/api/launcher/download` — a gracz dostaje paczkę nazwaną Twoim serwerem, **na
-swój system**: `.exe` na Windowsie, `.app` na macOS, zwykłą binarkę na Linuksie.
-
-**Mody działają na wszystkich trzech.** Launcher sam znajduje grę (czyta `libraryfolders.vdf`
-Steama, więc drugi dysk mu nie przeszkadza), pobiera dokładnie te pliki, które wysyła serwer —
-każdy sprawdzony po `sha256` — usuwa to, czego serwer już nie używa, instaluje loader właściwy
-dla systemu i uruchamia grę. Na Windowsie loaderem jest `winhttp.dll`, na macOS i Linuksie
-`run_bepinex.sh` z `libdoorstop`. **Na Apple Silicon launcher celowo odpala grę przez Rosettę**:
-proces arm64 wczytuje loader, ale nigdy nie zahacza Mono, więc mody po cichu nic nie robią —
-jedna linijka różnicy między „72 mody działają" a „nie ma modów i nie ma komunikatu błędu".
-
-Sprawdzone na packu z 72 modami: 1,5 GB w 466 plikach, 71 pluginów załadowanych, gra wstaje.
-
-![Launcher po synchronizacji modów](docs/launcher.png)
-
-Mody serwerowe zostają na serwerze. Wszystko, co pasuje do RCON-a albo narzędzi admina, jest
-domyślnie odznaczone w zakładce **Launcher**, a config z hasłem nigdy nie trafia do manifestu —
-to nie teoria, bo config jednego moda niósł kiedyś hasło RCON.
-
-Launcher aktualizuje się sam z wydań na GitHubie i zachowuje przypisanie do serwera przez
-aktualizację. Silnik: [valheim_launcher_proxmox](https://github.com/PawelSzymanski89/valheim_launcher_proxmox).
-
-## Konfiguracja modów — bez SSH i bez rozwalania
-
-BepInEx zapisuje po jednym `.cfg` na plugin. Zakładka **Konfiguracja modów** czyta je i buduje
-**formularz**: każdy wpis zachowuje swój opis, typ i wartość domyślną z komentarzy w samym
-pliku, więc `Boolean` to przełącznik, liczba z zakresem to pole liczbowe z granicami, a wpis z
-listą dopuszczalnych wartości to lista rozwijana. Klucze, sekcje i komentarze nie są
-przepisywane — zmienia się wyłącznie wartość, w jej własnej linii. Stąd konfiguracji nie da
-się rozwalić.
-
-**Każdy zapis zostaje.** Pod formularzem jest lista wcześniejszych wersji; jedno kliknięcie
-przywraca dowolną, a stan, który właśnie zastępujesz, też trafia na listę — więc przywracanie
-również da się cofnąć. Dwadzieścia wersji na plik.
-
-Mody czytają konfigurację przy starcie, dlatego **Zapisz** i **Zapisz i zrestartuj** to osobne
-przyciski.
-
-## Alerty na telefon i okno serwisowe
-
-Panel sam ogląda serwer raz na minutę — już nie tylko wtedy, gdy ktoś otworzy stronę — i wypycha
-zmiany na **[ntfy](https://ntfy.sh)**: apkę, która nie wymaga konta, logowania ani własnego
-serwera.
-
-**Konfiguracja to dwa kroki.** Instalator losuje nieodgadywalną nazwę tematu
-(`valheim-a1b2c3d4e5`) i ją wypisuje. Instalujesz ntfy ([Android](https://play.google.com/store/apps/details?id=io.heckel.ntfy) ·
-[F-Droid](https://f-droid.org/packages/io.heckel.ntfy/) ·
-[iOS](https://apps.apple.com/app/ntfy/id1625396347) · [przeglądarka](https://ntfy.sh/app)),
-subskrybujesz tę nazwę i klikasz **Wyślij testowe**. Każdy, kto ma dostawać alerty, subskrybuje ten
-sam temat; nazwa jest jedynym sekretem — dlatego jest losowa i jednym kliknięciem generujesz nową,
-gdyby wyciekła.
-
-Każdy alert to osobny przełącznik: **serwer padł / wstał**, **gracz wszedł / wyszedł**, **kopia się
-nie udała**, **kończy się dysk**, **jest aktualizacja na Steamie**, **ktoś zalogował się do
-panelu**, **nie udała się instalacja moda**, **zaplanowany restart**. Własny serwer ntfy też
-działa — podajesz adres i token.
-
-Temat i serwer leżą w `panel.env` (600) obok logowania — ten sam podział, co w reszcie tego
-homelaba: sekrety w pliku env, „co wysyłać" w `alerts.json`.
-
-**Zaplanowany restart.** Valheim puchnie w pamięci przez kolejne dni, więc nocny restart to
-zwykła higiena — ale nie w środku najazdu. Ustawiasz godzinę, zostawiasz **tylko gdy nikt nie
-gra**, a jeśli o tej porze ktoś siedzi na serwerze, restart zostaje przełożony i ponowiony
-później; w obu przypadkach dostajesz powiadomienie. Aktualizacje gry przechodzą przez tę samą
-bramkę: panel sprawdza Steam co dwie godziny i instaluje nowy build tylko wtedy, gdy tryb premiery
-na to pozwala i nikt nie gra. Przycisk **Update** robi to samo na żądanie; `valheim-update.timer`
-to włącznik części automatycznej.
-
-### Czas gry i pory, w których serwer żyje
-
-Zakładka **Gracze** prowadzi ranking — łączny czas gry, najdłuższa pojedyncza sesja, liczba sesji,
-ostatnia obecność — oraz słupek na każdą godzinę doby, pokazujący, kiedy ludzie realnie grają.
-Wszystko wychodzi z dziennika sesji, który panel i tak prowadzi, więc na serwerze gry nic
-dodatkowego nie chodzi i nikt niczego nie musi instalować.
-
-## Jakość łącza
-
-Dla serwera gry łącze znaczy więcej niż procesor — Valheim chodzi po UDP, więc o odczuciu decydują
-opóźnienie i utrata pakietów. Dwa różne koszty, więc dwie różne zasady. **Ping chodzi także wtedy, gdy ludzie grają** — pięć
-pakietów przez cztery sekundy, a to właśnie wtedy ten pomiar jest coś wart, bo na *„wczoraj
-wieczorem lagowało"* nie ma odpowiedzi, gdy w wykresie jest dziura. **Przepustowość czeka na pusty
-serwer**, bo przepycha 200 MB przez to samo łącze, na którym ci ludzie siedzą. Domyślnie co dziesięć minut i co sześć godzin; oba interwały i obie zasady to ustawienia.
-
-Liczby są uczciwe, bo metoda jest uczciwa: **cztery równoległe strumienie, zsumowane**. Zmierzone
-na łączu 1000/600: pojedyncze pobranie 25 MB pokazało 551 Mbit/s, a pojedyncza wysyłka 100 MB —
-492, bo przy 10 ms większość krótkiego transferu to TLS i rozpędzanie TCP, nie łącze. Cztery
-strumienie tej samej wielkości dały **890–923 w dół i 618–637 w górę**, czyli tyle, ile łącze ma.
-25 MB na strumień to też praktyczny sufit: Cloudflare powyżej 100 MB odpowiada 403.
-
-Opóźnienie, pobieranie i wysyłanie mają własne wykresy, obok graczy, CPU i pamięci — ten sam
-kształt, ta sama strona. Linie przepustowości są z założenia rzadkie: dostają punkt tylko wtedy,
-gdy o sześciogodzinnej porze serwer był pusty.
-
-Jeden pomiar przepuszcza około 200 MB. **Zmierz łącze teraz** w panelu robi to na żądanie i odmawia, gdy ktoś gra, dopóki nie potwierdzisz, a zły
-wynik (ponad 10 % strat albo powyżej 150 ms) podnosi alert — bo to moment, w którym gracze zaczynają
-obwiniać serwer.
-
-### Co panel przechowuje i jak długo
-
-Nic nie rośnie bez sufitu. Każdy plik przycina się sam przy zapisie, więc nie ma crona do
-zapomnienia ani niczego do sprzątania ręcznie:
-
-| Plik | Trzyma | Czyli |
-|---|---|---|
-| `metrics.json` | 1440 punktów | 24 h graczy, CPU i pamięci, po jednym na minutę (~90 KB) |
-| `link.json` | 1008 wpisów | tydzień pomiarów opóźnienia i strat co dziesięć minut (~150 KB) |
-| `players.json` | 60 sesji na gracza | sumy zostają na zawsze, lista sesji nie |
-| `panel.log` | 4000 linii / 2 MB | przycinany po przekroczeniu rozmiaru |
-| `BepInEx/config/.history` | 20 wersji na plik | starsze znikają przy kolejnym zapisie |
-
-Test przepustowości nie zostawia po sobie nic poza plikiem tymczasowym, który sam kasuje, a te
-200 MB idzie do `/dev/null`.
-
-## Aktualizacja panelu
-
-Ustawienia pokazują wersję panelu obok tego, co jest na GitHubie, i przycisk **Aktualizuj panel**.
-Uruchamia on `/opt/valheim/panel-update.sh`: pobiera `panel/*` z repozytorium, sprawdza, czy nowy
-`app.py` się kompiluje, zostawia poprzednie pliki w `panel.prev`, restartuje panel i czeka na
-odpowiedź — jeśli nie ma jej w pół minuty, poprzednia wersja wraca sama. Na instalacji Docker
-zamiast przycisku jest notka: przebuduj obraz.
-
-Repozytorium robi to samo przy każdym pushu: świeża instalacja w kontenerze, z pobraniem ze Steama,
-po której panel i gra muszą wstać (`.github/workflows/install.yml`).
-
-## Dziennik panelu
-
-Panel zapisuje własny dziennik każdej akcji do `/opt/valheim/panel.log` — instalacje modów
-razem z tym, co się nie udało i dlaczego, zapisy konfiguracji z listą zmienionych kluczy,
-akcje usług, operacje na światach i kopiach, zmiany logowania (nigdy hasła). Widać go w
-zakładce **Log** obok logu serwera gry, z filtrem na mody albo same błędy.
-
-## Opcje
-
-Każdą wartość nadpiszesz zmienną środowiskową:
-
-```bash
-CTID=250 RAM=8192 CORES=6 DISK=40 GAME_PORT=2456 PANEL_PORT=2460 \
-SERVER_NAME="Klans" WORLD_NAME="Midgard" SERVER_PASS="wpuscmnie42" \
-bash -c "$(curl -fsSL .../install.sh)"
-```
-
-| Zmienna | Domyślnie | |
-|---|---|---|
-| `CTID` | pierwszy wolny | numer kontenera |
-| `HOSTNAME_` | `valheim` | nazwa hosta kontenera |
-| `CORES` / `RAM` / `DISK` | `4` / `6144` / `30` | rdzenie / MB / GB |
-| `STORAGE` | pierwszy storage przyjmujący rootfs | gdzie ląduje dysk kontenera |
-| `IP` / `GW` | `dhcp` | stały adres zamiast DHCP: `IP=192.168.89.21/24 GW=192.168.89.1` — przydaje się, gdy DNS albo forward już wskazują ten adres |
-| `BRIDGE` | `vmbr0` | mostek sieciowy |
-| `GAME_PORT` / `PANEL_PORT` | `2456` / `2460` | |
-| `SERVER_NAME` / `WORLD_NAME` | `Valheim` / `Dedicated` | |
-| `SERVER_PASS` | losowe 10 znaków | hasło do gry (min. 5 znaków i **nie może zawierać** nazwy serwera ani świata — gra to odrzuca) |
-
-### Flagi
-
-Wszystko powyżej działa też jako flaga — czytelniej wygląda w jednolinijkowcu, który się gdzieś zapisuje:
-
-```bash
-bash -c "$(curl -fsSL .../install.sh)" -- --ram 12288 --disk 40 --ip 192.168.89.21/24 --gw 192.168.89.1
-```
-
-`--help` wypisze listę razem z aktualnymi domyślnymi wartościami.
-
-
-## Co gdzie leży
-
-```
-/opt/valheim/
-├── server/            pliki gry (SteamCMD)
-├── data/              savedir: worlds_local/, adminlist.txt, bannedlist.txt, permittedlist.txt
-├── backups/           world-RRRRMMDD-GGMMSS.tar.gz, trzyma 30
-├── server.env         ustawienia startowe — to edytuje panel
-├── panel.env          login, hasło i port panelu (600)
-├── players.json       historia logowań (journal się rotuje, ten plik nie)
-├── start.sh           skleja argumenty startowe z server.env
-├── backup.sh          kopia świata + retencja
-├── update.sh          sprawdzenie buildu na Steamie, restart tylko gdy nowy
-└── panel/             app.py, index.html, .venv
-```
-
-systemd: `valheim`, `valheim-panel`, `valheim-backup.timer`, `valheim-update.timer`.
-
-## Czego uczciwie nie da się zrobić
-
-- **Valheim nie ma RCON-a.** Komendy w grze (kick, spawn, pogoda, tryb boga) wpisuje się
-  w konsoli F5 jako gracz, którego identyfikator jest w `adminlist.txt`. Panel zarządza tą
-  listą — nie napisze za Ciebie w grze. „Kick" to tutaj ban i odbanowanie.
-- **Lista graczy online to heurystyka.** Linia z nickiem (`Got character ZDOID from …`)
-  nie zawiera identyfikatora gracza, więc nicki dopinane są do połączeń w kolejności
-  wejścia. Miarodajny licznik (`Connections N`) pada raz na ~10 minut — gdy oba się
-  rozjadą, panel to pokazuje, zamiast ukrywać.
-- **Panel chodzi jako root** we własnym kontenerze: woła `systemctl` i pisze po
-  `/opt/valheim`. Dlatego to osobny kontener i dlatego nie ma go w internecie.
-
-## Na czym sprawdzone
-
-Proxmox VE 8.4, szablon `debian-12-standard`, Valheim dedicated `l-0.221.12`.
-Każda akcja panelu przeszła test na prawdziwym kontenerze: propagacja ustawień aż do
-argumentów działającego procesu, przełączanie/wgrywanie/kasowanie światów, przywracanie
-kopii (suma kontrolna zgodna przed i po), timery, zmiana portu panelu, zmiana logowania.
-Listę graczy i historię pokrywa `panel/test_parse.py`, bo wymagają realnych wejść na serwer.
-
-## Docker
-
-Trzecia droga obok LXC i gołego Debiana: jeden kontener z systemd w środku, więc panel
-działa identycznie. Gra pobiera się ze Steama przy pierwszym starcie; porty, nazwy i hasła
-z `.env` (czytane raz, potem rządzi panel). Sieć hosta: `GAME_PORT` (udp, plus kolejny) i
-`PANEL_PORT` (tcp) to porty w środku i na zewnątrz, bez mapowania.
-
-```bash
-git clone https://github.com/PawelSzymanski89/valheim-proxmox && cd valheim-proxmox/docker
-cp .env.example .env && docker compose up -d --build
-```
-
-Szczegóły w [docker/README.md](docker/README.md). Nie dla Docker Desktop na macOS/Windows.
-
-## Licencja
-
-**MIT** — patrz [LICENSE](LICENSE). Używaj, zmieniaj, stawiaj dla znajomych albo za
-pieniądze; zostaw notkę o prawach autorskich. Podpisane wydania launchera i wsparcie
-na życzenie: **pawel@howtodev.it**.
