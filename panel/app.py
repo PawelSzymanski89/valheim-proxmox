@@ -1304,7 +1304,9 @@ def _verify_backup(fn):
         members = [m.strip() for m in r.stdout.splitlines() if m.strip()]
         # .db/.fwl up to 0.221, .db2/.fwl2 inside a world folder since 1.0; the game's own
         # automatic copies are in the archive too, the real world is the one to read
-        dbs = sorted((m for m in members if m.endswith((".db", ".db2"))), key=lambda m: "_backup_auto-" in m)
+        active = _parse_env(Path(VH_ENV).read_text().splitlines())["world"]
+        dbs = sorted((m for m in members if m.endswith((".db", ".db2"))),
+                     key=lambda m: ("_backup_auto-" in m, not (m.startswith((f"./{active}/", f"./{active}.")))))
         if not dbs or not any(m.endswith((".fwl", ".fwl2")) for m in members):
             out["error"] = f"no world in the archive ({len(members)} files)"
             return out
