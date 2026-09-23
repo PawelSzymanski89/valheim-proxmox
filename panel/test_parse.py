@@ -138,5 +138,8 @@ assert app._world_files("Nope") == (None, None)
 (w / "Fresh" / "_main.0.fwl2").write_bytes(fwl("Fresh"))
 assert app._world_files("Fresh")[0].name == "_main.0.fwl2"
 assert "Fresh" in [x["name"] for x in app._worlds()]
+(w / "Old").mkdir()                                     # the 1.0 server converting Old.db
+assert app._world_files("Old")[0].name == "Old.fwl"
+assert ("Old", "legacy") in [(x["name"], x["format"]) for x in app._worlds()]
 
 print("OK — log parser, login history, the crash watcher and both world formats")

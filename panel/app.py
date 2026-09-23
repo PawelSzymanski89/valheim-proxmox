@@ -1084,23 +1084,30 @@ def _world_files(name):
         # a world that has not been saved yet has only its _main.0.fwl2
         fwls = sorted((int(p.name.split(".")[1]), p) for p in d.glob("_main.*.fwl2")
                       if p.name.split(".")[1].isdigit())
-        return (fwls[-1][1], fwls[-1][1].with_suffix(".db2")) if fwls else (None, None)
+        if fwls:
+            return fwls[-1][1], fwls[-1][1].with_suffix(".db2")
+    # An old pair. Converting one, the 1.0 server makes the folder at load but fills it only
+    # on the first save - until then the empty folder must not hide the pair.
     fwl, db = d.with_name(f"{name}.fwl"), d.with_name(f"{name}.db")
     return (fwl, db) if fwl.exists() else (None, None)
 
 
 def _worlds():
-    out = {}
-    for p in sorted(Path(VH_WORLDS).glob("*"), key=lambda p: p.is_dir()):   # folder wins a tie
-        name = p.name if p.is_dir() else p.stem if p.suffix == ".fwl" else ""
-        if not VH_NAME_RE.match(name) or "_backup_auto-" in name or not _world_files(name)[0]:
+    out = []
+    names = {p.name if p.is_dir() else p.stem for p in Path(VH_WORLDS).glob("*")
+             if p.is_dir() or p.suffix == ".fwl"}
+    for name in names:
+        if not VH_NAME_RE.match(name) or "_backup_auto-" in name:
             continue
-        files = [f.stat() for f in p.iterdir()] if p.is_dir() else \
-            [f.stat() for f in _world_files(name) if f.exists()]
-        out[name] = {"name": name, "format": "1.0" if p.is_dir() else "legacy",
-                     "size": sum(s.st_size for s in files),
-                     "mtime": int(max((s.st_mtime for s in files), default=0))}
-    return sorted(out.values(), key=lambda w: w["mtime"], reverse=True)
+        fwl, db = _world_files(name)
+        if not fwl:
+            continue
+        new = fwl.suffix == ".fwl2"
+        files = [f.stat() for f in (fwl.parent.iterdir() if new else (fwl, db)) if f.exists()]
+        out.append({"name": name, "format": "1.0" if new else "legacy",
+                    "size": sum(s.st_size for s in files),
+                    "mtime": int(max((s.st_mtime for s in files), default=0))})
+    return sorted(out, key=lambda w: w["mtime"], reverse=True)
 
 
 def _not_active(name):
@@ -1159,6 +1166,7 @@ async def world_upload(filename: str, data: bytes = Body(b""), fresh: bool = Fal
         # so a half-finished upload never sits where the game or the panel would read it.
         if not VH_NAME_RE.match(world) or not VH_W1_FILE_RE.match(fn):
             raise HTTPException(400, f"Not a file of a Valheim world folder: {filename}")
+        _not_active(world)                    # on the first file, not after the whole folder
         dest = VH_UPLOADS / world
         if fresh:
             shutil.rmtree(dest, ignore_errors=True)

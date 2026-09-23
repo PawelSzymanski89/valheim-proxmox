@@ -28,6 +28,12 @@ echo "updating to $REF"
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$REF" | tar xz -C "$TMP" --strip-components=1
 [ -f "$TMP/setup.sh" ] && [ -f "$TMP/panel/app.py" ] || { echo "$REF has no setup.sh / panel"; exit 1; }
+# a release from before this engine would run its setup.sh as a fresh install - over the settings
+[ -f "$TMP/panel/VERSION" ] || { echo "$REF predates the update engine - not installing it"; exit 1; }
+NEW=$(cat "$TMP/panel/VERSION"); OLD=$(cat $VH/panel/VERSION 2>/dev/null || echo v0.0.0)
+if [ -z "${1:-}" ] && [ "$(printf '%s\n' "$OLD" "$NEW" | sort -V | tail -1)" != "$NEW" ]; then
+  echo "installed $OLD is newer than $NEW - nothing to do"; exit 0
+fi
 $VH/panel/.venv/bin/python -m py_compile "$TMP/panel/app.py" "$TMP/panel/icon_badge.py"
 
 [ -x $VH/backup.sh ] && runuser -u valheim -- $VH/backup.sh || echo "backup skipped"
