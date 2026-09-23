@@ -1322,6 +1322,8 @@ async function vhMap(){
         return u.toString();
       }catch(e){return mapUrl(x,z,zoom);}
     };
+    let cfg={};
+    try{cfg=await jf("/api/valheim/world/links");}catch(e){}
     $("frame-note").textContent=cfg.lobby_view
       ? t("The frame opens your lobby, so everyone's pins are on it.")
       : t("The terrain map can sit right here — it renders in your browser, so it only loads when you ask.");
@@ -1344,8 +1346,6 @@ async function vhMap(){
             href="${mapUrl(p.x,p.z,"2.000")}">${t("show on the terrain map")}</a>
             <button class="mini" data-here="${p.x},${p.z}">${t("centre the frame here")}</button></td></tr>`).join("")
       : "";
-    let cfg={};
-    try{cfg=await jf("/api/valheim/world/links");}catch(e){}
     $("lobby-view").value=cfg.lobby_view||"";$("lobby-edit").value=cfg.lobby_edit||"";
     // the downloaded map covers the whole disc, so it spans the full width of the plot
     const bg=cfg.map?`<image href="/api/valheim/world/map?t=${cfg.map_at||0}" x="0" y="0" width="${S}" height="${S}" preserveAspectRatio="none"/>`:"";
