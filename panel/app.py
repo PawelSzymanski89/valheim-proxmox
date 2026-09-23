@@ -1230,7 +1230,10 @@ async def world_upload(filename: str, data: bytes = Body(b""), fresh: bool = Fal
     if not _in_game_dirs(p.parent):
         raise HTTPException(400, "worlds_local is not where it should be")
     # O_NOFOLLOW: a link planted under this name is refused, not written through
-    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+    try:
+        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+    except OSError:                       # ELOOP: a link sits where the file goes
+        raise HTTPException(409, f"{filename} is a link, not a file - delete it first")
     with os.fdopen(fd, "wb") as f:
         f.write(data)
         os.fchown(f.fileno(), *_ids("valheim:valheim"))
