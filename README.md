@@ -129,7 +129,7 @@ plus the panel login.
 | **Summary** | join addresses for LAN and for the internet (with copy buttons), live load / RAM / disk of the container, and connectivity checks that say what they can and cannot prove |
 | **Players** | who is online right now — name, id, **live session timer** — and a persistent login history (first seen / last seen / number of joins) |
 | **Access & bans** | admin list, ban list, allowlist; ban straight from the online list or the history. **An allowlist that is not empty locks everyone else out** — that is Valheim's own rule, not the panel's |
-| **World** | list worlds, switch the active one, download, delete, upload a `.db` + `.fwl` pair |
+| **World** | list worlds, switch the active one, download, delete, upload a world — a Valheim 1.0 world folder, or an old `.db` + `.fwl` pair the server converts |
 | **Backups** | restore, download, delete; toggles for the auto-backup and auto-update timers |
 | **Settings** | server name, world, password, **game port**, **panel port**, public listing, crossplay, world preset and modifiers (combat, death penalty, resources, raids, portals) and the world toggles (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
 | **Mods** | paste a Thunderstore Mod Manager / r2modman **share code**: the panel expands it, shows what is inside, and installs the picked packages (BepInEx included, world backed up first). Also installs single packages by name |
@@ -407,16 +407,36 @@ forget about and nothing to clean up by hand:
 The throughput test writes nothing but a temporary file it deletes itself, and the 200 MB it
 moves goes to `/dev/null`.
 
-## Updating the panel
+## Updating
 
-Settings shows the installed panel version next to what GitHub has, and an **Update panel**
-button. It runs `/opt/valheim/panel-update.sh`: fetches `panel/*` from the repository, checks
-that the new `app.py` compiles, keeps the previous files in `panel.prev`, restarts the panel and
-waits for it to answer — if it does not within half a minute, the previous version comes back on
-its own. On a Docker install the button is replaced by a note: rebuild the image instead.
+Every install updates itself. When a new release is out, a banner at the top of the panel says
+so, with a link to what changed. With **Install new versions automatically** on (Settings, on by
+default) the panel installs it on its own the next time nobody is playing; the **Update now**
+button does it right away.
 
-The repository runs the same thing on every push: a fresh install in a container, Steam download
-included, then the panel and the game have to come up (`.github/workflows/install.yml`).
+An update is `/opt/valheim/panel-update.sh`: it downloads the release, backs the world up, then
+runs `setup.sh` in upgrade mode — the panel, `start.sh`, `backup.sh`, the systemd units and the
+dependencies all move to the new version. The world, the backups, `server.env`, the panel login
+and the mods are not touched, the game is not downloaded again, and a server that was stopped
+stays stopped; only the panel restarts. If the new panel does not answer within half a minute,
+the previous one comes back on its own. One automatic try per release.
+
+An install too old to have the button updates once from the terminal, and from then on by itself:
+
+```bash
+# on the Proxmox host (CTID = the container's id)
+pct exec CTID -- bash -c "curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/panel/panel-update.sh | bash"
+# inside the container / on a plain Debian install
+curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/panel/panel-update.sh | bash
+```
+
+On a Docker install the banner says to rebuild the image instead.
+
+A release is a bump of `panel/VERSION`, a tag and a GitHub release — the tag is what installs
+move to, never an untagged commit on `main`.
+
+The repository runs a fresh install on every push: in a container, Steam download included, then
+the panel and the game have to come up (`.github/workflows/install.yml`).
 
 ## Panel log
 
@@ -470,8 +490,8 @@ bash -c "$(curl -fsSL .../install.sh)" -- --ram 12288 --disk 40 --ip 192.168.89.
 ├── start.sh           assembles the launch arguments from server.env
 ├── backup.sh          world snapshot + retention
 ├── update.sh          stub — game updates are done by the panel (valheim-update.timer = the switch)
-├── panel-update.sh    panel update from GitHub, with rollback (also the button in Settings)
-├── panel.version      what panel-update.sh installed, and when
+├── panel-update.sh    update to the newest release, with rollback (automatic, or the button)
+├── panel.version      the installed release, and when
 └── panel/             app.py, index.html, .venv
 ```
 

@@ -13,6 +13,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import shlex
 import socket
 import struct
@@ -356,7 +357,6 @@ date -d "$(systemctl show valheim -p ActiveEnterTimestamp --value)" +%s 2>/dev/n
 echo '@env'; cat {VH_ENV} 2>/dev/null
 echo '@panel'; cat {VH_PANEL_ENV} 2>/dev/null | grep -v PANEL_PASS
 echo '@lists'; for f in {' '.join(VH_LISTS.values())}; do echo "#$f"; cat {VH_DATA}/$f 2>/dev/null; done
-echo '@worlds'; ls -l --time-style=+%s {VH_WORLDS} 2>/dev/null
 echo '@backups'; ls -l --time-style=+%s {VH_BACKUPS} 2>/dev/null
 echo '@timers'; for t in {' '.join(VH_TIMERS.values())}; do \
   n=$(systemctl list-timers --all --no-pager $t 2>/dev/null | awk 'NR==2 && $1!="-"{{print $1,$2,$3,$4}}'); \
@@ -567,13 +567,10 @@ def status():
         elif cur and ln.strip() and not ln.strip().startswith("//"):
             lists[cur].append(ln.strip())
 
-    files = _ls(sec.get("worlds", []))
-    dbs = {f["name"][:-3]: f for f in files if f["name"].endswith(".db")}
-    worlds = sorted(({"name": f["name"][:-4],
-                      "size": dbs.get(f["name"][:-4], {}).get("size", 0),
-                      "mtime": max(f["mtime"], dbs.get(f["name"][:-4], {}).get("mtime", 0))}
-                     for f in files if f["name"].endswith(".fwl") and "_backup_auto-" not in f["name"]),
-                    key=lambda w: w["mtime"], reverse=True)
+    try:
+        worlds = _worlds()
+    except FileNotFoundError:
+        worlds = []
     backups = sorted((f for f in _ls(sec.get("backups", [])) if VH_BAK_RE.match(f["name"])),
                      key=lambda b: b["mtime"], reverse=True)
 
@@ -834,39 +831,110 @@ UPDATE_SH_STUB = """#!/bin/bash
 # on/off switch it reads). This script stays so the timer has something to run.
 echo "game updates are handled by the panel - see the Log tab"
 """
-VH_PANEL_VERSION = Path(f"{VH_DIR}/panel.version")   # written by panel-update.sh and setup.sh
-_PANEL_LATEST = {"at": 0, "sha": ""}
+VH_PANEL_VERSION = Path(f"{VH_DIR}/panel.version")   # written by setup.sh: "v1.20.0 <when>"
+VH_AUTO_UPDATE_OFF = Path(f"{VH_DIR}/auto-update.off")  # present = the admin switched it off
+_PANEL_LATEST = {"at": 0, "tag": "", "name": "", "url": "", "notes": ""}
+
+
+def _vtuple(v):
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", v or "")
+    return tuple(map(int, m.groups())) if m else None
+
+
+def _panel_installed():
+    """The release this panel came from. Installs from before releases had a VERSION file
+    wrote a commit hash to panel.version - that reads as unknown, and unknown is older."""
+    f = HERE / "VERSION"
+    return f.read_text().strip() if f.exists() else "unknown"
+
+
+def _panel_latest():
+    """The newest GitHub release, asked once an hour - the panel polls this every page load."""
+    if time.time() - _PANEL_LATEST["at"] > 3600:
+        _PANEL_LATEST["at"] = time.time()
+        try:
+            r = _github_json("https://api.github.com/repos/PawelSzymanski89/valheim-proxmox/releases/latest")
+            _PANEL_LATEST.update(tag=r["tag_name"], name=r.get("name") or r["tag_name"],
+                                 url=r.get("html_url", ""), notes=(r.get("body") or "")[:1500])
+        except Exception:
+            pass
+    return _PANEL_LATEST
+
+
+def _panel_can_update():
+    return Path(f"{VH_DIR}/panel-update.sh").exists() and not Path("/opt/valheim-image").exists()
+
+
+def _panel_newer():
+    """The latest release if it is newer than this panel, else None."""
+    latest, mine = _panel_latest(), _vtuple(_panel_installed())
+    new = _vtuple(latest["tag"])
+    return latest if new and (mine is None or new > mine) else None
 
 
 @app.get("/api/panel/version")
 def panel_version():
     """What is installed, what GitHub has, and whether this install can update itself
     (a Docker install cannot - the image is the unit of update there)."""
-    installed = VH_PANEL_VERSION.read_text().strip() if VH_PANEL_VERSION.exists() else "unknown"
-    if time.time() - _PANEL_LATEST["at"] > 3600:
-        _PANEL_LATEST["at"] = time.time()
-        try:
-            _PANEL_LATEST["sha"] = _github_json(
-                "https://api.github.com/repos/PawelSzymanski89/valheim-proxmox/commits/main")["sha"][:7]
-        except Exception:
-            pass
-    return {"installed": installed, "latest": _PANEL_LATEST["sha"],
-            "docker": Path("/opt/valheim-image").exists(),
-            "can_update": Path(f"{VH_DIR}/panel-update.sh").exists() and not Path("/opt/valheim-image").exists()}
+    latest = _panel_latest()
+    return {"installed": _panel_installed(), "latest": latest["tag"], "name": latest["name"],
+            "url": latest["url"], "notes": latest["notes"], "newer": bool(_panel_newer()),
+            "auto": not VH_AUTO_UPDATE_OFF.exists(),
+            "docker": Path("/opt/valheim-image").exists(), "can_update": _panel_can_update()}
+
+
+def _panel_update_start(why):
+    """panel-update.sh in its own transient unit - it restarts this very process, so it
+    cannot run as our child. The script keeps the previous panel and rolls back by itself."""
+    _log("panel.update", why=why, to=_PANEL_LATEST["tag"])
+    return _sh(f"systemd-run --on-active=1 --unit=valheim-panel-update-{int(time.time())} "
+               f"{VH_DIR}/panel-update.sh")
 
 
 @app.post("/api/panel/update")
 def panel_update():
-    """Runs panel-update.sh detached - it restarts this very process, so it cannot be
-    awaited from here. The script keeps the previous panel and rolls back if the new one
-    does not come up; the page polls /api/panel/version to see the result."""
     if Path("/opt/valheim-image").exists():
         raise HTTPException(400, "Docker install: rebuild the image (docker compose up -d --build)")
     if not Path(f"{VH_DIR}/panel-update.sh").exists():
-        raise HTTPException(400, "panel-update.sh is missing - run setup.sh once to get it")
-    _log("panel.update")
-    _sh(f"systemd-run --on-active=1 --unit=valheim-panel-update {VH_DIR}/panel-update.sh")
+        raise HTTPException(400, "panel-update.sh is missing - update once from the terminal, see the README")
+    _panel_update_start("button")
     return {"ok": True}
+
+
+@app.post("/api/panel/auto-update")
+def panel_auto_update(body: dict = Body(...)):
+    if body.get("on"):
+        VH_AUTO_UPDATE_OFF.unlink(missing_ok=True)
+    else:
+        VH_AUTO_UPDATE_OFF.touch()
+    _log("panel.auto_update", on=bool(body.get("on")))
+    return {"ok": True, "auto": not VH_AUTO_UPDATE_OFF.exists()}
+
+
+def _panel_update_tick(now_on):
+    """Automatic updates: a newer release, switched on, and nobody playing. The panel is the
+    only thing that restarts - the game keeps running - but an update is still best done
+    while nobody is watching. One try per release: a rolled-back update waits for the next."""
+    new = _panel_newer()
+    if not new or VH_AUTO_UPDATE_OFF.exists() or not _panel_can_update() or now_on:
+        return
+    tried = Path(f"{VH_DIR}/auto-update.tried")
+    if tried.exists() and tried.read_text().strip() == new["tag"]:
+        return
+    tried.write_text(new["tag"])
+    _panel_update_start("auto")
+
+
+def _panel_updated_notice():
+    """Runs once at start: tells the admin when this start is the first on a new release."""
+    seen = Path(f"{VH_DIR}/panel.seen")
+    mine = _panel_installed()
+    old = seen.read_text().strip() if seen.exists() else ""
+    if old and old != mine and "rollback" not in (VH_PANEL_VERSION.read_text() if VH_PANEL_VERSION.exists() else ""):
+        _log("panel.updated", frm=old, to=mine)
+        _notify("maintenance", f"Panel updated to {mine}", f"From {old}. World and settings untouched.",
+                tags="arrow_up")
+    seen.write_text(mine)
 
 
 @app.get("/api/panel/log")
@@ -995,6 +1063,51 @@ def _world_ok(name):
     return shlex.quote(name)
 
 
+# Two on-disk formats. Up to 0.221 a world was NAME.db + NAME.fwl. Since 1.0 it is a folder
+# NAME/ of map chunks plus numbered saves _main.N.{db2,fwl2,chunks,ok}; N goes up on every
+# save, the .ok is written last, and the game loads the highest complete N. The server
+# still reads an old pair and converts it on load, so both have to be understood here.
+VH_W1_FILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}\.(chunk|chunks|db2|fwl2|ok)$")
+VH_UPLOADS = Path(f"{VH_DIR}/upload")
+
+
+def _world_files(name):
+    """(fwl, db) paths of a world's current save, (None, None) if there is no such world."""
+    d = Path(VH_WORLDS) / name
+    if d.is_dir():
+        saves = sorted((int(p.name.split(".")[1]), p) for p in d.glob("_main.*.ok")
+                       if p.name.split(".")[1].isdigit())
+        for n, _ in reversed(saves):
+            fwl, db = d / f"_main.{n}.fwl2", d / f"_main.{n}.db2"
+            if fwl.exists() and db.exists():
+                return fwl, db
+        # a world that has not been saved yet has only its _main.0.fwl2
+        fwls = sorted((int(p.name.split(".")[1]), p) for p in d.glob("_main.*.fwl2")
+                      if p.name.split(".")[1].isdigit())
+        return (fwls[-1][1], fwls[-1][1].with_suffix(".db2")) if fwls else (None, None)
+    fwl, db = d.with_name(f"{name}.fwl"), d.with_name(f"{name}.db")
+    return (fwl, db) if fwl.exists() else (None, None)
+
+
+def _worlds():
+    out = {}
+    for p in sorted(Path(VH_WORLDS).glob("*"), key=lambda p: p.is_dir()):   # folder wins a tie
+        name = p.name if p.is_dir() else p.stem if p.suffix == ".fwl" else ""
+        if not VH_NAME_RE.match(name) or "_backup_auto-" in name or not _world_files(name)[0]:
+            continue
+        files = [f.stat() for f in p.iterdir()] if p.is_dir() else \
+            [f.stat() for f in _world_files(name) if f.exists()]
+        out[name] = {"name": name, "format": "1.0" if p.is_dir() else "legacy",
+                     "size": sum(s.st_size for s in files),
+                     "mtime": int(max((s.st_mtime for s in files), default=0))}
+    return sorted(out.values(), key=lambda w: w["mtime"], reverse=True)
+
+
+def _not_active(name):
+    if _parse_env(Path(VH_ENV).read_text().splitlines())["world"] == name:
+        raise HTTPException(409, "That is the active world — switch to another one first")
+
+
 class World(BaseModel):
     name: str
     restart: bool = True
@@ -1002,8 +1115,8 @@ class World(BaseModel):
 
 @app.post("/api/valheim/worlds/activate")
 def world_activate(w: World):
-    q = _world_ok(w.name)
-    if _sh(f"test -f {VH_WORLDS}/{q}.fwl").returncode != 0:
+    _world_ok(w.name)
+    if not _world_files(w.name)[0]:
         raise HTTPException(404, "No such world")
     cur = _parse_env(Path(VH_ENV).read_text().splitlines())
     cur["world"] = w.name
@@ -1015,10 +1128,9 @@ def world_activate(w: World):
 @app.delete("/api/valheim/worlds/{name}")
 def world_delete(name: str):
     q = _world_ok(name)
-    cur = _parse_env(Path(VH_ENV).read_text().splitlines())
-    if cur["world"] == name:
-        raise HTTPException(409, "That is the active world — switch to another one first")
-    _sh_ok(f"cd {VH_WORLDS} && rm -f {q}.db {q}.fwl {q}.db.old {q}.fwl.old {q}_backup_auto-*.db {q}_backup_auto-*.fwl")
+    _not_active(name)
+    # rm -r: since 1.0 the world and each of its automatic copies are folders
+    _sh_ok(f"cd {VH_WORLDS} && rm -rf {q} {q}.db {q}.fwl {q}.db.old {q}.fwl.old {q}_backup_auto-*")
     _log("world.delete", world=name)
     return {"ok": True}
 
@@ -1026,26 +1138,59 @@ def world_delete(name: str):
 @app.get("/api/valheim/worlds/{name}/download")
 def world_download(name: str):
     q = _world_ok(name)
-    data = base64.b64decode(_sh_ok(f"tar czf - -C {VH_WORLDS} {q}.db {q}.fwl | base64", timeout=120))
+    fwl, db = _world_files(name)
+    if not fwl:
+        raise HTTPException(404, "No such world")
+    # the folder itself goes in, so the archive unpacks straight into a game's worlds_local
+    what = q if fwl.parent.name == name else f"{q}.db {q}.fwl"
+    data = base64.b64decode(_sh_ok(f"tar czf - -C {VH_WORLDS} {what} | base64", timeout=120))
     return Response(data, media_type="application/gzip",
                     headers={"Content-Disposition": f'attachment; filename="{name}.tar.gz"'})
 
 
-@app.post("/api/valheim/worlds/upload/{filename}")
-async def world_upload(filename: str, data: bytes = Body(...)):
+@app.post("/api/valheim/worlds/upload/{filename:path}")
+async def world_upload(filename: str, data: bytes = Body(b""), fresh: bool = False):
     # raw body instead of multipart — keeps python-multipart out of the dependency list
-    base, _, ext = filename.rpartition(".")
-    if ext not in ("db", "fwl") or not VH_NAME_RE.match(base):
-        raise HTTPException(400, f"Only .db and .fwl files with a plain name: {filename}")
-    if not data:
-        raise HTTPException(400, "Empty file")
     if len(data) > 300 * 1024 * 1024:
         raise HTTPException(413, "File too large")
+    world, sep, fn = filename.partition("/")
+    if sep:
+        # 1.0: one file of a world folder. Staged outside worlds_local until upload-done,
+        # so a half-finished upload never sits where the game or the panel would read it.
+        if not VH_NAME_RE.match(world) or not VH_W1_FILE_RE.match(fn):
+            raise HTTPException(400, f"Not a file of a Valheim world folder: {filename}")
+        dest = VH_UPLOADS / world
+        if fresh:
+            shutil.rmtree(dest, ignore_errors=True)
+        dest.mkdir(parents=True, exist_ok=True)
+        (dest / fn).write_bytes(data)
+        return {"ok": True, "staged": filename}
+    base, _, ext = filename.rpartition(".")
+    if ext not in ("db", "fwl") or not VH_NAME_RE.match(base):
+        raise HTTPException(400, f"Only a world folder, or .db and .fwl files with a plain name: {filename}")
+    if not data:
+        raise HTTPException(400, "Empty file")
+    _not_active(base)
     p = Path(VH_WORLDS) / filename
     p.write_bytes(data)
     _sh(f"chown valheim:valheim {shlex.quote(str(p))}")
     _log("world.upload", file=filename, size=len(data))
     return {"ok": True, "saved": filename}
+
+
+@app.post("/api/valheim/worlds/upload-done/{name}")
+def world_upload_done(name: str):
+    """Moves a staged 1.0 world folder into place, replacing a world of the same name."""
+    q = _world_ok(name)
+    _not_active(name)
+    src = VH_UPLOADS / name
+    kinds = {p.suffix for p in src.glob("_main.*")} if src.is_dir() else set()
+    if not {".db2", ".fwl2", ".ok"} <= kinds:
+        shutil.rmtree(src, ignore_errors=True)
+        raise HTTPException(400, "Not a Valheim 1.0 world folder — it needs _main.N.db2, .fwl2 and .ok")
+    _sh_ok(f"cd {VH_WORLDS} && rm -rf {q} && mv {shlex.quote(str(src))} {q} && chown -R valheim:valheim {q}")
+    _log("world.upload", world=name, files=sum(1 for _ in (Path(VH_WORLDS) / name).iterdir()))
+    return {"ok": True, "saved": name}
 
 
 def _bak_ok(fn):
@@ -1112,9 +1257,11 @@ def _read_db_head(head):
 def _world_card(world=None):
     """Seed, in-game day and file sizes for one world — everything a restore decision needs."""
     world = world or _parse_env(Path(VH_ENV).read_text().splitlines())["world"]
-    fwl, db = Path(VH_WORLDS) / f"{world}.fwl", Path(VH_WORLDS) / f"{world}.db"
+    fwl, db = _world_files(world)
     card = {"world": world, "db": None, "fwl": None, "error": None}
     try:
+        if not fwl:
+            raise FileNotFoundError
         card["fwl"] = _read_fwl(fwl.read_bytes())
         with db.open("rb") as f:
             card["db"] = _read_db_head(f.read(12))
@@ -1147,11 +1294,14 @@ def _verify_backup(fn):
         # the names are kept exactly as tar stored them ("./Klans.db"), because that is what
         # tar wants back when extracting one — trimming the "./" first finds nothing
         members = [m.strip() for m in r.stdout.splitlines() if m.strip()]
-        if not any(m.endswith(".db") for m in members) or not any(m.endswith(".fwl") for m in members):
+        # .db/.fwl up to 0.221, .db2/.fwl2 inside a world folder since 1.0; the game's own
+        # automatic copies are in the archive too, the real world is the one to read
+        dbs = sorted((m for m in members if m.endswith((".db", ".db2"))), key=lambda m: "_backup_auto-" in m)
+        if not dbs or not any(m.endswith((".fwl", ".fwl2")) for m in members):
             out["error"] = f"no world in the archive ({len(members)} files)"
             return out
         # and prove the world inside is readable, not just that the archive opens
-        name = next(m for m in members if m.endswith(".db"))
+        name = dbs[0]
         head = _sh(f"tar xzOf {shlex.quote(str(p))} {shlex.quote(name)} 2>/dev/null | head -c 12 | base64",
                    timeout=180).stdout.strip()
         out.update(_read_db_head(base64.b64decode(head)))
@@ -1672,7 +1822,13 @@ def _wipe_world(world, wipe_mods=False):
 
     removed = []
     for p in Path(VH_WORLDS).glob(f"{world}*"):
-        if p.suffix in (".db", ".fwl", ".old") or ".db" in p.name or ".fwl" in p.name:
+        # exact name only - a glob on "Klans" would also take the world "Klans2"
+        if p.name != world and not p.name.startswith((f"{world}.", f"{world}_backup_auto-")):
+            continue
+        if p.is_dir():                        # 1.0: the world and its automatic copies are folders
+            shutil.rmtree(p)
+            removed.append(p.name)
+        elif p.suffix in (".db", ".fwl", ".old") or ".db" in p.name or ".fwl" in p.name:
             p.unlink(missing_ok=True)
             removed.append(p.name)
     for f in (VH_SAY, VH_METRICS, VH_LIFE):
@@ -2582,8 +2738,13 @@ def backup_restore(fn: str):
     _bak_ok(fn)
     # snapshot the current world first — restoring by mistake has to be reversible
     _sh_ok(f"{VH_DIR}/backup.sh", timeout=120)
-    _sh_ok(f"systemctl stop valheim && tar xzf {VH_BACKUPS}/{fn} -C {VH_WORLDS} "
-           f"&& chown -R valheim:valheim {VH_WORLDS} && systemctl start valheim", timeout=240)
+    # Unpacked into an empty folder, not over the live one: a 1.0 world keeps numbered saves
+    # and loads the highest, so the newer save left in place would win over the restored
+    # one. What was there stays in worlds_local.prev until the next restore.
+    w = shlex.quote(VH_WORLDS)
+    _sh_ok(f"systemctl stop valheim && rm -rf {w}.prev && mv {w} {w}.prev && mkdir {w} "
+           f"&& tar xzf {VH_BACKUPS}/{fn} -C {w} && chown -R valheim:valheim {w} "
+           f"&& systemctl start valheim", timeout=240)
     _log("backup.restore", file=fn)
     return {"ok": True}
 
@@ -3904,6 +4065,11 @@ def _tick():
     # Game updates, every two hours - a steamcmd round trip. The install happens here, not
     # in update.sh: one place asks _game_may_restart, so an update can no longer slip past
     # the launch or a full server. valheim-update.timer stays the operator's on/off switch.
+    try:
+        _panel_update_tick(now_on)
+    except Exception as e:
+        _log("panel.update_error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
+
     if now - WATCH["build_checked"] > 2 * 3600:
         WATCH["build_checked"] = now
         try:
@@ -3986,6 +4152,10 @@ async def _start_watcher():
             except Exception as e:
                 _log("live.error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
             await asyncio.sleep(10)
+    try:
+        _panel_updated_notice()
+    except Exception as e:
+        _log("panel.notice_error", ok=False, error=str(e)[:120])
     # One-time migration for installs older than 2026-09-07: their update.sh still stops,
     # installs and starts the game on its own - a second updater next to the panel's, and
     # one that does not ask the gate. It becomes the stub setup.sh now writes.

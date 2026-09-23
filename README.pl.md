@@ -128,7 +128,7 @@ na wartość przykładową — zrzut nigdy nie wynosi sieci, w której powstał.
 | **Summary** | adresy do wklejenia — z LAN-u i z internetu (z kopiowaniem), żywe obciążenie / RAM / dysk kontenera oraz testy łączności, które mówią wprost, czego dowodzą, a czego nie |
 | **Players** | kto gra teraz — nick, identyfikator, **licznik czasu sesji na żywo** — oraz trwała historia logowań (pierwszy raz / ostatnio / ile wejść) |
 | **Access & bans** | lista adminów, lista banów, whitelista; ban prosto z listy online albo z historii. **Niepusta whitelista wpuszcza wyłącznie wpisanych** — to reguła samego Valheima, nie panelu |
-| **World** | lista światów, przełączanie aktywnego, pobieranie, kasowanie, wgrywanie pary `.db` + `.fwl` |
+| **World** | lista światów, przełączanie aktywnego, pobieranie, kasowanie, wgrywanie świata — folderu świata z Valheima 1.0 albo starej pary `.db` + `.fwl`, którą serwer przekonwertuje |
 | **Backups** | przywróć, pobierz, usuń; przełączniki timerów auto-backup i auto-update |
 | **Settings** | nazwa serwera, świat, hasło, **port gry**, **port panelu**, widoczność na liście serwerów, crossplay, preset i modyfikatory świata (walka, kara za śmierć, surowce, najazdy, portale) oraz przełączniki (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
 | **Mods** | wklejasz **kod udostępniania** z Thunderstore Mod Managera / r2modman: panel go rozwija, pokazuje zawartość i instaluje zaznaczone paczki (BepInEx w komplecie, świat najpierw do kopii). Umie też pojedyncze paczki po nazwie |
@@ -410,16 +410,35 @@ zapomnienia ani niczego do sprzątania ręcznie:
 Test przepustowości nie zostawia po sobie nic poza plikiem tymczasowym, który sam kasuje, a te
 200 MB idzie do `/dev/null`.
 
-## Aktualizacja panelu
+## Aktualizacje
 
-Ustawienia pokazują wersję panelu obok tego, co jest na GitHubie, i przycisk **Aktualizuj panel**.
-Uruchamia on `/opt/valheim/panel-update.sh`: pobiera `panel/*` z repozytorium, sprawdza, czy nowy
-`app.py` się kompiluje, zostawia poprzednie pliki w `panel.prev`, restartuje panel i czeka na
-odpowiedź — jeśli nie ma jej w pół minuty, poprzednia wersja wraca sama. Na instalacji Docker
-zamiast przycisku jest notka: przebuduj obraz.
+Każda instalacja aktualizuje się sama. Gdy wychodzi nowe wydanie, na górze panelu pojawia się
+baner z linkiem do listy zmian. Przy włączonym **Instaluj nowe wersje automatycznie** (Ustawienia,
+domyślnie włączone) panel instaluje je sam, gdy nikt nie gra; przycisk **Aktualizuj teraz** robi to
+od razu.
 
-Repozytorium robi to samo przy każdym pushu: świeża instalacja w kontenerze, z pobraniem ze Steama,
-po której panel i gra muszą wstać (`.github/workflows/install.yml`).
+Aktualizacja to `/opt/valheim/panel-update.sh`: pobiera wydanie, robi backup świata i uruchamia
+`setup.sh` w trybie upgrade — panel, `start.sh`, `backup.sh`, unity systemd i zależności przechodzą
+na nową wersję. Świat, backupy, `server.env`, login do panelu i mody zostają nietknięte, gra nie jest
+pobierana od nowa, a zatrzymany serwer zostaje zatrzymany; restartuje się tylko panel. Jeśli nowy panel
+nie odpowie w pół minuty, poprzedni wraca sam. Jedna automatyczna próba na wydanie.
+
+Instalacja za stara na przycisk aktualizuje się raz z terminala, a potem już sama:
+
+```bash
+# na hoście Proxmox (CTID = numer kontenera)
+pct exec CTID -- bash -c "curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/panel/panel-update.sh | bash"
+# w kontenerze / na zwykłym Debianie
+curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/panel/panel-update.sh | bash
+```
+
+Na instalacji Docker baner mówi, żeby przebudować obraz.
+
+Wydanie to podbicie `panel/VERSION`, tag i release na GitHubie — instalacje przechodzą na tag, nigdy
+na nieotagowany commit z `main`.
+
+Repozytorium robi świeżą instalację przy każdym pushu: w kontenerze, z pobraniem ze Steama, po której
+panel i gra muszą wstać (`.github/workflows/install.yml`).
 
 ## Dziennik panelu
 
@@ -473,8 +492,8 @@ bash -c "$(curl -fsSL .../install.sh)" -- --ram 12288 --disk 40 --ip 192.168.89.
 ├── start.sh           skleja argumenty startowe z server.env
 ├── backup.sh          kopia świata + retencja
 ├── update.sh          zaślepka — aktualizacje gry robi panel (valheim-update.timer = włącznik)
-├── panel-update.sh    aktualizacja panelu z GitHuba, z rollbackiem (też przycisk w Settings)
-├── panel.version      co i kiedy zainstalował panel-update.sh
+├── panel-update.sh    aktualizacja do najnowszego wydania, z rollbackiem (automatycznie albo przyciskiem)
+├── panel.version      zainstalowane wydanie i kiedy
 └── panel/             app.py, index.html, .venv
 ```
 

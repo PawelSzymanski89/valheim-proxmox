@@ -134,6 +134,11 @@
   <div class="sub">Everything a server admin can control. In-game commands (kick, spawn, weather)
     live in the F5 console — add yourself to <b>Admins</b> below and use it there.</div>
 
+  <div id="warn-update" class="card" style="display:none;border-color:var(--acc);margin-bottom:14px">
+    <div class="row"><div><b id="wu-title">A new version is out</b>
+      <span class="muted" id="wu-note"></span> <a id="wu-link" target="_blank" rel="noopener">What's new</a></div>
+      <button class="mini primary" id="wu-btn">Update now</button></div>
+  </div>
   <div id="warn-default" class="card" style="display:none;border-color:var(--bad);margin-bottom:14px">
     <b>The panel still uses the password it was installed with.</b>
     <span class="muted">Everyone who has seen this project knows it. Change it in Settings → Panel login.</span>
@@ -238,14 +243,16 @@
       <table><thead><tr><th>World</th><th>Size</th><th>Last save</th><th class="r">Actions</th></tr></thead>
       <tbody id="vh-worlds"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
       <div class="add" style="margin-top:12px">
-        <input type="file" id="vh-wup" multiple accept=".db,.fwl">
+        <label class="muted" style="display:flex;gap:6px;align-items:center">World folder <input type="file" id="vh-wup-dir" webkitdirectory></label>
+        <label class="muted" style="display:flex;gap:6px;align-items:center">or old files <input type="file" id="vh-wup" multiple accept=".db,.fwl"></label>
         <button id="vh-wup-btn">Upload world</button>
       </div>
       <div class="row" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
         <div class="muted">Start the whole thing over: new world on a new seed, empty player statistics, availability counted from zero. A backup is taken first.</div>
         <button class="mini danger" id="vh-wipe">Wipe the game</button>
       </div>
-      <div class="muted" style="margin-top:6px">Upload a matching pair <code>NAME.db</code> + <code>NAME.fwl</code>.
+      <div class="muted" style="margin-top:6px">Since Valheim 1.0 a world is a folder — pick the whole folder, <code>worlds_local/NAME</code>.
+        A world from an older version comes as a pair <code>NAME.db</code> + <code>NAME.fwl</code> — the server converts it on the next start.
         New world: just type a name in Settings — the server generates it on the next start.</div>
     </div>
 
@@ -277,6 +284,8 @@
       <div class="stat" style="margin-top:14px">
         <div class="row"><div class="muted" id="pv-state">Panel version — …</div>
           <button class="mini" id="pv-update" style="display:none">Update panel</button></div>
+        <label class="muted" id="pv-auto-row" style="display:none;gap:6px;align-items:center;margin-top:8px">
+          <input type="checkbox" id="pv-auto"> Install new versions automatically, while nobody is playing</label>
         <div class="muted" id="pv-msg" style="margin-top:6px;font-size:12px"></div>
       </div>
 
@@ -669,6 +678,21 @@ const I18N={
  "The server reloads these files on its own — no restart needed. An admin can use the in-game console (F5):":"Serwer sam przeładowuje te pliki — restart niepotrzebny. Admin może użyć konsoli w grze (F5):",
  ", weather, god mode.":", pogoda, tryb boga.",
  "Upload a matching pair":"Wgraj pasującą parę plików",
+ "Since Valheim 1.0 a world is a folder — pick the whole folder,":"Od Valheima 1.0 świat to folder — wybierz cały folder,",
+ "A world from an older version comes as a pair":"Świat ze starszej wersji to para plików",
+ "— the server converts it on the next start.":"— serwer przekonwertuje go przy najbliższym starcie.",
+ "World folder":"Folder świata",
+ "A new version is out":"Jest nowa wersja","What's new":"Co nowego","Update now":"Aktualizuj teraz",
+ "Update now?":"Zaktualizować teraz?",
+ "Install new versions automatically, while nobody is playing":"Instaluj nowe wersje automatycznie, gdy nikt nie gra",
+ "This install is too old for the button — update once from the terminal, see the README.":"Ta instalacja jest za stara na przycisk — zaktualizuj raz z terminala, instrukcja w README.",
+ "It installs itself as soon as nobody is playing — the world and settings stay.":"Zainstaluje się sama, gdy nikt nie będzie grał — świat i ustawienia zostają.",
+ "The world and settings stay; the panel restarts, the game keeps running.":"Świat i ustawienia zostają; panel się zrestartuje, gra działa dalej.",
+ "The world is backed up first, then the panel restarts — the game keeps running. If the new version does not start, the previous one comes back by itself.":"Najpierw backup świata, potem restart panelu — gra działa dalej. Jeśli nowa wersja nie wstanie, poprzednia wróci sama.",
+"or old files":"albo stare pliki",
+ "Pick a world folder, or the .db and .fwl files":"Wybierz folder świata albo pliki .db i .fwl",
+ "No world in that folder (no _main.N.fwl2)":"W tym folderze nie ma świata (brak _main.N.fwl2)",
+ "Replace world?":"Zastąpić świat?","Replace":"Zastąp",
  ". New world: just type a name in Settings — the server generates it on the next start.":". Nowy świat: wpisz nazwę w Ustawieniach — serwer wygeneruje go przy najbliższym starcie.",
  "Export a profile in Thunderstore Mod Manager / r2modman (":"Wyeksportuj profil w Thunderstore Mod Managerze / r2modman (",
  "Settings → Export profile → as a code":"Settings → Export profile → as a code",
@@ -1402,7 +1426,9 @@ $("vh-verify").onclick=async()=>{
   catch(e){toast(e.message,"bad");}
   b.classList.remove("loading");
 };
+let WORLDS=[];
 function vhWorlds(v){
+  WORLDS=v.worlds;
   const act=(v.settings||{}).world;
   $("vh-worlds").innerHTML=(v.worlds||[]).length?v.worlds.map(w=>`<tr>
     <td>${esc(w.name)}${w.name===act?' <span class="dot run"></span><span class="muted">active</span>':""}</td>
@@ -1597,20 +1623,45 @@ async function vhSaveSettings(restart){
 async function pvLoad(){
   try{
     const d=await jf("/api/panel/version");
-    const same=d.latest&&d.installed.startsWith(d.latest);
-    $("pv-state").textContent=t("Panel version")+" — "+d.installed+(d.latest?(same?" · "+t("up to date"):" · "+t("GitHub has")+" "+d.latest):"");
-    $("pv-update").style.display=d.can_update?"":"none";
+    $("pv-state").textContent=t("Panel version")+" — "+d.installed+(d.latest?(d.newer?" · "+t("GitHub has")+" "+d.latest:" · "+t("up to date")):"");
+    $("pv-update").style.display=d.can_update&&d.newer?"":"none";
+    $("pv-auto-row").style.display=d.can_update?"flex":"none";
+    $("pv-auto").checked=d.auto;
     $("pv-msg").textContent=d.docker?t("Docker install: rebuild the image to update."):"";
+    // the banner: everyone with a panel sees a release the moment it is out
+    $("warn-update").style.display=d.newer?"block":"none";
+    if(d.newer){
+      $("wu-title").textContent=t("A new version is out")+": "+d.latest;
+      $("wu-link").href=d.url||"https://github.com/PawelSzymanski89/valheim-proxmox/releases";
+      $("wu-note").textContent=d.docker?t("Docker install: rebuild the image to update."):
+        !d.can_update?t("This install is too old for the button — update once from the terminal, see the README."):
+        d.auto?t("It installs itself as soon as nobody is playing — the world and settings stay."):
+        t("The world and settings stay; the panel restarts, the game keeps running.");
+      $("wu-btn").style.display=d.can_update?"":"none";
+    }
   }catch(e){$("pv-state").textContent=t("Panel version")+" — ?";}
 }
-pvLoad();
-$("pv-update").onclick=async()=>{
-  if(!confirm(t("Update the panel from GitHub? It restarts itself; the previous version comes back by itself if the new one fails.")))return;
+pvLoad();setInterval(pvLoad,15*60000);
+async function pvUpdate(){
+  if(!await confirmModal(t("Update now?"),t("The world is backed up first, then the panel restarts — the game keeps running. If the new version does not start, the previous one comes back by itself."),t("Update")))return;
   try{
     await jf("/api/panel/update",{method:"POST"});
     $("pv-msg").textContent=t("Updating — the panel restarts in a moment…");
-    setTimeout(async()=>{await pvLoad();toast(t("Panel updated"),"ok");},25000);
+    toast(t("Updating — the panel restarts in a moment…"),"ok");
+    // setup.sh runs apt and pip, so give it time, then reload into the new panel
+    const was=(await jf("/api/panel/version")).installed;
+    for(let i=0;i<60;i++){
+      await new Promise(r=>setTimeout(r,5000));
+      try{const d=await jf("/api/panel/version");if(d.installed!==was){location.reload();return;}}catch(e){}
+    }
+    pvLoad();
   }catch(e){toast(e.message,"bad");}
+}
+$("pv-update").onclick=pvUpdate;$("wu-btn").onclick=pvUpdate;
+$("pv-auto").onchange=async()=>{
+  try{await jf("/api/panel/auto-update",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({on:$("pv-auto").checked})});pvLoad();}
+  catch(e){toast(e.message,"bad");}
 };
 $("vh-au-save").onclick=async()=>{
   const user=$("vh-au-user").value.trim()||((VH&&VH.settings&&VH.settings.panel_user)||"admin");
@@ -1977,13 +2028,30 @@ document.querySelectorAll("[data-logsrc]").forEach(b=>b.onclick=()=>{
   vhLog();
 });
 $("vh-wup-btn").onclick=async()=>{
-  const f=$("vh-wup").files;
-  if(!f.length){toast("Pick the .db and .fwl files","bad");return;}
+  const f=$("vh-wup").files, dirs={};
+  // 1.0: webkitRelativePath is "NAME/file"; whoever picks worlds_local itself gets one
+  // more level, so the world is always the parent folder - and the game's own copies stay out
+  for(const x of $("vh-wup-dir").files){
+    const p=x.webkitRelativePath.split("/"), w=p[p.length-2];
+    if(!w||w.includes("_backup_auto-")||!/\.(chunk|chunks|db2|fwl2|ok)$/.test(x.name))continue;
+    (dirs[w]=dirs[w]||[]).push(x);
+  }
+  for(const w in dirs)if(!dirs[w].some(x=>x.name.endsWith(".fwl2")))delete dirs[w];
+  if(!f.length&&!$("vh-wup-dir").files.length){toast("Pick a world folder, or the .db and .fwl files","bad");return;}
+  if(!f.length&&!Object.keys(dirs).length){toast("No world in that folder (no _main.N.fwl2)","bad");return;}
+  const have=new Set((WORLDS||[]).map(w=>w.name));
+  for(const w in dirs)if(have.has(w)&&!await confirmModal("Replace world?",
+    `<b>${esc(w)}</b> already exists here — the uploaded folder takes its place.`,"Replace"))return;
   $("vh-wup-btn").disabled=true;$("vh-wup-btn").classList.add("loading");
+  const up=(path,x,q="")=>jf("/api/valheim/worlds/upload/"+path.split("/").map(encodeURIComponent).join("/")+q,
+    {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:x});
   try{
-    for(const x of f)await jf("/api/valheim/worlds/upload/"+encodeURIComponent(x.name),
-      {method:"POST",headers:{"Content-Type":"application/octet-stream"},body:x});
-    toast("World uploaded","ok");$("vh-wup").value="";load();}
+    for(const w in dirs){
+      for(const [i,x] of dirs[w].entries())await up(w+"/"+x.name,x,i?"":"?fresh=true");
+      await jf("/api/valheim/worlds/upload-done/"+encodeURIComponent(w),{method:"POST"});
+    }
+    for(const x of f)await up(x.name,x);
+    toast("World uploaded","ok");$("vh-wup").value="";$("vh-wup-dir").value="";load();}
   catch(e){toast(e.message,"bad");}
   $("vh-wup-btn").disabled=false;$("vh-wup-btn").classList.remove("loading");
 };

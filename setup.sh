@@ -6,8 +6,13 @@
 # SETUP_MODE=image (docker/Dockerfile): lay the files down and stop there - no game
 # download, no panel.env, nothing started. The container's first boot does those, so the
 # image carries no stale build and no ntfy topic shared by everyone who pulls it.
+#
+# SETUP_MODE=upgrade (panel/panel-update.sh): bring an existing install up to this version -
+# scripts, services, dependencies, the panel. Settings, logins, the world, backups and mods
+# stay as they are, the game is not downloaded again and a stopped server stays stopped.
 set -euo pipefail
 IMAGE=${SETUP_MODE:-}; [ "$IMAGE" = image ] || IMAGE=
+UPGRADE=${SETUP_MODE:-}; [ "$UPGRADE" = upgrade ] || UPGRADE=
 
 VH_DIR=${VH_DIR:-/opt/valheim}
 PANEL_PORT=${PANEL_PORT:-2460}
@@ -52,8 +57,12 @@ info "done"
 
 id -u valheim >/dev/null 2>&1 || useradd -m -d "$VH_DIR" -s /bin/bash valheim
 mkdir -p "$VH_DIR"/{steamcmd,server,data/worlds_local,backups,panel}
-chown -R valheim:valheim "$VH_DIR"
+# not on an upgrade: panel.env is root's, and the game user has no business reading the login
+[ -n "$UPGRADE" ] || chown -R valheim:valheim "$VH_DIR"
 
+if [ -n "$UPGRADE" ] && [ -x "$VH_DIR/server/valheim_server.x86_64" ]; then
+  say "Upgrade - the game stays as it is (the panel keeps it updated)"
+else
 say "Fetching SteamCMD"
 # runuser, not sudo — sudo is not in the stock Debian container image
 runuser -u valheim -- env HOME="$VH_DIR" bash -c "cd $VH_DIR/steamcmd && curl -sqL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz | tar zxf -"
@@ -81,10 +90,12 @@ runuser -u valheim -- env HOME="$VH_DIR" "$VH_DIR/steamcmd/steamcmd.sh" +force_i
 set -e
 [ -x "$VH_DIR/server/valheim_server.x86_64" ] || die "Steam download failed — see $VH_DIR/steam-install.log"
 fi
+fi
 
 # ---------- launch config ----------
-# Settings live here, not in start.sh, so the panel has something to edit.
-cat >"$VH_DIR/server.env" <<EOF
+# Settings live here, not in start.sh, so the panel has something to edit - and once the
+# panel owns them, running this again must not put the defaults back.
+[ -f "$VH_DIR/server.env" ] || cat >"$VH_DIR/server.env" <<EOF
 NAME='$SERVER_NAME'
 WORLD='$WORLD_NAME'
 PASSWORD='$SERVER_PASS'
@@ -184,18 +195,24 @@ s.close()
 EOF
 
 chmod +x "$VH_DIR"/{start.sh,backup.sh,update.sh}
-chown -R valheim:valheim "$VH_DIR"
+if [ -n "$UPGRADE" ]; then
+  chown valheim:valheim "$VH_DIR"/{start.sh,backup.sh,update.sh,rcon-save.py,server.env}
+else
+  chown -R valheim:valheim "$VH_DIR"
+fi
 
 # ---------- panel ----------
 say "Installing the admin panel (FastAPI in its own venv)"
-if [ -f "$0" ] && [ -d "$(dirname "$0")/panel" ]; then
-  cp "$(dirname "$0")"/panel/{app.py,icon_badge.py,index.html,login.html,icon.svg,greetings.json,jokes.json} "$VH_DIR/panel/"
-else
-  for f in app.py icon_badge.py index.html login.html icon.svg greetings.json jokes.json; do curl -fsSL "$REPO_RAW/panel/$f" -o "$VH_DIR/panel/$f"; done
-fi
-python3 -m venv "$VH_DIR/panel/.venv"
+# everything panel-update.sh fetches too - one list, so an install and an update never differ
+PANEL_FILES_="app.py icon_badge.py index.html login.html icon.svg greetings.json jokes.json requirements.txt VERSION panel-update.sh"
+for f in $PANEL_FILES_; do
+  if [ -f "$0" ] && [ -d "$(dirname "$0")/panel" ]; then cp "$(dirname "$0")/panel/$f" "$VH_DIR/panel/"
+  else curl -fsSL "$REPO_RAW/panel/$f" -o "$VH_DIR/panel/$f"; fi
+done
+mv "$VH_DIR/panel/panel-update.sh" "$VH_DIR/panel-update.sh"
+[ -x "$VH_DIR/panel/.venv/bin/python" ] || python3 -m venv "$VH_DIR/panel/.venv"
 "$VH_DIR/panel/.venv/bin/pip" install -q --upgrade pip
-"$VH_DIR/panel/.venv/bin/pip" install -q fastapi "uvicorn[standard]" pyyaml
+"$VH_DIR/panel/.venv/bin/pip" install -q -r "$VH_DIR/panel/requirements.txt"
 
 # The first password is fixed and printed, so there is never a "what was it again" moment.
 # It is the same on every install of this repo, which is exactly why the panel keeps warning
@@ -228,35 +245,8 @@ echo "panel login is now $USER_ / $PASS (no restart needed)"
 EOF
 chmod +x "$VH_DIR/panel-passwd.sh"
 
-# Panel update from GitHub, with a way back. The previous files stay in panel.prev and
-# come back on their own if the new panel does not answer within half a minute.
-cat >"$VH_DIR/panel-update.sh" <<'EOF'
-#!/bin/bash
-# Update the panel from GitHub: /opt/valheim/panel-update.sh  (also the button in Settings)
-set -euo pipefail
-VH=/opt/valheim
-RAW=${REPO_RAW:-https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main}
-[ -d /opt/valheim-image ] && { echo "docker install: rebuild the image instead (docker compose up -d --build)"; exit 2; }
-PORT=$(grep -oP "PANEL_PORT='\K[^']*" $VH/panel.env 2>/dev/null || echo 2460)
-FILES="app.py icon_badge.py index.html login.html icon.svg greetings.json jokes.json"
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
-for f in $FILES; do curl -fsSL "$RAW/panel/$f" -o "$TMP/$f"; done
-$VH/panel/.venv/bin/python -m py_compile "$TMP/app.py" "$TMP/icon_badge.py"
-sha=$(curl -fsSL -H "Accept: application/vnd.github.sha" https://api.github.com/repos/PawelSzymanski89/valheim-proxmox/commits/main 2>/dev/null | cut -c1-7 || true)
-rm -rf $VH/panel.prev && mkdir -p $VH/panel.prev
-for f in $FILES; do [ -f "$VH/panel/$f" ] && cp -a "$VH/panel/$f" $VH/panel.prev/; done
-cp -a "$TMP"/. $VH/panel/
-echo "${sha:-unknown} $(date -u +%FT%TZ)" >$VH/panel.version
-systemctl restart valheim-panel
-for _ in $(seq 1 30); do sleep 1; curl -sf -o /dev/null "http://127.0.0.1:$PORT/" && { echo "panel updated to ${sha:-unknown}"; exit 0; }; done
-echo "the new panel did not come up - rolling back"
-cp -a $VH/panel.prev/. $VH/panel/
-echo "$(cat $VH/panel.version 2>/dev/null) rollback" >$VH/panel.version
-systemctl restart valheim-panel
-exit 1
-EOF
 chmod +x "$VH_DIR/panel-update.sh"
-[ -f "$VH_DIR/panel.version" ] || echo "setup $(date -u +%FT%TZ)" >"$VH_DIR/panel.version"
+echo "$(cat "$VH_DIR/panel/VERSION") $(date -u +%FT%TZ)" >"$VH_DIR/panel.version"
 
 # ---------- systemd ----------
 cat >/etc/systemd/system/valheim.service <<'EOF'
@@ -329,6 +319,15 @@ OnUnitActiveSec=2h
 WantedBy=timers.target
 EOF
 
+if [ -n "$UPGRADE" ]; then
+  say "Reloading services"
+  systemctl daemon-reload
+  # enable, not start: a server the admin stood down stays down; the panel restart is the caller's
+  systemctl enable valheim.service valheim-panel.service >/dev/null 2>&1
+  systemctl enable --now valheim-backup.timer valheim-update.timer >/dev/null 2>&1
+  info "upgraded to $(cat "$VH_DIR/panel/VERSION")"
+  exit 0
+fi
 if [ -n "$IMAGE" ]; then
   say "Enabling services for the container's first boot"
   systemctl enable valheim.service valheim-panel.service valheim-backup.timer valheim-update.timer >/dev/null 2>&1

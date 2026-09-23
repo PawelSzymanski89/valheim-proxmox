@@ -115,4 +115,28 @@ c = app._crash_watch(1002)
 assert c and c["result"] == "oom-kill", c
 assert [x["result"] for x in app._health_state()["crashes"]] == ["oom-kill"], app._health_state()
 
-print("OK — log parser, login history and the crash watcher")
+# world files: a 1.0 folder loads its highest *complete* save, an old pair still counts
+import struct
+w = pathlib.Path(tempfile.mkdtemp())
+app.VH_WORLDS = str(w)
+cs = lambda s: bytes([len(s)]) + s.encode()
+fwl = lambda n: struct.pack("<ii", 0, 41) + cs(n) + cs("SEEDNAME") + struct.pack("<i", 7)
+(w / "New").mkdir()
+for n in (3, 4):
+    (w / "New" / f"_main.{n}.fwl2").write_bytes(fwl("New"))
+    (w / "New" / f"_main.{n}.db2").write_bytes(struct.pack("<id", 41, 1800.0 * n))
+(w / "New" / "_main.3.ok").write_bytes(b"x")          # save 4 has no .ok: an interrupted write
+(w / "New_backup_auto-20260101-000000").mkdir()
+(w / "Old.fwl").write_bytes(fwl("Old"))
+(w / "Old.db").write_bytes(struct.pack("<id", 37, 0.0))
+assert app._world_files("New")[1].name == "_main.3.db2", app._world_files("New")
+assert sorted((x["name"], x["format"]) for x in app._worlds()) == [("New", "1.0"), ("Old", "legacy")], app._worlds()
+card = app._world_card("New")
+assert card["fwl"]["seed_name"] == "SEEDNAME" and card["db"]["day"] == 4, card
+assert app._world_files("Nope") == (None, None)
+(w / "Fresh").mkdir()                                   # generated, never saved yet
+(w / "Fresh" / "_main.0.fwl2").write_bytes(fwl("Fresh"))
+assert app._world_files("Fresh")[0].name == "_main.0.fwl2"
+assert "Fresh" in [x["name"] for x in app._worlds()]
+
+print("OK — log parser, login history, the crash watcher and both world formats")
