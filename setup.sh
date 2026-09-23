@@ -195,11 +195,6 @@ s.close()
 EOF
 
 chmod +x "$VH_DIR"/{start.sh,backup.sh,update.sh}
-if [ -n "$UPGRADE" ]; then
-  chown valheim:valheim "$VH_DIR"/{start.sh,backup.sh,update.sh,rcon-save.py,server.env}
-else
-  chown -R valheim:valheim "$VH_DIR"
-fi
 
 # ---------- panel ----------
 say "Installing the admin panel (FastAPI in its own venv)"
@@ -248,7 +243,37 @@ chmod +x "$VH_DIR/panel-passwd.sh"
 chmod +x "$VH_DIR/panel-update.sh"
 echo "$(cat "$VH_DIR/panel/VERSION") $(date -u +%FT%TZ)" >"$VH_DIR/panel.version"
 
+# ---------- ownership ----------
+# Root owns everything root runs or trusts; the game user gets only what the game writes.
+# Until v1.20.1 all of /opt/valheim was the game user's, so anything running as that user -
+# one bad mod from a share code - could edit backup.sh or the panel and have root run it.
+# Runs on every install and every upgrade, which is how existing servers get fixed.
+lock_down() {
+  local d f
+  chown root:root "$VH_DIR"; chmod 755 "$VH_DIR"
+  # what the game, Steam, Unity and Mono write - the install dir is also the user's HOME
+  for d in steamcmd server data backups .steam Steam .config .local .cache .mono; do
+    mkdir -p "$VH_DIR/$d"; chown -hR valheim:valheim "$VH_DIR/$d"
+  done
+  mkdir -p "$VH_DIR/panel"; chown -hR root:root "$VH_DIR/panel"; chmod 700 "$VH_DIR/panel"
+  for f in start.sh backup.sh update.sh rcon-save.py panel-update.sh panel-passwd.sh; do
+    [ -f "$VH_DIR/$f" ] && chown -h root:root "$VH_DIR/$f" && chmod 755 "$VH_DIR/$f"
+  done
+  [ -f "$VH_DIR/server.env" ] && chown -h root:valheim "$VH_DIR/server.env" && chmod 640 "$VH_DIR/server.env"
+  [ -f "$VH_DIR/panel.env" ] && chown -h root:root "$VH_DIR/panel.env" && chmod 600 "$VH_DIR/panel.env"
+  [ -f "$VH_DIR/rcon.env" ] && chown -h valheim:valheim "$VH_DIR/rcon.env" && chmod 600 "$VH_DIR/rcon.env"
+  return 0
+}
+lock_down
+
 # ---------- systemd ----------
+# What exists before the unit files are rewritten. An upgrade enables only units that are
+# new; the rest stay exactly as the admin (or an armed launch) left them - rewriting a unit
+# file does not touch whether it is enabled, and neither may this script.
+UNITS_BEFORE=""
+for u in valheim.service valheim-panel.service valheim-backup.timer valheim-update.timer; do
+  [ -f "/etc/systemd/system/$u" ] && UNITS_BEFORE="$UNITS_BEFORE $u"
+done
 cat >/etc/systemd/system/valheim.service <<'EOF'
 [Unit]
 Description=Valheim dedicated server
@@ -322,9 +347,15 @@ EOF
 if [ -n "$UPGRADE" ]; then
   say "Reloading services"
   systemctl daemon-reload
-  # enable, not start: a server the admin stood down stays down; the panel restart is the caller's
-  systemctl enable valheim.service valheim-panel.service >/dev/null 2>&1
-  systemctl enable --now valheim-backup.timer valheim-update.timer >/dev/null 2>&1
+  # Only what did not exist before. The game update timer switched off, the game service
+  # disabled by an armed launch: re-enabling either is exactly what an update must not do.
+  for u in valheim.service valheim-panel.service valheim-backup.timer valheim-update.timer; do
+    case " $UNITS_BEFORE " in *" $u "*) ;; *)
+      case "$u" in *.timer) systemctl enable --now "$u" >/dev/null 2>&1 ;;
+                   *) systemctl enable "$u" >/dev/null 2>&1 ;; esac
+      info "enabled new unit $u" ;;
+    esac
+  done
   info "upgraded to $(cat "$VH_DIR/panel/VERSION")"
   exit 0
 fi

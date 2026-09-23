@@ -195,6 +195,27 @@ app._ts_latest = lambda full: "9.9.9" if full == "AviiNL-rcon" else VERS[full]
 assert mtick(TARGET + app.MODS_SETTLE + 7200, healthy=True)[0] == 1, "ignored a rebuilt mod"
 assert app._launch_cfg()["mods_restored"] is True
 
+# Thunderstore down: _ts_latest answers None - nothing is installed, and nothing rolled back
+released()
+app._ts_latest = lambda full: None
+assert mtick(TARGET + app.MODS_SETTLE + 60) == (0, 0), "installed None during an outage"
+assert "unreachable" in app._launch_cfg()["mods_note"]
+app._ts_latest = lambda full: VERS[full]
+
+# somebody playing: installing restarts the server, so it waits
+released()
+app.WATCH["online"] = {"p1": "Eir"}
+assert mtick(TARGET + app.MODS_SETTLE + 60) == (0, 0), "restarted the server under a player"
+app.WATCH["online"] = {}
+
+# the launch kept the players' modpack: a rollback takes only the three admin mods out
+REMOVED = []
+app.mods_remove = lambda full, restart=True: REMOVED.append(full)
+app._mods_state = lambda: {"mods": {"Azumatt-AzuAutoStore": {}, "AviiNL-rcon": {}}}
+released()
+assert mtick(TARGET + app.MODS_SETTLE + 60, healthy=False) == (1, 0), "wiped the modpack on rollback"
+assert REMOVED == app.LAUNCH_MODS, REMOVED
+
 # --- the placeholder is up exactly while armed and unreleased --------------------------
 assert app._launch_waiting({"armed": True, "released": False}) is True
 assert app._launch_waiting({"armed": True, "released": True}) is False

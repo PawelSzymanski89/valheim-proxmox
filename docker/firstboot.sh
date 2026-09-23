@@ -43,7 +43,15 @@ fi
 for f in adminlist bannedlist permittedlist; do
   [ -f "$VH/data/$f.txt" ] || echo "// one player id per line" >"$VH/data/$f.txt"
 done
-chown -R valheim:valheim "$VH"
+# same split as lock_down() in setup.sh: root owns what root runs, the game user what it writes
+chown root:root "$VH"; chmod 755 "$VH"
+for d in steamcmd server data backups .steam Steam .config .local .cache .mono; do
+  mkdir -p "$VH/$d"; chown -hR valheim:valheim "$VH/$d"
+done
+chown -hR root:root "$VH/panel"; chmod 700 "$VH/panel"
+chown -h root:root "$VH"/{start.sh,backup.sh,update.sh,rcon-save.py,panel-passwd.sh,panel-update.sh}
+chown -h root:valheim "$VH/server.env"; chmod 640 "$VH/server.env"
+chown -h root:root "$VH/panel.env" 2>/dev/null; chmod 600 "$VH/panel.env" 2>/dev/null || true
 
 if [ ! -x "$VH/server/valheim_server.x86_64" ]; then
   echo "first boot: downloading the Valheim server from Steam (~1.5 GB)"

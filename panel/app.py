@@ -12,8 +12,11 @@ import ipaddress
 import json
 import os
 import re
+import grp
+import pwd
 import secrets
 import shutil
+import tempfile
 import shlex
 import socket
 import struct
@@ -58,7 +61,9 @@ VH_BAK_RE = re.compile(r"^world-\d{8}-\d{6}\.tar\.gz$")
 VH_ACTIONS = {"start": ("systemctl start valheim", 60),
               "stop": ("systemctl stop valheim", 180),
               "restart": ("systemctl restart valheim", 180),
-              "backup": (f"{VH_DIR}/backup.sh", 120)}
+              # as the game user: root running a script is only safe if nobody else can edit it,
+              # and this one only touches the game's files anyway
+              "backup": (f"runuser -u valheim -- {VH_DIR}/backup.sh", 120)}
 
 
 def _env_file(path):
@@ -333,12 +338,37 @@ def _sh_ok(cmd, timeout=60):
     return r.stdout
 
 
+def _in_game_dirs(p):
+    """True when a path, links resolved, lies in the game user's part of the install."""
+    r = Path(p).resolve()
+    return any(r.is_relative_to(Path(d).resolve()) for d in (VH_SERVER, VH_DATA, VH_BACKUPS))
+
+
+def _ids(own):
+    u, _, g = own.partition(":")
+    return pwd.getpwnam(u).pw_uid, grp.getgrnam(g or u).gr_gid
+
+
 def _write(path, text, mode=0o644, own="valheim:valheim"):
+    """Atomic and never through a symlink: a temp file next to the target, renamed over it.
+    server/, data/ and backups/ belong to the game user, so anything running as that user -
+    a mod, say - can plant a link there, and a root panel writing through it would write
+    wherever the link points. rename() replaces a link instead of following it, and a crash
+    mid-write leaves the old file instead of an empty one."""
     p = Path(path)
-    p.write_text(text)
-    os.chmod(p, mode)
-    if own:
-        _sh(f"chown {own} {shlex.quote(str(p))}")
+    if p.parent.resolve() != Path(VH_DIR).resolve() and not _in_game_dirs(p.parent):
+        raise HTTPException(400, f"Refusing to write outside the install: {p}")
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(text)
+            os.fchmod(f.fileno(), mode)
+            if own:
+                os.fchown(f.fileno(), *_ids(own))
+        os.replace(tmp, p)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def _ts(s):
@@ -932,6 +962,9 @@ def _panel_update_tick(now_on):
     new = _panel_newer()
     if not new or VH_AUTO_UPDATE_OFF.exists() or not _panel_can_update() or now_on:
         return
+    # an armed or releasing launch is holding the game in a precise state - leave it alone
+    if _launch_waiting() or _LAUNCH_BUSY["at"]:
+        return
     tried = Path(f"{VH_DIR}/auto-update.tried")
     if tried.exists() and tried.read_text().strip() == new["tag"]:
         return
@@ -1047,7 +1080,7 @@ def _save_settings(s: Settings):
     env = {"NAME": s.name, "WORLD": s.world, "PASSWORD": s.password, "PORT": str(s.port),
            "PUBLIC": "1" if s.public else "0", "CROSSPLAY": "1" if s.crossplay else "0",
            "PRESET": s.preset, "MODIFIERS": " ".join(sorted(mods)), "SETKEYS": " ".join(keys)}
-    _write(VH_ENV, "".join(f"{k}={shlex.quote(v)}\n" for k, v in env.items()), mode=0o640)
+    _write(VH_ENV, "".join(f"{k}={shlex.quote(v)}\n" for k, v in env.items()), mode=0o640, own="root:valheim")
 
     panel = _env_file(VH_PANEL_ENV)
     port_changed = int(panel.get("PANEL_PORT") or 2460) != s.panel_port
@@ -1194,8 +1227,13 @@ async def world_upload(filename: str, data: bytes = Body(b""), fresh: bool = Fal
         raise HTTPException(400, "Empty file")
     _not_active(base)
     p = Path(VH_WORLDS) / filename
-    p.write_bytes(data)
-    _sh(f"chown valheim:valheim {shlex.quote(str(p))}")
+    if not _in_game_dirs(p.parent):
+        raise HTTPException(400, "worlds_local is not where it should be")
+    # O_NOFOLLOW: a link planted under this name is refused, not written through
+    fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
+    with os.fdopen(fd, "wb") as f:
+        f.write(data)
+        os.fchown(f.fileno(), *_ids("valheim:valheim"))
     _log("world.upload", file=filename, size=len(data))
     return {"ok": True, "saved": filename}
 
@@ -1210,7 +1248,9 @@ def world_upload_done(name: str):
     if not {".db2", ".fwl2", ".ok"} <= kinds:
         shutil.rmtree(src, ignore_errors=True)
         raise HTTPException(400, "Not a Valheim 1.0 world folder — it needs _main.N.db2, .fwl2 and .ok")
-    _sh_ok(f"cd {VH_WORLDS} && rm -rf {q} && mv {shlex.quote(str(src))} {q} && chown -R valheim:valheim {q}")
+    # mv -T: a link planted under the world's name gets replaced, not followed into
+    _sh_ok(f"cd {VH_WORLDS} && rm -rf {q} && chown -R valheim:valheim {shlex.quote(str(src))} "
+           f"&& mv -T {shlex.quote(str(src))} {q}")
     _log("world.upload", world=name, files=sum(1 for _ in (Path(VH_WORLDS) / name).iterdir()))
     return {"ok": True, "saved": name}
 
@@ -1427,7 +1467,7 @@ def admin_tools_setup():
     text = re.sub(r"(?m)^enabled = .*$", "enabled = true", cfg.read_text())
     text = re.sub(r"(?m)^port = .*$", f"port = {port}", text)
     text = re.sub(r"(?m)^password = .*$", f"password = {pw}", text)
-    cfg.write_text(text)
+    _write(cfg, text)
     # its own file, owned by the game user: backup.sh runs as valheim and needs the password
     # to ask for a save before it copies the world, and it has no business reading panel.env
     Path(VH_RCON_ENV).write_text(f"RCON_PORT='{port}'\nRCON_PASS='{pw}'\n")
@@ -1831,7 +1871,7 @@ def _wipe_world(world, wipe_mods=False):
     starting in between would put the old world back up on the old build for as long as the
     download takes.
     """
-    backup = _sh_ok(f"{VH_DIR}/backup.sh", timeout=180).strip()[-120:]
+    backup = _sh_ok(f"runuser -u valheim -- {VH_DIR}/backup.sh", timeout=180).strip()[-120:]
     _sh_ok("systemctl stop valheim", timeout=180)
 
     # Mods are optional here on purpose. A fresh world with the same mod set is a normal
@@ -2023,7 +2063,7 @@ def _launch_release(cfg, latest):
             backup, removed = _wipe_world(world, bool(cfg.get("wipe_mods")))
             steps.append(f"wiped {world} ({len(removed)} files)")
         else:
-            backup = _sh_ok(f"{VH_DIR}/backup.sh", timeout=180).strip()[-120:]
+            backup = _sh_ok(f"runuser -u valheim -- {VH_DIR}/backup.sh", timeout=180).strip()[-120:]
             _sh_ok("systemctl stop valheim", timeout=180)
             steps.append("kept the world")
 
@@ -2058,11 +2098,6 @@ def _launch_release(cfg, latest):
 LAUNCH_MODS = ["AviiNL-rcon", "JereKuusela-Rcon_Commands", "JereKuusela-Server_devcommands"]
 MODS_POLL = 3600
 MODS_SETTLE = 600            # niech nowy build sie ustoi, zanim cokolwiek do niego dokladamy
-
-
-def _ts_latest(full):
-    ns, _, name = full.partition("-")
-    return _ts_package(ns, name)["latest"]["version_number"]
 
 
 def _server_healthy(wait=150):
@@ -2103,10 +2138,16 @@ def _mods_restore_tick(now):
         return
     cfg["mods_checked"] = now
 
-    try:
-        avail = {full: _ts_latest(full) for full in LAUNCH_MODS}
-    except Exception as e:
-        cfg["mods_note"] = f"Thunderstore unreachable: {type(e).__name__}"
+    # _ts_latest answers None when Thunderstore does not (it used to be shadowed by a raising
+    # twin, so this branch never ran and an outage went on to "install" None and roll back)
+    avail = {full: _ts_latest(full) for full in LAUNCH_MODS}
+    if not all(avail.values()):
+        cfg["mods_note"] = "Thunderstore unreachable - trying again later"
+        _launch_save(cfg)
+        return
+    # installing restarts the server, twice if it rolls back - never with people on
+    if not _game_may_restart(WATCH["online"]):
+        cfg["mods_note"] = "waiting for an empty server"
         _launch_save(cfg)
         return
     if avail == cfg.get("mods_tried"):
@@ -2116,6 +2157,8 @@ def _mods_restore_tick(now):
         return
 
     _LAUNCH_BUSY["at"] = now
+    # the players' own modpack, if the launch kept it - a rollback must not take it too
+    kept = set(_mods_state().get("mods", {})) - set(LAUNCH_MODS)
 
     def run():
         c = _launch_cfg()
@@ -2132,7 +2175,12 @@ def _mods_restore_tick(now):
             else:
                 # Wycofanie, a nie zostawienie trupa: to chodzi bez nadzoru, a mod zbudowany pod
                 # poprzednia wersje gry zabiera ze soba caly serwer. Lepszy waniliowy i zywy.
-                mods_clear(ModClear(start=True))
+                if kept:
+                    for full in LAUNCH_MODS:
+                        mods_remove(full, restart=False)
+                    _sh("systemctl restart valheim", timeout=180)
+                else:
+                    mods_clear(ModClear(start=True))
                 c.update(mods_tried=avail, mods_checked=int(time.time()),
                          mods_note="rolled back — the server did not stay up with them")
                 _notify("mod_failed", "Admin tooling rolled back",
@@ -2426,7 +2474,7 @@ def _mod_files_uncached():
     if not wanted:
         return out
     for p in sorted(root.rglob("*")):
-        if not p.is_file():
+        if not p.is_file() or p.is_symlink():
             continue
         rel = p.relative_to(root).as_posix()
         if rel.startswith("cache/") or rel.endswith(".log") or "/logs/" in rel:
@@ -2479,7 +2527,11 @@ def launcher_file(path: str):
     # RCON password. The manifest is the allow-list, so the two can never drift apart.
     if path.replace("\\", "/").lstrip("/") not in {f["path"] for f in _mod_files()}:
         raise HTTPException(404, "No such file")
-    target = (Path(VH_SERVER) / "BepInEx" / path).resolve()
+    root = (Path(VH_SERVER) / "BepInEx").resolve()
+    target = (root / path).resolve()
+    # unauthenticated route: a link planted under BepInEx must not hand out panel.env
+    if not target.is_relative_to(root) or (root / path).is_symlink():
+        raise HTTPException(404, "No such file")
     return Response(target.read_bytes(), media_type="application/octet-stream")
 
 
@@ -2761,13 +2813,15 @@ def backup_verify(body: dict = Body(default={})):
 def backup_restore(fn: str):
     _bak_ok(fn)
     # snapshot the current world first — restoring by mistake has to be reversible
-    _sh_ok(f"{VH_DIR}/backup.sh", timeout=120)
+    _sh_ok(f"runuser -u valheim -- {VH_DIR}/backup.sh", timeout=120)
     # Unpacked into an empty folder, not over the live one: a 1.0 world keeps numbered saves
     # and loads the highest, so the newer save left in place would win over the restored
     # one. What was there stays in worlds_local.prev until the next restore.
     w = shlex.quote(VH_WORLDS)
+    # tar runs as the game user: the archive sits in a folder that user can write, and root
+    # unpacking it would follow whatever links it carries
     _sh_ok(f"systemctl stop valheim && rm -rf {w}.prev && mv {w} {w}.prev && mkdir {w} "
-           f"&& tar xzf {VH_BACKUPS}/{fn} -C {w} && chown -R valheim:valheim {w} "
+           f"&& chown valheim:valheim {w} && runuser -u valheim -- tar xzf {VH_BACKUPS}/{fn} -C {w} "
            f"&& systemctl start valheim", timeout=240)
     _log("backup.restore", file=fn)
     return {"ok": True}
@@ -2858,9 +2912,12 @@ def _unpack(data, dest, strip=None):
             if name.startswith("plugins/"):
                 name = name[len("plugins/"):]
             out = dest / name
-            if not str(out.resolve()).startswith(str(dest.resolve())):
+            # is_relative_to, not a string prefix: "../ns-NameX" passed a startswith check, and
+            # resolve() also catches a link planted inside the folder pointing out of it
+            if not out.resolve().is_relative_to(dest.resolve()):
                 raise HTTPException(400, f"Package tries to escape its directory: {info.filename}")
             out.parent.mkdir(parents=True, exist_ok=True)
+            out.unlink(missing_ok=True)          # never write through an existing link
             out.write_bytes(z.read(info))
 
 
@@ -2869,7 +2926,7 @@ def _install_bepinex():
     ver = pkg["latest"]["version_number"]
     data = _ts_get(pkg["latest"]["download_url"], timeout=180)
     _unpack(data, VH_SERVER, strip="BepInExPack_Valheim/")
-    _sh(f"chown -R valheim:valheim {VH_SERVER}/BepInEx {VH_SERVER}/doorstop_libs "
+    _sh(f"chown -hR valheim:valheim {VH_SERVER}/BepInEx {VH_SERVER}/doorstop_libs "
         f"{VH_SERVER}/unstripped_corlib 2>/dev/null; chmod -R u+rwX {VH_SERVER}/BepInEx")
     return ver
 
@@ -2894,7 +2951,7 @@ def _install_mod(ns, name, version=None):
     target = Path(VH_PLUGINS) / full
     _sh(f"rm -rf {shlex.quote(str(target))}")
     _unpack(data, target)
-    _sh(f"chown -R valheim:valheim {shlex.quote(str(target))}")
+    _sh(f"chown -hR valheim:valheim {shlex.quote(str(target))}")
     meta = {}
     try:
         mf = json.loads((target / "manifest.json").read_text())
@@ -3056,7 +3113,7 @@ def mods_install(p: ModPick):
     st = _mods_state()
     # mods can corrupt a save for good, so the world goes into a backup before the first one
     if not st.get("mods"):
-        _sh_ok(f"{VH_DIR}/backup.sh", timeout=120)
+        _sh_ok(f"runuser -u valheim -- {VH_DIR}/backup.sh", timeout=120)
     # The server is stopped for the whole operation: writing into BepInEx/plugins under a
     # running server leaves the old assemblies loaded, which looks exactly like "the mod
     # did not install".
@@ -3141,7 +3198,7 @@ class ModClear(BaseModel):
 @app.post("/api/mods/clear")
 def mods_clear(c: ModClear):
     """Back to vanilla: snapshot the world, stop, wipe BepInEx and every plugin."""
-    _sh_ok(f"{VH_DIR}/backup.sh", timeout=120)
+    _sh_ok(f"runuser -u valheim -- {VH_DIR}/backup.sh", timeout=120)
     _sh_ok("systemctl stop valheim", timeout=180)
     _sh_ok(f"cd {VH_SERVER} && rm -rf BepInEx doorstop_libs unstripped_corlib "
            f"doorstop_config.ini start_game_bepinex.sh start_server_bepinex.sh .doorstop_version")
@@ -3249,7 +3306,7 @@ def _cfg_snapshot(p):
         return
     d = Path(VH_CFGHIST) / p.name
     _sh_ok(f"mkdir -p {shlex.quote(str(d))}")
-    (d / str(int(time.time()))).write_text(p.read_text(errors="replace"))
+    _write(d / str(int(time.time())), p.read_text(errors="replace"))
     old = sorted(d.iterdir(), key=lambda f: f.name, reverse=True)[CFG_KEEP:]
     for f in old:
         f.unlink(missing_ok=True)
@@ -4160,7 +4217,9 @@ async def _start_watcher():
         import asyncio
         while True:
             try:
-                _tick()
+                # in a thread: a game update inside it runs steamcmd for up to an hour, and on
+                # the event loop that froze every route - the public page and the launcher too
+                await asyncio.to_thread(_tick)
             except Exception as e:
                 _log("watch.error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
             await asyncio.sleep(60)

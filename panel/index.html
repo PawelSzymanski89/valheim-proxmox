@@ -682,6 +682,7 @@ const I18N={
  "A world from an older version comes as a pair":"Świat ze starszej wersji to para plików",
  "— the server converts it on the next start.":"— serwer przekonwertuje go przy najbliższym starcie.",
  "World folder":"Folder świata",
+ "The alert settings did not load — reload the page":"Ustawienia alertów się nie wczytały — odśwież stronę",
  "A new version is out":"Jest nowa wersja","What's new":"Co nowego","Update now":"Aktualizuj teraz",
  "Update now?":"Zaktualizować teraz?",
  "Install new versions automatically, while nobody is playing":"Instaluj nowe wersje automatycznie, gdy nikt nie gra",
@@ -923,6 +924,7 @@ $("tabs").querySelectorAll("a").forEach(a=>a.onclick=()=>{
   if(a.dataset.pane==="t-summary")vhSummary();
   if(a.dataset.pane==="t-mods")vhMods();
   if(a.dataset.pane==="t-cfg")vhCfgList();
+  if(a.dataset.pane==="t-alerts")vhAlerts();
 });
 
 const LIST_LABEL={admin:"Admins (in-game console)",banned:"Banned",permitted:"Allowlist"};
@@ -1874,12 +1876,15 @@ $("al-new").onclick=async()=>{
   catch(e){toast(e.message,"bad");}
 };
 $("al-save").onclick=async()=>{
+  // an unloaded form is an empty one, and saving it switched every alert and the restart off
+  if(!AL){toast(t("The alert settings did not load — reload the page"),"bad");return;}
   $("al-msg").textContent=t("Saving…");
   try{await jf("/api/alerts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(alBody())});
     $("al-msg").textContent=t("Saved");toast(t("Saved"),"ok");vhAlerts();}
   catch(e){$("al-msg").textContent=e.message;toast(t("Not saved"),"bad");}
 };
 $("al-test").onclick=async()=>{
+  if(!AL){toast(t("The alert settings did not load — reload the page"),"bad");return;}
   $("al-msg").textContent=t("Saving…");
   try{
     await jf("/api/alerts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(alBody())});
@@ -2064,7 +2069,7 @@ applyLang(document.body);
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{
   if(n.nodeType===1)applyLang(n); else if(n.nodeType===3){const k=(n.nodeValue||"").trim();if(LANG==="pl"&&I18N[k])n.nodeValue=n.nodeValue.replace(k,I18N[k]);}
 }))).observe(document.body,{childList:true,subtree:true});
-load();vhSummary();setInterval(load,20000);setInterval(vhTick,1000);
+load();vhSummary();vhAlerts();setInterval(load,20000);setInterval(vhTick,1000);
 
 /* Weather. Fog drifts behind everything, rain falls in front and breaks on the cards.
 
