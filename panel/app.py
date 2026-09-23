@@ -886,6 +886,20 @@ def panel_version():
 def _panel_update_start(why):
     """panel-update.sh in its own transient unit - it restarts this very process, so it
     cannot run as our child. The script keeps the previous panel and rolls back by itself."""
+    # An install from 2026-09-07 has the old panel-update.sh, which copied the panel files and
+    # nothing else - it brings this panel in, but never VERSION or setup.sh. The engine is
+    # swapped in first, so the one click on the old button ends on a complete update.
+    script = Path(f"{VH_DIR}/panel-update.sh")
+    if "SETUP_MODE=upgrade" not in script.read_text():
+        req = urllib.request.Request("https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/"
+                                     "panel/panel-update.sh", headers={"User-Agent": "valheim-proxmox-panel"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            new = r.read().decode()
+        if "SETUP_MODE=upgrade" not in new:
+            raise HTTPException(502, "GitHub did not return the update script")
+        script.write_text(new)
+        script.chmod(0o755)
+        _log("panel.update_engine_installed")
     _log("panel.update", why=why, to=_PANEL_LATEST["tag"])
     return _sh(f"systemd-run --on-active=1 --unit=valheim-panel-update-{int(time.time())} "
                f"{VH_DIR}/panel-update.sh")
