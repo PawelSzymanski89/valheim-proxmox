@@ -122,6 +122,16 @@
   @keyframes fx-breathe{from{opacity:.55}to{opacity:1}}
   .fx-rain{position:fixed;inset:0;pointer-events:none;z-index:9}
   @media(prefers-reduced-motion:reduce){.fx-fog{animation:none}}
+  /* phones: wide tables scroll inside themselves instead of dragging the page sideways, the
+     twelve tabs become one swipeable row instead of four rows of sticky header, and fields
+     are 16px - anything smaller and iOS zooms the page in on every tap into a field */
+  @media(max-width:700px){
+    .pane table{display:block;overflow-x:auto}
+    .tabs{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none}
+    .tabs a{flex:0 0 auto}
+    input,select,textarea{font-size:16px}
+  }
+  .hold{touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 </style>
 </head>
 <body>
@@ -129,7 +139,7 @@
   <div class="row"><h1>Valheim — server admin</h1>
     <div style="display:flex;gap:6px;align-items:center">
       <div id="lang" style="display:flex;gap:4px"></div>
-      <button class="mini" id="logout">Wyloguj</button>
+      <button class="mini" id="logout">Log out</button>
     </div></div>
   <div class="sub">Everything a server admin can control. In-game commands (kick, spawn, weather)
     live in the F5 console — add yourself to <b>Admins</b> below and use it there.</div>
@@ -208,7 +218,7 @@
     </div>
 
     <div class="pane" id="t-access">
-      <div class="grid" id="vh-lists"></div>
+      <div class="grid" id="vh-lists" data-guard></div>
       <div class="muted" style="margin-top:10px">The server reloads these files on its own — no restart needed.
         An admin can use the in-game console (F5): <code>kick</code>, <code>ban</code>, <code>save</code>, weather, god mode.</div>
     </div>
@@ -234,9 +244,9 @@
         <button id="map-del" class="danger">Remove it</button>
       </div>
       <div class="muted" style="margin-top:6px" id="map-hint">Open the terrain map above, hit Download Map there, and drop the image here — the dots then sit on real ground. The site renders in the browser, so the panel cannot fetch it for you.</div>
-      <div class="add" style="margin-top:12px">
-        <input id="lobby-view" placeholder="https://valheim-map.world/... — shared pins, view link">
-        <input id="lobby-edit" placeholder="...edit link">
+      <div class="add" style="margin-top:12px" data-guard>
+        <input id="lobby-view" aria-label="lobby view link" placeholder="https://valheim-map.world/... — shared pins, view link">
+        <input id="lobby-edit" aria-label="lobby edit link" placeholder="...edit link">
         <button id="lobby-save">Save the lobby links</button>
       </div>
       <div class="muted" style="margin-top:6px">A lobby on that site lets everyone share pins on this seed. Create it there once and keep the links here.</div>
@@ -249,7 +259,7 @@
       </div>
       <div class="row" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)">
         <div class="muted">Start the whole thing over: new world on a new seed, empty player statistics, availability counted from zero. A backup is taken first.</div>
-        <button class="mini danger" id="vh-wipe">Wipe the game</button>
+        <button class="mini danger hold" id="vh-wipe">Wipe the game</button>
       </div>
       <div class="muted" style="margin-top:6px">Since Valheim 1.0 a world is a folder — pick the whole folder, <code>worlds_local/NAME</code>.
         A world from an older version comes as a pair <code>NAME.db</code> + <code>NAME.fwl</code> — the server converts it on the next start.
@@ -265,7 +275,7 @@
     </div>
 
     <div class="pane" id="t-settings">
-      <div id="vh-set"></div>
+      <div id="vh-set" data-guard></div>
       <div class="stat" style="margin-top:14px">
         <div class="muted">Public page — what strangers see at the login address</div>
         <div class="grid" style="margin-top:8px" id="pub-flags"></div>
@@ -293,6 +303,7 @@
         <div class="muted">Panel login — the password is the same on every install, change it here</div>
         <div class="add" style="margin-top:8px">
           <input id="vh-au-user" placeholder="user" autocomplete="username">
+          <input id="vh-au-cur" type="password" placeholder="current password" autocomplete="current-password" aria-label="current password">
           <input id="vh-au-pass" type="password" placeholder="new password (8+ chars)" autocomplete="new-password">
           <button id="vh-au-save">Change login</button>
         </div>
@@ -314,7 +325,7 @@
           <button class="mini" id="mods-refresh">Refresh</button>
         </div></div>
       <div class="add" style="margin-top:12px">
-        <input id="mods-code" placeholder="Thunderstore Mod Manager share code">
+        <input id="mods-code" aria-label="share code" placeholder="Thunderstore Mod Manager share code">
         <button id="mods-preview">Look up</button>
       </div>
       <div class="muted" style="margin-top:6px">Export a profile in Thunderstore Mod Manager / r2modman
@@ -415,7 +426,7 @@
           <input id="al-membase" type="number" min="0" max="95" step="1" style="margin-top:6px"></div>
         <div class="stat"><div class="muted">…plus % per installed mod</div>
           <input id="al-mempermod" type="number" min="0" max="3" step="0.1" style="margin-top:6px">
-          <div class="muted" style="font-size:11px;margin-top:4px">Próg rośnie z liczbą modów, bo tyle samo rośnie zużycie na starcie. Restart tylko przy pustym serwerze, działającym ponad dwie godziny, najwyżej raz na trzy. <span id="al-memnow"></span></div></div>
+          <div class="muted" style="font-size:11px;margin-top:4px">The threshold grows with the number of mods, because so does the memory a server starts with. It restarts only an empty server that has run for over two hours, at most once every three. <span id="al-memnow"></span></div></div>
       </div>
 
       <div class="row" style="margin-top:14px">
@@ -444,7 +455,7 @@
       <tbody id="vh-plog"></tbody></table>
     </div>
 
-    <div class="pane" id="t-launcher">
+    <div class="pane" id="t-launcher" data-guard>
       <div class="grid" id="lch-sum"></div>
       <div class="row" style="margin:14px 0 6px">
         <label style="display:flex;gap:8px;align-items:center">
@@ -489,7 +500,7 @@
       <div id="at-box" class="grid"></div>
       <div id="say-ui" style="display:none">
         <div class="row" style="margin:14px 0 6px"><div class="muted">Messages are signed with this name — empty for none</div>
-          <span><input id="say-nick" maxlength="24" style="max-width:160px" placeholder="Odyn">
+          <span data-guard><input id="say-nick" aria-label="nick" maxlength="24" style="max-width:160px" placeholder="Odyn">
           <button class="mini" id="say-nick-save">Save</button></span></div>
         <div class="muted" style="margin:14px 0 6px">Send a message to everyone playing right now</div>
         <div class="add"><input id="say-text" placeholder="It'll be dark soon!" maxlength="200">
@@ -526,7 +537,7 @@
   </div>
 </div>
 
-<div id="modal" class="modal-bg"><div class="modal">
+<div id="modal" class="modal-bg"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-t">
   <div class="modal-t" id="modal-t"></div>
   <div class="modal-b" id="modal-b"></div>
   <div class="modal-a"><button id="modal-no">Cancel</button><button id="modal-yes" class="primary">Confirm</button></div>
@@ -682,6 +693,52 @@ const I18N={
  "A world from an older version comes as a pair":"Świat ze starszej wersji to para plików",
  "— the server converts it on the next start.":"— serwer przekonwertuje go przy najbliższym starcie.",
  "World folder":"Folder świata",
+ "Release now?":"Wydać teraz?",
+ "Installs the newest build now":"Instaluje teraz najnowszy build",
+ "and wipes":"i czyści",
+ "Release":"Wydaj",
+ "Arm launch mode?":"Uzbroić tryb premiery?",
+ "When the new build lands, this world is backed up and wiped:":"Gdy wyjdzie nowy build, ten świat zostanie zarchiwizowany i wyczyszczony:",
+ "Arm":"Uzbrój",
+ "Switched to":"Przełączono na",
+ "Launch mode off":"Tryb premiery wyłączony",
+ "Releasing — this takes a few minutes":"Wydaję — to potrwa kilka minut",
+ "Set the date first":"Najpierw ustaw datę",
+ "Launch mode armed":"Tryb premiery uzbrojony",
+ "Paste a share code first":"Najpierw wklej kod udostępniania",
+ "Nothing selected":"Nic nie zaznaczono",
+ "Author and package name required":"Wymagany autor i nazwa paczki",
+ "Switch world?":"Przełączyć świat?",
+ "Delete world?":"Usunąć świat?",
+ "Restore this world?":"Przywrócić ten świat?",
+ "Delete this backup?":"Usunąć tę kopię?",
+ "Remove mod?":"Usunąć mod?",
+ "Log out":"Wyloguj",
+ ". A world from an older version comes as a pair":". Świat ze starszej wersji to para plików",
+ "— the server converts it on the next start. New world: just type a name in Settings — the server generates it on the next start.":"— serwer przekonwertuje go przy najbliższym starcie. Nowy świat: wpisz nazwę w Ustawieniach — serwer wygeneruje go przy najbliższym starcie.",
+ "Launch mode — the public page becomes a countdown, and the server comes up on the new build by itself":"Tryb premiery — strona publiczna zamienia się w odliczanie, a serwer sam wstaje na nowym buildzie",
+ "Restart on RAM — base % (0 = off)":"Restart przy RAM — próg bazowy % (0 = wyłączone)",
+ "…plus % per installed mod":"…plus % na każdy zainstalowany mod",
+ "The threshold grows with the number of mods, because so does the memory a server starts with. It restarts only an empty server that has run for over two hours, at most once every three.":"Próg rośnie z liczbą modów, bo tyle samo rośnie zużycie na starcie. Restart tylko przy pustym serwerze, działającym ponad dwie godziny, najwyżej raz na trzy.",
+ "Off.":"Wyłączone.",
+ "online":"online",
+ "uptime":"działa",
+ "copies":"kopii",
+ "last":"ostatnia",
+ "no backups yet":"brak kopii",
+ "Put a":"Wpisz tu",
+ "name":"nazwę",
+ "here, not an address in numbers — on a home connection the number changes and a launcher built with it stops working. The launcher reads this at every start, so a change here reaches everyone without rebuilding anything.":"zamiast adresu liczbowego — na domowym łączu numer się zmienia, a launcher zbudowany z nim przestaje działać. Launcher czyta to przy każdym starcie, więc zmiana tutaj dociera do wszystkich bez przebudowy.",
+ "While this is off, the launcher endpoints answer 404 — no manifest, no mod files, nothing. While it is on, they are open without a login, because a mod list is not a secret and the launcher has no account.":"Gdy to jest wyłączone, endpointy launchera odpowiadają 404 — bez manifestu, bez plików modów, nic. Gdy włączone, są otwarte bez logowania, bo lista modów nie jest tajemnicą, a launcher nie ma konta.",
+ "Copy":"Kopiuj",
+ "Give players this address — the page serves the build for whichever system they are on.":"Daj graczom ten adres — strona sama poda wersję na ich system.",
+ "Mods work on Windows, macOS and Linux alike.":"Mody działają tak samo na Windowsie, macOS i Linuksie.",
+ "The panel takes the neutral engine from GitHub, injects this server's address and its own initials into it, and serves a configured build; the first download after a new engine release takes a while.":"Panel bierze neutralny silnik z GitHuba, wstrzykuje w niego adres tego serwera i jego inicjały i serwuje gotową wersję; pierwsze pobranie po nowym wydaniu silnika chwilę trwa.",
+ "Panel version — …":"Wersja panelu — …",
+ "lobby view link":"link do podglądu lobby",
+ "lobby edit link":"link do edycji lobby",
+ "nick":"nick",
+ "current password":"obecne hasło","The current password is wrong":"Obecne hasło jest błędne",
  "The alert settings did not load — reload the page":"Ustawienia alertów się nie wczytały — odśwież stronę",
  "A new version is out":"Jest nowa wersja","What's new":"Co nowego","Update now":"Aktualizuj teraz",
  "Update now?":"Zaktualizować teraz?",
@@ -869,7 +926,10 @@ function scrub(s){
     .replace(new RegExp("\\b"+((VH&&VH.joincode)||"\u0000")+"\\b","g"),"••••••");
 }
 let LANG=localStorage.getItem("vhLang")||((navigator.language||"").startsWith("pl")?"pl":"en");
-const t=s=>(LANG==="pl"&&I18N[s])||s;
+// Keys are matched with whitespace squeezed: a paragraph broken over several lines in the
+// HTML never equalled its one-line key, so those paragraphs stayed English.
+const I18NK=s=>I18N[s]||I18N[s.replace(/\s+/g," ")];
+const t=s=>(LANG==="pl"&&I18NK(s))||s;
 function applyLang(root){
   if(DEMO){
     const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),n=[];
@@ -884,8 +944,8 @@ function applyLang(root){
   if(LANG!=="pl")return;
   const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),n=[];
   while(w.nextNode())n.push(w.currentNode);
-  n.forEach(x=>{const k=x.nodeValue.trim();if(k&&I18N[k])x.nodeValue=x.nodeValue.replace(k,I18N[k]);});
-  if(root.querySelectorAll)root.querySelectorAll("[placeholder]").forEach(e=>{if(I18N[e.placeholder])e.placeholder=I18N[e.placeholder];});
+  n.forEach(x=>{const k=x.nodeValue.trim(),v=k&&I18NK(k);if(v)x.nodeValue=x.nodeValue.replace(k,v);});
+  if(root.querySelectorAll)root.querySelectorAll("[placeholder]").forEach(e=>{const v=I18NK(e.placeholder);if(v)e.placeholder=v;});
 }
 function setLang(l){
   localStorage.setItem("vhLang",l);
@@ -898,7 +958,19 @@ const fmtBytes=b=>{b=+b||0;const u=["B","KB","MB","GB","TB"];let i=0;while(b>=10
 const fmtDur=s=>{s=Math.max(0,Math.floor(s));const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
   return d?`${d}d ${h}h ${m}m`:h?`${h}h ${m}m`:`${m}m ${s%60}s`;};
 const fmtTs=t=>t?new Date(t*1000).toLocaleString(undefined,{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}):"—";
-function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+// Is the admin in the middle of editing this? The 20 s refresh redraws these parts, and it
+// threw away whatever was being typed - after which Save quietly stored the old values.
+// A part counts as being edited while focus is in one of its fields, or once anything in
+// it changed, until it is saved (clean) or the page is reloaded.
+function editing(el){
+  if(!el)return false;
+  const a=document.activeElement;
+  return el.dataset.dirty==="1"||!!(a&&el.contains(a)&&/^(INPUT|SELECT|TEXTAREA)$/.test(a.tagName));
+}
+function clean(el){if(el)delete el.dataset.dirty;}
+["input","change"].forEach(ev=>document.addEventListener(ev,e=>{
+  const g=e.target.closest&&e.target.closest("[data-guard]");if(g)g.dataset.dirty="1";}));
 async function jf(url,opts){
   const r=await fetch(url,opts);const t=await r.text();let d;try{d=JSON.parse(t)}catch{d={}}
   if(!r.ok)throw new Error(d.detail||("HTTP "+r.status));
@@ -908,13 +980,25 @@ function toast(msg,type){
   const el=document.createElement("div");el.className="toast "+(type||"");el.textContent=msg;
   $("toast").appendChild(el);setTimeout(()=>el.remove(),3200);
 }
+let MODAL_FIN=null;
 function confirmModal(title,bodyHtml,okText){
+  // a second one while the first is open (Enter on the button still focused behind it)
+  // used to leave the first promise hanging forever - it now counts as cancelled
+  if(MODAL_FIN)MODAL_FIN(false);
   return new Promise(res=>{
+    const back=document.activeElement;
     $("modal-t").textContent=title;$("modal-b").innerHTML=bodyHtml;$("modal-yes").textContent=okText||"Confirm";
     $("modal").classList.add("open");
-    const fin=v=>{$("modal").classList.remove("open");res(v);};
+    const key=e=>{if(e.key==="Escape")fin(false);};
+    const fin=v=>{
+      $("modal").classList.remove("open");document.removeEventListener("keydown",key);
+      MODAL_FIN=null;if(back&&back.focus)back.focus();res(v);
+    };
+    MODAL_FIN=fin;
     $("modal-yes").onclick=()=>fin(true);$("modal-no").onclick=()=>fin(false);
     $("modal").onclick=e=>{if(e.target===$("modal"))fin(false);};
+    document.addEventListener("keydown",key);
+    $("modal-no").focus();          // the safe answer is the one under the keyboard
   });
 }
 $("tabs").querySelectorAll("a").forEach(a=>a.onclick=()=>{
@@ -959,24 +1043,31 @@ async function jfc(url,render){
   return d;
 }
 
+let LOADING=false;
 async function load(){
+  // one poll at a time: on a slow server they used to stack up behind each other
+  if(LOADING)return;
+  LOADING=true;
   try{
     const v=await jfc("/api/valheim",paintStatus);
     $("vh-err").textContent="";
   }catch(e){$("vh-err").textContent=e.message;}
+  finally{LOADING=false;}
 }
-function paintStatus(v){
+function paintStatus(v,fromCache){
     VH=v;
     $("vh-state").textContent=v.active?"Running":"Stopped";
     const b=[];
-    if(v.active){b.push(`${v.online.length} online`);if(v.uptime)b.push("uptime "+fmtDur(v.uptime));}
+    if(v.active){b.push(`${v.online.length} ${t("online")}`);if(v.uptime)b.push(t("uptime")+" "+fmtDur(v.uptime));}
     if(v.version)b.push(v.version);
     if(v.settings)b.push("world: "+v.settings.world,"port "+v.settings.port,v.settings.public?"public":"not listed");
     if(v.disk)b.push("disk: "+fmtBytes(v.disk.used)+" used / "+fmtBytes(v.disk.avail)+" free");
     $("vh-meta").textContent=b.join(" · ");
     $("warn-default").style.display=(v.settings||{}).panel_default_pass?"block":"none";
-    vhOnline(v);vhHistory(v);vhStats();vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
-    vhCard();vhHealth();vhSay();vhMap();vhLauncher();
+    vhOnline(v);vhHistory(v);vhLists(v);vhWorlds(v);vhBackups(v);vhSettings(v);paintMachine();
+    // these fetch on their own - once per fresh answer, not again for the cached one painted
+    // a moment before it (every poll used to fire all of them twice)
+    if(!fromCache){vhStats();vhCard();vhHealth();vhSay();vhMap();vhLauncher();}
 }
 let SUM=null;
 function bar(pct,label){
@@ -1103,32 +1194,32 @@ async function vhBan(id,on){
   catch(e){toast(e.message,"bad");}
 }
 function vhLists(v){
+  if(editing($("vh-lists")))return;
   $("vh-lists").innerHTML=Object.keys(LIST_LABEL).map(k=>{
     const ids=(v.lists&&v.lists[k])||[];
     return `<div class="stat"><div class="muted">${LIST_LABEL[k]}</div>
       ${ids.length?ids.map(i=>`<div class="row" style="padding:4px 0"><code>${esc(i)}</code>
         <button class="mini danger" data-vhdel="${k}|${esc(i)}">remove</button></div>`).join(""):'<div class="muted">empty</div>'}
-      <div class="add" style="margin-top:8px"><input placeholder="SteamID64 / PlayFabID" id="vh-add-${k}"><button data-vhadd="${k}">add</button></div></div>`;
+      <div class="add" style="margin-top:8px"><input placeholder="SteamID64 / PlayFabID" aria-label="SteamID64 / PlayFabID" id="vh-add-${k}"><button data-vhadd="${k}">add</button></div></div>`;
   }).join("");
   $("vh-lists").querySelectorAll("[data-vhdel]").forEach(b=>b.onclick=()=>{
     const i=b.dataset.vhdel.indexOf("|"),k=b.dataset.vhdel.slice(0,i),id=b.dataset.vhdel.slice(i+1);
-    vhSaveList(k,(VH.lists[k]||[]).filter(x=>x!==id)).then(()=>{toast("Removed","ok");load();}).catch(e=>toast(e.message,"bad"));});
+    vhSaveList(k,(VH.lists[k]||[]).filter(x=>x!==id)).then(()=>{toast("Removed","ok");clean($("vh-lists"));load();}).catch(e=>toast(e.message,"bad"));});
   $("vh-lists").querySelectorAll("[data-vhadd]").forEach(b=>b.onclick=()=>{
     const k=b.dataset.vhadd,id=$("vh-add-"+k).value.trim();if(!id)return;
-    vhSaveList(k,[...(VH.lists[k]||[]),id]).then(()=>{toast("Added","ok");load();}).catch(e=>toast(e.message,"bad"));});
+    vhSaveList(k,[...(VH.lists[k]||[]),id]).then(()=>{toast("Added","ok");clean($("vh-lists"));load();}).catch(e=>toast(e.message,"bad"));});
 }
 let RULES=[];
 async function vhLauncher(){
   try{
     const d=await jf("/api/valheim/launcher");
-    $("lch-enabled").checked=!!d.enabled;
-    if(document.activeElement!==$("lch-address"))$("lch-address").value=d.address||"";
+    if(!editing($("t-launcher"))){$("lch-enabled").checked=!!d.enabled;$("lch-address").value=d.address||"";}
     $("lch-sum").innerHTML=
       `<div class="stat"><div class="muted">${t("For players")}</div><div>${d.enabled?t("available"):t("switched off")}</div></div>`+
       `<div class="stat"><div class="muted">${t("Files in the manifest")}</div><div>${d.files}</div></div>`+
       `<div class="stat"><div class="muted">${t("Background")}</div><div>${d.background?t("set"):t("none")}</div></div>`;
     $("lch-bg-prev").innerHTML=d.background
-      ? `<img src="/api/launcher/background?v=${d.bg_at}" style="max-width:420px;border:1px solid var(--line);border-radius:4px" onerror="this.replaceWith(document.createTextNode('${t("uploaded (video)")}'))">`
+      ? `<img src="/api/launcher/background?v=${d.bg_at}" style="max-width:min(420px,100%);border:1px solid var(--line);border-radius:4px" onerror="this.replaceWith(document.createTextNode('${t("uploaded (video)")}'))">`
       : "";
     $("lch-dl").value=location.origin+"/api/launcher/download";
     $("lch-mods").innerHTML=Object.entries(d.client_mods||{}).map(([n,on])=>
@@ -1151,7 +1242,7 @@ $("lch-dl-copy").onclick=()=>{navigator.clipboard.writeText($("lch-dl").value).t
 $("lch-save").onclick=async()=>{
   try{await jf("/api/valheim/launcher",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({enabled:$("lch-enabled").checked,address:$("lch-address").value.trim()})});
-    toast(t("Saved"),"ok");vhLauncher();}
+    toast(t("Saved"),"ok");clean($("t-launcher"));vhLauncher();}
   catch(e){toast(e.message,"bad");}
 };
 $("lch-bg-up").onclick=async()=>{
@@ -1192,7 +1283,7 @@ async function vhSay(){
       catch(e){toast(e.message,"bad");ib.classList.remove("loading");}
     };
     if(ready){await vhRules();await vhSayHist();
-      try{$("say-nick").value=(await jf("/api/valheim/say/settings")).nick||"";}catch(e){}}
+      if(!editing($("say-nick").parentNode))try{$("say-nick").value=(await jf("/api/valheim/say/settings")).nick||"";}catch(e){}}
   }catch(e){$("at-box").innerHTML=`<div class="stat"><div class="muted">${esc(e.message)}</div></div>`;}
 }
 const WHEN_LABEL={before_night:"in-game h before dark",ingame_at:"at in-game hour",every:"every N min",on_join:"on join, by name",after_join:"min after joining"};
@@ -1228,7 +1319,7 @@ function paintSayHist(h){
 }
 $("say-nick-save").onclick=async()=>{
   try{await jf("/api/valheim/say/settings",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({nick:$("say-nick").value.trim()})});toast(t("Saved"),"ok");}
+    body:JSON.stringify({nick:$("say-nick").value.trim()})});toast(t("Saved"),"ok");clean($("say-nick").parentNode);}
   catch(e){toast(e.message,"bad");}
 };
 $("say-send").onclick=async()=>{
@@ -1251,6 +1342,7 @@ $("nr-add").onclick=()=>{
 // Dopiero potem pyta modal - i to on decyduje, czy mody tez leca.
 (function(){
   const b=$("vh-wipe"), label=b.textContent;
+  b.oncontextmenu=e=>e.preventDefault();      // a long press is the gesture here, not a menu
   let timer=null, left=0;
   const stop=()=>{ if(timer){clearInterval(timer);timer=null;} b.textContent=label; b.classList.remove("danger-armed"); };
   const ask=async()=>{
@@ -1315,7 +1407,8 @@ async function vhMap(){
     // group has put on it. Its own parameters are kept and only the view is moved, because
     // the lobby id is in there somewhere and guessing which part it is would be a good way
     // to open an empty map.
-    MAPURL=(x,z,zoom)=>{
+    // no seed yet (a world never saved): no map to point at, and the button says so
+    MAPURL=!d.seed?null:(x,z,zoom)=>{
       if(!cfg.lobby_view)return mapUrl(x,z,zoom);
       try{
         const u=new URL(cfg.lobby_view);
@@ -1348,11 +1441,13 @@ async function vhMap(){
             href="${mapUrl(p.x,p.z,"2.000")}">${t("show on the terrain map")}</a>
             <button class="mini" data-here="${p.x},${p.z}">${t("centre the frame here")}</button></td></tr>`).join("")
       : "";
-    $("lobby-view").value=cfg.lobby_view||"";$("lobby-edit").value=cfg.lobby_edit||"";
+    if(!editing($("lobby-view").parentNode)){$("lobby-view").value=cfg.lobby_view||"";$("lobby-edit").value=cfg.lobby_edit||"";}
     // the downloaded map covers the whole disc, so it spans the full width of the plot
     const bg=cfg.map?`<image href="/api/valheim/world/map?t=${cfg.map_at||0}" x="0" y="0" width="${S}" height="${S}" preserveAspectRatio="none"/>`:"";
-    if(cfg.map&&cfg.map_seed&&d.seed&&cfg.map_seed!==d.seed)
-      $("map-hint").innerHTML=`<span class="bad">${t("The uploaded map was made for a different seed")}: ${esc(cfg.map_seed)}</span>`;
+    if(!MAP_HINT)MAP_HINT=$("map-hint").innerHTML;
+    $("map-hint").innerHTML=cfg.map&&cfg.map_seed&&d.seed&&cfg.map_seed!==d.seed
+      ?`<span class="bad">${t("The uploaded map was made for a different seed")}: ${esc(cfg.map_seed)}</span>`
+      :MAP_HINT;           // and back to the help text once the seed matches again
     $("vh-map").innerHTML=d.error
       ?`<div class="muted">${esc(d.error)}</div>`
       :`<svg viewBox="0 0 ${S} ${S}" style="width:100%;max-width:${S}px;background:#0d1114;border:1px solid var(--line);border-radius:4px">
@@ -1366,7 +1461,7 @@ async function vhMap(){
         </svg>`;
   }catch(e){$("vh-map").innerHTML=`<div class="muted">${esc(e.message)}</div>`;}
 }
-let MAPURL=null;
+let MAPURL=null,MAP_HINT="";
 $("frame-open").onclick=()=>{
   if(!MAPURL)return toast(t("No seed yet"),"bad");
   $("frame-map").src=MAPURL(0,0,"0.600");
@@ -1400,7 +1495,7 @@ $("map-del").onclick=async()=>{
 $("lobby-save").onclick=async()=>{
   try{await jf("/api/valheim/world/links",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({lobby_view:$("lobby-view").value.trim(),lobby_edit:$("lobby-edit").value.trim()})});
-    toast(t("Saved"),"ok");}
+    toast(t("Saved"),"ok");clean($("lobby-view").parentNode);}
   catch(e){toast(e.message,"bad");}
 };
 async function vhHealth(){
@@ -1446,7 +1541,7 @@ function vhWorlds(v){
     if(!await confirmModal("Switch world?",`The server restarts on world <b>${esc(n)}</b>.`,"Switch"))return;
     b.classList.add("loading");
     try{await jf("/api/valheim/worlds/activate",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({name:n,restart:true})});toast("Switched to "+n,"ok");setTimeout(load,8000);}
+      body:JSON.stringify({name:n,restart:true})});toast(t("Switched to")+" "+n,"ok");setTimeout(load,8000);}
     catch(e){toast(e.message,"bad");b.classList.remove("loading");}});
   $("vh-worlds").querySelectorAll("[data-vhwdel]").forEach(b=>b.onclick=async()=>{
     const n=b.dataset.vhwdel;
@@ -1456,7 +1551,7 @@ function vhWorlds(v){
 }
 function vhBackups(v){
   const rows=v.backups_full||[];
-  $("vh-bk-note").textContent=rows.length?`${rows.length} copies · last ${fmtTs(rows[0].mtime)}`:"no backups yet";
+  $("vh-bk-note").textContent=rows.length?`${rows.length} ${t("copies")} · ${t("last")} ${fmtTs(rows[0].mtime)}`:t("no backups yet");
   $("vh-timers").innerHTML=(v.timers||[]).map(t=>`<label class="muted" style="display:flex;gap:6px;align-items:center">
     <input type="checkbox" data-vhtimer="${t.name}" ${t.enabled?"checked":""}>
     ${t.name==="backup"?"auto-backup":"auto-update"}${t.next?" · "+fmtTs(t.next):""}</label>`).join("");
@@ -1484,6 +1579,7 @@ function vhBackups(v){
     catch(e){toast(e.message,"bad");}});
 }
 function vhSettings(v){
+  if(editing($("vh-set")))return;
   const s=v.settings||{},o=v.options||{};
   const sel=(id,val,opts)=>`<select id="${id}">`+opts.map(x=>
     `<option value="${x}"${x===val?" selected":""}>${VAL_PL[x]||x||"— default —"}</option>`).join("")+"</select>";
@@ -1561,7 +1657,7 @@ async function vhLaunch(){
       catch(e){toast(e.message,"bad");}
     };
     $("lch-now").onclick=async()=>{
-      if(!confirm("Release now: install the newest build"+(c.wipe_world?" and wipe "+c.world:"")+"?"))return;
+      if(!await confirmModal(t("Release now?"),t("Installs the newest build now")+(c.wipe_world?" — "+t("and wipes")+" <b>"+esc(c.world)+"</b>":"")+".",t("Release")))return;
       try{await jf("/api/launch/now",{method:"POST"});toast("Releasing — this takes a few minutes","ok");vhLaunch();}
       catch(e){toast(e.message,"bad");}
     };
@@ -1597,7 +1693,7 @@ async function vhLaunch(){
     const body={armed:true,target:toIso($("lch-target").value),title:$("lch-title").value,message:$("lch-msg").value};
     document.querySelectorAll("[data-lch]").forEach(x=>body[x.dataset.lch]=x.checked);
     if(!body.target){toast("Set the date first","bad");return;}
-    if(body.wipe_world&&!confirm("When the new build lands, "+c.world+" will be backed up and wiped. Arm?"))return;
+    if(body.wipe_world&&!await confirmModal(t("Arm launch mode?"),t("When the new build lands, this world is backed up and wiped:")+" <b>"+esc(c.world)+"</b>",t("Arm")))return;
     try{await jf("/api/launch",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
       toast("Launch mode armed","ok");vhLaunch();}
     catch(e){toast(e.message,"bad");}
@@ -1613,7 +1709,7 @@ async function vhSaveSettings(restart){
       name:$("vh-s-name").value.trim(),world:$("vh-s-world").value.trim(),password:$("vh-s-pass").value,
       port:+$("vh-s-port").value,public:$("vh-s-public").checked,crossplay:$("vh-s-cross").checked,
       preset:$("vh-s-preset").value,modifiers:mods,keys,panel_port:pport,restart})});
-    toast("Settings saved","ok");
+    toast("Settings saved","ok");clean($("vh-set"));
     if(r.panel_port_changed){
       $("vh-set-msg").innerHTML=`Panel moves to port <b>${pport}</b> — reopen at <code>${location.hostname}:${pport}</code>`;
       return;
@@ -1670,8 +1766,8 @@ $("vh-au-save").onclick=async()=>{
   $("vh-au-msg").textContent="Saving…";
   try{
     await jf("/api/panel/auth",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({user,password:$("vh-au-pass").value})});
-    $("vh-au-pass").value="";
+      body:JSON.stringify({user,password:$("vh-au-pass").value,current:$("vh-au-cur").value})});
+    $("vh-au-pass").value="";$("vh-au-cur").value="";
     $("vh-au-msg").textContent=`Login changed to "${user}". The browser still holds the old one — reopen the panel in a private window to sign in again.`;
     toast("Login changed","ok");
   }catch(e){$("vh-au-msg").textContent=e.message;toast("Not changed","bad");}
@@ -1730,7 +1826,7 @@ async function vhMods(check){
       +(m.profile_code?` · profile <code>${esc(m.profile_code)}</code>${m.profile_name?" ("+esc(m.profile_name)+")":""}`:"");
     $("mods-list").innerHTML=m.mods.length?m.mods.map(x=>`<tr>
       <td><div>${esc(x.name||x.full_name)}</div>
-        <div class="muted">${esc(x.author||"")}${x.description?" · "+esc(x.description).slice(0,110):""}</div></td>
+        <div class="muted">${esc(x.author||"")}${x.description?" · "+esc(x.description.slice(0,110)):""}</div></td>
       <td class="muted">${esc(x.version||"?")}</td>
       <td class="${x.outdated?"":"muted"}" ${x.outdated?'style="color:var(--acc2)"':""}>${m.checked?esc(x.latest||"?"):"—"}</td>
       <td><input type="checkbox" data-pin="${esc(x.full_name)}" ${x.pinned?"checked":""}></td>
@@ -1850,8 +1946,9 @@ async function vhAlerts(){
     $("al-membase").value=a.schedule.restart_mem_base??45;
     $("al-mempermod").value=a.schedule.restart_mem_per_mod??0.5;
     $("al-memnow").innerHTML = a.mem_limit
-      ? ("Dla "+a.mem_mods+" modów daje to <b>"+a.mem_limit+"%</b>.")
-      : "Wyłączone.";
+      ? (LANG==="pl"?"Dla "+a.mem_mods+" modów daje to <b>"+a.mem_limit+"%</b>."
+                    :"With "+a.mem_mods+" mods that makes <b>"+a.mem_limit+"%</b>.")
+      : t("Off.");
     $("al-sub").href=a.subscribe_url||"#";$("al-sub").textContent=a.subscribe_url||"";
     $("al-events").innerHTML=Object.entries(a.labels).map(([k,label])=>
       `<div class="stat"><label style="display:flex;gap:8px;align-items:center">
@@ -1902,9 +1999,9 @@ function cfgControl(e,i){
     return `<select id="${id}" data-i="${i}">`+e.choices.map(c=>
       `<option value="${esc(c)}"${c===e.value?" selected":""}>${esc(c)}</option>`).join("")+`</select>`;
   if((e.type||"").toLowerCase()==="boolean")
-    return `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="${id}" data-i="${i}" ${/^true$/i.test(e.value)?"checked":""}> <span class="muted">${e.value}</span></label>`;
+    return `<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="${id}" data-i="${i}" ${/^true$/i.test(e.value)?"checked":""}> <span class="muted">${esc(e.value)}</span></label>`;
   if(/int|single|double|float|decimal/i.test(e.type||""))
-    return `<input type="number" step="any" id="${id}" data-i="${i}" value="${v}"${e.range?` min="${e.range[0]}" max="${e.range[1]}"`:""}>`;
+    return `<input type="number" step="any" id="${id}" data-i="${i}" value="${v}"${e.range?` min="${esc(e.range[0])}" max="${esc(e.range[1])}"`:""}>`;
   return `<input id="${id}" data-i="${i}" value="${v}">`;
 }
 function cfgVal(e,i){
@@ -2022,7 +2119,7 @@ async function vhLog(){
         `${k}=${typeof v==="object"?JSON.stringify(v):v}`).join(" · ");
       return `<tr><td class="muted">${fmtTs(ts)}</td>
         <td>${ok===false?'<span class="dot stop"></span>':'<span class="dot run"></span>'}<code>${esc(action)}</code></td>
-        <td class="muted" style="word-break:break-word">${esc(detail).slice(0,400)}</td></tr>`;}).join("")
+        <td class="muted" style="word-break:break-word">${esc(detail.slice(0,400))}</td></tr>`;}).join("")
       :`<tr><td colspan="3" class="muted">${t("nothing logged yet")}</td></tr>`;
   }catch(e){$("vh-log").textContent=e.message;$("vh-log").style.display="";}
 }
@@ -2067,9 +2164,13 @@ $("logout").onclick=()=>jf("/api/logout",{method:"POST"}).then(()=>location.relo
 applyLang(document.body);
 // wszystko, co JS dorysuje później, też przechodzi przez słownik
 new MutationObserver(ms=>ms.forEach(m=>m.addedNodes.forEach(n=>{
-  if(n.nodeType===1)applyLang(n); else if(n.nodeType===3){const k=(n.nodeValue||"").trim();if(LANG==="pl"&&I18N[k])n.nodeValue=n.nodeValue.replace(k,I18N[k]);}
+  if(n.nodeType===1)applyLang(n); else if(n.nodeType===3){const k=(n.nodeValue||"").trim(),v=LANG==="pl"&&k&&I18NK(k);if(v)n.nodeValue=n.nodeValue.replace(k,v);}
 }))).observe(document.body,{childList:true,subtree:true});
-load();vhSummary();vhAlerts();setInterval(load,20000);setInterval(vhTick,1000);
+load();vhSummary();vhAlerts();
+// a phone with the tab in the background does not need a poll every 20 s; back in front,
+// it gets one straight away
+setInterval(()=>{if(!document.hidden)load();},20000);
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)load();});setInterval(vhTick,1000);
 
 /* Weather. Fog drifts behind everything, rain falls in front and breaks on the cards.
 

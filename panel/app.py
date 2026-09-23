@@ -17,6 +17,7 @@ import pwd
 import secrets
 import shutil
 import tempfile
+import threading
 import shlex
 import socket
 import struct
@@ -55,9 +56,9 @@ VH_MODIFIERS = {"combat": ["veryeasy", "easy", "hard", "veryhard"],
                 "raids": ["none", "muchless", "less", "more", "muchmore"],
                 "portals": ["casual", "hard", "veryhard"]}
 VH_KEYS = ["nobuildcost", "playerevents", "passivemobs", "nomap"]
-VH_NAME_RE = re.compile(r"^[A-Za-z0-9 _-]{1,40}$")
-VH_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}$")
-VH_BAK_RE = re.compile(r"^world-\d{8}-\d{6}\.tar\.gz$")
+VH_NAME_RE = re.compile(r"^[A-Za-z0-9 _-]{1,40}\Z")
+VH_ID_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,64}\Z")
+VH_BAK_RE = re.compile(r"^world-\d{8}-\d{6}\.tar\.gz\Z")
 VH_ACTIONS = {"start": ("systemctl start valheim", 60),
               "stop": ("systemctl stop valheim", 180),
               "restart": ("systemctl restart valheim", 180),
@@ -154,8 +155,27 @@ async def _unhandled(request: Request, exc: Exception):
     return JSONResponse({"detail": "Panel error — see the Log tab, panel log"}, status_code=500)
 
 
+def _cross_site(request):
+    """A state-changing request a browser sent on behalf of another site. SameSite=Lax stops
+    other sites but not a sibling subdomain, and a browser that cached Basic credentials sends
+    them with any cross-site form. Every current browser labels its requests with
+    Sec-Fetch-Site; for one that does not, Origin is compared with Host. A request carrying
+    neither - curl, a script, the launcher - is not a browser and not a CSRF vector."""
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return False
+    site = request.headers.get("sec-fetch-site")
+    if site:
+        return site not in ("same-origin", "none")
+    origin = request.headers.get("origin")
+    return bool(origin) and origin.split("://", 1)[-1] != request.headers.get("host", "")
+
+
 @app.middleware("http")
 async def guard(request: Request, call_next):
+    if _cross_site(request):
+        _log("panel.cross_site_refused", ok=False, path=request.url.path,
+             origin=request.headers.get("origin"), site=request.headers.get("sec-fetch-site"))
+        return JSONResponse({"detail": "Cross-site request refused"}, status_code=403)
     if (request.url.path in OPEN_PATHS
             or request.url.path.startswith(OPEN_PREFIXES)
             or _who(request)):
@@ -176,8 +196,12 @@ async def guard(request: Request, call_next):
         except Exception:
             u, pw = "", ""
         _login_failed(ip, u, pw, how="basic")
+    # The Basic challenge only for clients that are not a browser: a browser answering it
+    # pops a password box and then caches what was typed, sending it along with any
+    # cross-site form post from then on. The panel's own page has its login form.
+    browser = "sec-fetch-mode" in request.headers or "mozilla" in request.headers.get("user-agent", "").lower()
     return JSONResponse({"detail": "Bad credentials"}, status_code=401,
-                        headers={"WWW-Authenticate": "Basic"})
+                        headers={} if browser else {"WWW-Authenticate": "Basic"})
 
 
 # Rate limiting on the login. The panel sits on a public hostname; without this, a script
@@ -221,21 +245,20 @@ def _login_guard(ip):
 
 
 def _attempted(user, password):
-    """What was typed at a failed login, for the log.
-
-    Two things are deliberate. The real password is never written down even when it arrives
-    with the wrong user name - the most common failed login is the admin's own typo, and this
-    log is displayed in the panel's own browser tab. And the value is capped, because the
-    field accepts far more than anyone types by hand.
-    """
+    """What was typed at a failed login, for the log: the user name, and of the password only
+    its length. The most common failed login is the admin's own typo, and a typo of the real
+    password is most of the real password - it has no business sitting in a log file."""
     env = _env_file(VH_PANEL_ENV)
-    shown = "<the real one — not logged>" if password and password == env.get("PANEL_PASS") \
-        else (password[:64] or "<empty>")
+    shown = "<the real one>" if password and password == env.get("PANEL_PASS") \
+        else (f"<{len(password)} characters>" if password else "<empty>")
     return {"tried_user": (user or "")[:64] or "<empty>", "tried_pass": shown}
 
 
 def _login_failed(ip, user="", password="", how="form"):
     now = time.time()
+    if len(LOGIN_FAILS) > 1000:            # a scan from many addresses must not grow this forever
+        for k in [k for k, r in LOGIN_FAILS.items() if r["until"] < now and now - r["first"] > LOGIN_WINDOW]:
+            LOGIN_FAILS.pop(k, None)
     rec = LOGIN_FAILS.setdefault(ip, {"count": 0, "first": now, "until": 0, "blocks": 0})
     if now - rec["first"] > LOGIN_WINDOW:
         rec.update({"count": 0, "first": now})
@@ -282,7 +305,17 @@ def logout(response: Response):
     return {"ok": True}
 
 
+def _no_newlines(env):
+    """Both env files are read line by line. shlex.quote keeps a newline harmless to bash,
+    but the panel's own parser would read what follows it as a key of its own - a token
+    field carrying "\nTRUSTED_PROXIES=..." wrote exactly that."""
+    for k, v in env.items():
+        if "\n" in str(v) or "\r" in str(v):
+            raise HTTPException(400, f"{k}: no line breaks")
+
+
 def _save_panel_env(cfg):
+    _no_newlines(cfg)
     _write(VH_PANEL_ENV, "".join(f"{k}={shlex.quote(str(v))}\n" for k, v in cfg.items()),
            mode=0o600, own="root:root")
 
@@ -290,12 +323,17 @@ def _save_panel_env(cfg):
 class Auth(BaseModel):
     user: str = "admin"
     password: str = ""
+    current: str = ""
 
 
 @app.post("/api/panel/auth")
 def panel_auth(a: Auth):
-    """Change the panel login. Credentials are read per request, so no restart is needed."""
-    if not re.match(r"^[A-Za-z0-9_.-]{3,32}$", a.user):
+    """Change the panel login. Credentials are read per request, so no restart is needed.
+    Asks for the current password: a session left open on someone else's screen, or a forged
+    request, must not be enough to take the panel over. The CLI reset stays for the lost one."""
+    if not hmac.compare_digest(a.current.encode(), (_env_file(VH_PANEL_ENV).get("PANEL_PASS") or "").encode()):
+        raise HTTPException(403, "The current password is wrong")
+    if not re.match(r"^[A-Za-z0-9_.-]{3,32}\Z", a.user):
         raise HTTPException(400, "User: 3-32 chars, letters, digits, _ . -")
     if len(a.password) < 8:
         raise HTTPException(400, "Password must be at least 8 characters")
@@ -371,6 +409,28 @@ def _write(path, text, mode=0o644, own="valheim:valheim"):
         raise
 
 
+def _save_json(path, obj, **kw):
+    """State files, atomically: temp file + rename. Written in place, a reader could catch the
+    file empty - _history then read "no history" and wrote that back, and every hour of
+    playtime older than the journal was gone. A crash mid-write did the same."""
+    p = Path(path)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(obj, f, **kw)
+        os.replace(tmp, p)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _load_json(path, default):
+    try:
+        return json.loads(Path(path).read_text())
+    except Exception:
+        return default
+
+
 def _ts(s):
     try:
         return int(datetime.strptime(s, "%Y-%m-%dT%H:%M:%S%z").timestamp())
@@ -380,6 +440,11 @@ def _ts(s):
 
 VH_LOG_FILTER = ("grep -E 'Got connection|Got handshake|Closing socket|ZDOID|Connections [0-9]|"
                  "Valheim version|join code'")
+# How far back status() reads the journal. The whole of it took 3 s on two months of
+# production log and grew by the day - on every tick and every page poll. What a longer
+# session needs from before the window (its version and join code) is kept in VH_SESSION.
+VH_LOG_DAYS = 7
+VH_SESSION = Path(f"{VH_DIR}/session.json")
 VH_STATUS_SH = f"""
 echo '@state'; systemctl is-active valheim
 date +%s
@@ -393,7 +458,7 @@ echo '@timers'; for t in {' '.join(VH_TIMERS.values())}; do \
   echo "$t $(systemctl is-enabled $t 2>/dev/null) $(systemctl is-active $t 2>/dev/null) $(date -d "$n" +%s 2>/dev/null || echo 0)"; done
 echo '@disk'; df -B1 --output=used,avail {VH_DIR} 2>/dev/null | tail -1
 echo '@machine'; cat /proc/loadavg; nproc; awk '/MemTotal|MemAvailable/{{print $2}}' /proc/meminfo; cut -d' ' -f1 /proc/uptime
-echo '@log'; journalctl -u valheim -o short-iso --no-pager | {VH_LOG_FILTER} | tail -n 4000
+echo '@log'; journalctl -u valheim -o short-iso --no-pager --since "-{VH_LOG_DAYS} days" | {VH_LOG_FILTER} | tail -n 4000
 """
 
 
@@ -475,7 +540,10 @@ def _scan(lines):
             conns.append(c)
             hist.append((t, "join", c))
         elif kind == "leave":
-            c = next((x for x in conns if x["id"] == val), None) or (conns[0] if conns else None)
+            # an id that matches nobody (crossplay peers can close under another id) is only
+            # pinned on someone when there is exactly one to pin it on: dropping the wrong
+            # player makes the server look empty, and "empty" is what every restart waits for
+            c = next((x for x in conns if x["id"] == val), None) or (conns[0] if len(conns) == 1 else None)
             if c:
                 conns.remove(c)
                 hist.append((t, "leave", c))
@@ -497,12 +565,27 @@ def _scan(lines):
     return conns, hist, count, count_ts, version, joincode
 
 
+_HISTORY_LOCK = threading.Lock()
+
+
 def _history(hist):
-    """Persistent login history — the journal rotates, the player list should not."""
+    """Persistent login history — the journal rotates, the player list should not. Runs from
+    the tick and from every page poll at once, hence the lock."""
+    with _HISTORY_LOCK:
+        return _history_locked(hist)
+
+
+def _history_locked(hist):
     try:
         st = json.loads(VH_STORE.read_text())
-    except Exception:
+    except FileNotFoundError:
         st = {}
+    except Exception as e:
+        # exists but does not parse: never overwrite it with what the journal still holds
+        _log("history.unreadable", ok=False, error=f"{type(e).__name__}: {e}"[:120])
+        st = None
+    if st is None:
+        return []
     players, last = st.get("players", {}), st.get("last_ts", 0)
     newest = last
     for t, kind, c in hist:
@@ -526,8 +609,10 @@ def _history(hist):
             p["log"] = p["log"][-60:]
         p["first"] = min(p.get("first", t), t)
         p["last"] = max(p.get("last", t), t)
+    if len(players) > 1000:                 # the thousand most recent are plenty of history
+        players = dict(sorted(players.items(), key=lambda kv: kv[1]["last"], reverse=True)[:1000])
     try:
-        VH_STORE.write_text(json.dumps({"players": players, "last_ts": newest}))
+        _save_json(VH_STORE, {"players": players, "last_ts": newest})
     except Exception:
         pass
     return sorted(players.values(), key=lambda p: p["last"], reverse=True)[:200]
@@ -623,6 +708,17 @@ def status():
     except Exception:
         pass
     conns, hist, count, count_ts, version, joincode = _scan(sec.get("log", []))
+    # the boot line is in the window: remember it; it is not: the session is older than the
+    # window, and what was remembered is still its version and join code
+    try:
+        if version:
+            if _load_json(VH_SESSION, {}) != {"version": version, "joincode": joincode}:
+                _save_json(VH_SESSION, {"version": version, "joincode": joincode})
+        else:
+            sess = _load_json(VH_SESSION, {})
+            version, joincode = sess.get("version"), sess.get("joincode")
+    except Exception:
+        pass
     settings = _parse_env(sec.get("env", []))
     panel_cfg = _env_file(VH_PANEL_ENV)
     settings["panel_port"] = int(panel_cfg.get("PANEL_PORT") or 2460)
@@ -968,8 +1064,13 @@ def _panel_update_tick(now_on):
     tried = Path(f"{VH_DIR}/auto-update.tried")
     if tried.exists() and tried.read_text().strip() == new["tag"]:
         return
-    tried.write_text(new["tag"])
-    _panel_update_start("auto")
+    # the one try per release is only spent once the update has really been started - a
+    # failed GitHub fetch or systemd-run is tried again, but no more than once an hour
+    if time.time() - WATCH.get("panel_update_at", 0) < 3600:
+        return
+    WATCH["panel_update_at"] = time.time()
+    if _panel_update_start("auto").returncode == 0:
+        tried.write_text(new["tag"])
 
 
 def _panel_updated_notice():
@@ -982,6 +1083,15 @@ def _panel_updated_notice():
         _notify("maintenance", f"Panel updated to {mine}", f"From {old}. World and settings untouched.",
                 tags="arrow_up")
     seen.write_text(mine)
+    # a rollback leaves the old panel running and would otherwise pass without a word
+    ver = VH_PANEL_VERSION.read_text().strip() if VH_PANEL_VERSION.exists() else ""
+    told = Path(f"{VH_DIR}/panel.rollback-seen")
+    if "rollback" in ver and (not told.exists() or told.read_text().strip() != ver):
+        _log("panel.rolled_back", version=ver)
+        _notify("mod_failed", "Panel update rolled back",
+                f"The new version did not start, so {mine} is running again. Nothing else changed.",
+                priority="high", tags="warning")
+        told.write_text(ver)
 
 
 @app.get("/api/panel/log")
@@ -1080,6 +1190,7 @@ def _save_settings(s: Settings):
     env = {"NAME": s.name, "WORLD": s.world, "PASSWORD": s.password, "PORT": str(s.port),
            "PUBLIC": "1" if s.public else "0", "CROSSPLAY": "1" if s.crossplay else "0",
            "PRESET": s.preset, "MODIFIERS": " ".join(sorted(mods)), "SETKEYS": " ".join(keys)}
+    _no_newlines(env)
     _write(VH_ENV, "".join(f"{k}={shlex.quote(v)}\n" for k, v in env.items()), mode=0o640, own="root:valheim")
 
     panel = _env_file(VH_PANEL_ENV)
@@ -1114,7 +1225,7 @@ def _world_ok(name):
 # NAME/ of map chunks plus numbered saves _main.N.{db2,fwl2,chunks,ok}; N goes up on every
 # save, the .ok is written last, and the game loads the highest complete N. The server
 # still reads an old pair and converts it on load, so both have to be understood here.
-VH_W1_FILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}\.(chunk|chunks|db2|fwl2|ok)$")
+VH_W1_FILE_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}\.(chunk|chunks|db2|fwl2|ok)\Z")
 VH_UPLOADS = Path(f"{VH_DIR}/upload")
 
 
@@ -1203,7 +1314,7 @@ def world_download(name: str):
 
 
 @app.post("/api/valheim/worlds/upload/{filename:path}")
-async def world_upload(filename: str, data: bytes = Body(b""), fresh: bool = False):
+def world_upload(filename: str, data: bytes = Body(b""), fresh: bool = False):
     # raw body instead of multipart — keeps python-multipart out of the dependency list
     if len(data) > 300 * 1024 * 1024:
         raise HTTPException(413, "File too large")
@@ -1362,8 +1473,16 @@ def _verify_backup(fn):
         # .db/.fwl up to 0.221, .db2/.fwl2 inside a world folder since 1.0; the game's own
         # automatic copies are in the archive too, the real world is the one to read
         active = _parse_env(Path(VH_ENV).read_text().splitlines())["world"]
-        dbs = sorted((m for m in members if m.endswith((".db", ".db2"))),
-                     key=lambda m: ("_backup_auto-" in m, not (m.startswith((f"./{active}/", f"./{active}.")))))
+        mset = set(members)
+
+        def rank(m):
+            # the active world's newest *complete* save: numbers compared as numbers ("99" sorts
+            # after "755" as text), and a save without its .ok is one that was interrupted
+            n = re.search(r"_main\.(\d+)\.db2$", m)
+            done = not n or m[:-len(".db2")] + ".ok" in mset
+            return ("_backup_auto-" in m, not m.startswith((f"./{active}/", f"./{active}.")),
+                    not done, -(int(n.group(1)) if n else 0))
+        dbs = sorted((m for m in members if m.endswith((".db", ".db2"))), key=rank)
         if not dbs or not any(m.endswith((".fwl", ".fwl2")) for m in members):
             out["error"] = f"no world in the archive ({len(members)} files)"
             return out
@@ -1518,7 +1637,7 @@ def _say_log(entry):
         hist = []
     hist.append(entry)
     try:
-        VH_SAY.write_text(json.dumps(hist[-SAY_KEEP:]))
+        _save_json(VH_SAY, hist[-SAY_KEEP:])
     except Exception:
         pass
 
@@ -1563,7 +1682,7 @@ def rules_set(body: dict = Body(...)):
                     "where": "side" if r.get("where") == "side" else "center",
                     "when": when, "value": max(0, float(r.get("value") or 0)),
                     "enabled": bool(r.get("enabled", True))})
-    VH_RULES.write_text(json.dumps(out, ensure_ascii=False, indent=1))
+    _save_json(VH_RULES, out, ensure_ascii=False, indent=1)
     _log("schedule.save", rules=len(out))
     return {"ok": True, "rules": out}
 
@@ -1593,7 +1712,7 @@ def say_cfg_get():
 @app.post("/api/valheim/say/settings")
 def say_cfg_set(body: dict = Body(...)):
     nick = str(body.get("nick") or "").strip()[:24]
-    VH_SAYCFG.write_text(json.dumps({"nick": nick}))
+    _save_json(VH_SAYCFG, {"nick": nick})
     _log("say.settings", nick=nick or "<none>")
     return {"ok": True, "nick": nick}
 
@@ -1675,7 +1794,7 @@ def _greet_tick():
     conns, *_ = _scan(out.stdout.splitlines())
     here = {c["id"]: c for c in conns}
     for pid in list(GREETED):
-        if pid not in here:
+        if pid != "last" and pid not in here:     # "last" is the previous greeting, not a player
             GREETED.pop(pid, None)          # left - greet them again next time they come back
     for key in [k for k in JOKED if k != "last" and k.split("|")[0] not in here]:
         JOKED.pop(key, None)                # same for the delayed lines
@@ -1801,14 +1920,13 @@ def world_links_set(body: dict = Body(...)):
             if v and not v.startswith("https://valheim-map.world/"):
                 raise HTTPException(400, "Expecting a https://valheim-map.world/ link")
             cfg[k] = v
-    VH_WORLDCFG.write_text(json.dumps({k: cfg[k] for k in
-                                       ("lobby_view", "lobby_edit", "map_seed", "map_at")}))
+    _save_json(VH_WORLDCFG, {k: cfg[k] for k in ("lobby_view", "lobby_edit", "map_seed", "map_at")})
     _log("world.links", view=bool(cfg["lobby_view"]), edit=bool(cfg["lobby_edit"]))
     return _world_cfg()
 
 
 @app.post("/api/valheim/world/map")
-async def world_map_upload(data: bytes = Body(...)):
+def world_map_upload(data: bytes = Body(...)):
     if not data or len(data) > 40 * 1024 * 1024:
         raise HTTPException(400, "Expecting an image under 40 MB")
     if not (data.startswith(b"\x89PNG") or data.startswith(b"\xff\xd8")):
@@ -1817,8 +1935,7 @@ async def world_map_upload(data: bytes = Body(...)):
     cfg = _world_cfg()
     cfg["map_seed"] = (_world_card().get("fwl") or {}).get("seed_name") or ""
     cfg["map_at"] = int(time.time())
-    VH_WORLDCFG.write_text(json.dumps({k: cfg[k] for k in
-                                       ("lobby_view", "lobby_edit", "map_seed", "map_at")}))
+    _save_json(VH_WORLDCFG, {k: cfg[k] for k in ("lobby_view", "lobby_edit", "map_seed", "map_at")})
     _log("world.map_upload", bytes=len(data), seed=cfg["map_seed"])
     return _world_cfg()
 
@@ -1900,7 +2017,7 @@ def _wipe_world(world, wipe_mods=False):
             removed.append(p.name)
     for f in (VH_SAY, VH_METRICS, VH_LIFE):
         f.unlink(missing_ok=True)
-    VH_STORE.write_text(json.dumps({"players": {}, "last_ts": int(time.time())}))
+    _save_json(VH_STORE, {"players": {}, "last_ts": int(time.time())})
     _sh(f"chown valheim:valheim {VH_STORE}")
     GREETED.clear()
     JOKED.clear()
@@ -1979,7 +2096,7 @@ def _launch_cfg():
 
 
 def _launch_save(cfg):
-    VH_LAUNCH.write_text(json.dumps(cfg, indent=1))
+    _save_json(VH_LAUNCH, cfg, indent=1)
     return cfg
 
 
@@ -1998,13 +2115,17 @@ def _launch_stood_down(cfg=None):
     return _launch_waiting(cfg) and bool(cfg.get("stop_server", True))
 
 
+_GAME_UPDATE_LOCK = threading.Lock()
+_UPDATE_BUSY = {"at": 0}
+
+
 def _game_may_restart(now_on, need_empty=True):
     """The one question every automatic restart asks before touching the game. A launch that
     keeps the game down wins over everything, a release in progress too, and - unless the
     caller has its own rule for that - so does anyone playing. Until 2026-09-07 the
     maintenance window, the memory guard and update.sh each asked something slightly
     different, and the window won against the launch."""
-    if _launch_stood_down() or _LAUNCH_BUSY["at"]:
+    if _launch_stood_down() or _LAUNCH_BUSY["at"] or _UPDATE_BUSY["at"]:
         return False
     return not (need_empty and now_on)
 
@@ -2615,8 +2736,15 @@ def launcher_download(request: Request, platform: str = ""):
         raise HTTPException(503, f"No {plat} engine release on GitHub yet")
     # The panel's public address is whatever name this request came in on -
     # zero configuration, and it is right for LAN and for the internet alike.
-    host = request.headers.get("x-forwarded-host") or request.headers.get("host", "")
-    proto = request.headers.get("x-forwarded-proto", "http")
+    # This route is open to anyone, and the host goes into the build and its cache key -
+    # so every made-up Host header used to cost a full rebuild. Forwarded headers count
+    # only from our own proxy, the name must look like one, and a build for a new name
+    # waits its turn: one at a time, at most one every half minute.
+    proxied = (request.client.host if request.client else "") in _trusted_proxies()
+    host = (request.headers.get("x-forwarded-host") if proxied else None) or request.headers.get("host", "")
+    proto = (request.headers.get("x-forwarded-proto") if proxied else None) or "http"
+    if not re.fullmatch(r"[A-Za-z0-9.-]{1,253}(:\d{1,5})?", host) or proto not in ("http", "https"):
+        raise HTTPException(400, "Odd host name")
     env = _parse_env(Path(VH_ENV).read_text().splitlines())
     config = json.dumps({"serverName": env["name"], "panelUrl": f"{proto}://{host}",
                          "engineRepo": LAUNCHER_REPO})
@@ -2628,6 +2756,26 @@ def launcher_download(request: Request, platform: str = ""):
     dist.mkdir(exist_ok=True)
     out = dist / f"launcher-{plat}-{tag}-{key}.zip"
     if not out.exists():
+        if not _LAUNCHER_BUILD.acquire(timeout=120):
+            raise HTTPException(503, "Another launcher build is running - try again in a minute")
+        try:
+            _launcher_build(out, dist, plat, tag, asset, config, env, base)
+        finally:
+            _LAUNCHER_BUILD.release()
+    return FileResponse(out, filename=f"{base} Launcher ({plat}).zip",
+                        media_type="application/zip")
+
+
+_LAUNCHER_BUILD = threading.Lock()
+_LAUNCHER_LAST_BUILD = {}                # platform -> when a build for it last started
+
+
+def _launcher_build(out, dist, plat, tag, asset, config, env, base):
+    if not out.exists():                  # re-checked: the build may have happened while waiting
+        if time.time() - _LAUNCHER_LAST_BUILD.get(plat, 0) < 30:
+            raise HTTPException(429, "A launcher was just built - try again in half a minute",
+                                {"Retry-After": "30"})
+        _LAUNCHER_LAST_BUILD[plat] = time.time()
         import shutil
         import zipfile
         raw = dist / f"engine-{plat}-{tag}.zip"
@@ -2672,11 +2820,10 @@ def launcher_download(request: Request, platform: str = ""):
                 dst.writestr(info, blob)
             dst.writestr("panel_config.json", config)
         part.rename(out)
-        for old in dist.glob(f"launcher-{plat}-*.zip"):
-            if old != out:
-                old.unlink(missing_ok=True)
-    return FileResponse(out, filename=f"{base} Launcher ({plat}).zip",
-                        media_type="application/zip")
+        # the four newest stay - LAN and public name both, and a download still streaming
+        # an older one is not cut off under the player
+        for old in sorted(dist.glob(f"launcher-{plat}-*.zip"), key=lambda f: f.stat().st_mtime)[:-4]:
+            old.unlink(missing_ok=True)
 
 
 def _exe_base(server_name):
@@ -2752,13 +2899,13 @@ def launcher_set(body: dict = Body(...)):
         cfg["note"] = str(body["note"] or "")[:200]
     if "address" in body:
         cfg["address"] = str(body["address"] or "").strip()[:120]
-    VH_LAUNCHER.write_text(json.dumps({k: cfg[k] for k in ("enabled", "note", "bg_at", "address")}))
+    _save_json(VH_LAUNCHER, {k: cfg[k] for k in ("enabled", "note", "bg_at", "address")})
     _log("launcher.config", enabled=cfg["enabled"])
     return _launcher_cfg()
 
 
 @app.post("/api/valheim/launcher/background")
-async def launcher_bg_upload(data: bytes = Body(...)):
+def launcher_bg_upload(data: bytes = Body(...)):
     if not data or len(data) > 60 * 1024 * 1024:
         raise HTTPException(400, "Expecting a file under 60 MB")
     if not (data[:4] == b"\x89PNG" or data[:2] == b"\xff\xd8" or b"ftyp" in data[:32]):
@@ -2766,9 +2913,8 @@ async def launcher_bg_upload(data: bytes = Body(...)):
     VH_LAUNCHER_BG.write_bytes(data)
     cfg = _launcher_cfg()
     # the launcher caches the background and only refetches when this stamp changes
-    VH_LAUNCHER.write_text(json.dumps({"enabled": cfg["enabled"], "note": cfg.get("note", ""),
-                                       "address": cfg.get("address", ""),
-                                       "bg_at": int(time.time())}))
+    _save_json(VH_LAUNCHER, {"enabled": cfg["enabled"], "note": cfg.get("note", ""),
+                             "address": cfg.get("address", ""), "bg_at": int(time.time())})
     _log("launcher.background", bytes=len(data))
     return _launcher_cfg()
 
@@ -2820,12 +2966,26 @@ def backup_restore(fn: str):
     # Unpacked into an empty folder, not over the live one: a 1.0 world keeps numbered saves
     # and loads the highest, so the newer save left in place would win over the restored
     # one. What was there stays in worlds_local.prev until the next restore.
+    # Step by step, so a failure anywhere puts the world that was there back and the game up
+    # on it - one long command chain used to die on its timeout with the game stopped and
+    # the folder half unpacked.
     w = shlex.quote(VH_WORLDS)
-    # tar runs as the game user: the archive sits in a folder that user can write, and root
-    # unpacking it would follow whatever links it carries
-    _sh_ok(f"systemctl stop valheim && rm -rf {w}.prev && mv {w} {w}.prev && mkdir {w} "
-           f"&& chown valheim:valheim {w} && runuser -u valheim -- tar xzf {VH_BACKUPS}/{fn} -C {w} "
-           f"&& systemctl start valheim", timeout=240)
+    _sh_ok("systemctl stop valheim", timeout=180)
+    try:
+        _sh_ok(f"rm -rf {w}.prev && mv {w} {w}.prev", timeout=300)
+    except Exception:
+        _sh("systemctl start valheim", timeout=180)
+        raise
+    try:
+        # tar runs as the game user: the archive sits in a folder that user can write, and
+        # root unpacking it would follow whatever links it carries
+        _sh_ok(f"mkdir {w} && chown valheim:valheim {w} && "
+               f"runuser -u valheim -- tar xzf {VH_BACKUPS}/{shlex.quote(fn)} -C {w}", timeout=900)
+    except Exception:
+        _sh(f"rm -rf {w} && mv {w}.prev {w}", timeout=300)
+        _sh("systemctl start valheim", timeout=180)
+        raise
+    _sh_ok("systemctl start valheim", timeout=180)
     _log("backup.restore", file=fn)
     return {"ok": True}
 
@@ -2864,8 +3024,8 @@ VH_SERVER = f"{VH_DIR}/server"
 VH_PLUGINS = f"{VH_SERVER}/BepInEx/plugins"
 VH_MODS_JSON = Path(f"{VH_DIR}/mods.json")
 BEPINEX = ("denikson", "BepInExPack_Valheim")
-MOD_NAME_RE = re.compile(r"^[A-Za-z0-9_]+$")
-MOD_VER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
+MOD_NAME_RE = re.compile(r"^[A-Za-z0-9_]+\Z")
+MOD_VER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+\Z")
 
 
 def _mods_state():
@@ -2876,7 +3036,7 @@ def _mods_state():
 
 
 def _mods_save(st):
-    VH_MODS_JSON.write_text(json.dumps(st, indent=1))
+    _save_json(VH_MODS_JSON, st, indent=1)
 
 
 def _ts_get(url, timeout=30):
@@ -2971,7 +3131,7 @@ def _profile(code):
     import zipfile
     import io
     import yaml
-    if not re.match(r"^[A-Za-z0-9-]{8,64}$", code or ""):
+    if not re.match(r"^[A-Za-z0-9-]{8,64}\Z", code or ""):
         raise HTTPException(400, "That does not look like a share code")
     try:
         raw = _ts_get(f"{TS}/api/experimental/legacyprofile/get/{code}/", timeout=60).decode()
@@ -3216,7 +3376,7 @@ def mods_clear(c: ModClear):
 
 @app.delete("/api/mods/{full_name}")
 def mods_remove(full_name: str, restart: bool = True):
-    if not re.match(r"^[A-Za-z0-9_-]{1,80}$", full_name):
+    if not re.match(r"^[A-Za-z0-9_-]{1,80}\Z", full_name):
         raise HTTPException(400, "Odd package name")
     _sh_ok(f"rm -rf {shlex.quote(VH_PLUGINS + '/' + full_name)}")
     st = _mods_state()
@@ -3234,7 +3394,7 @@ def mods_remove(full_name: str, restart: bool = True):
 # sections and ordering come back byte for byte.
 VH_MODCFG = f"{VH_SERVER}/BepInEx/config"
 VH_CFGHIST = f"{VH_MODCFG}/.history"
-CFG_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}\.(cfg|json|ya?ml|txt|ini|xml)$")
+CFG_NAME_RE = re.compile(r"^[A-Za-z0-9._-]{1,100}\.(cfg|json|ya?ml|txt|ini|xml)\Z")
 CFG_MAX = 512 * 1024
 CFG_KEEP = 20
 
@@ -3393,6 +3553,7 @@ VH_LIFE = Path(f"{VH_DIR}/uptime.json")   # availability since this world began
 VH_LAUNCHER = Path(f"{VH_DIR}/launcher.json")
 VH_LAUNCHER_BG = Path(f"{VH_DIR}/launcher-bg")   # image or video the launcher shows
 LAUNCHER_REPO = "PawelSzymanski89/valheim_launcher_proxmox"
+VH_RESTART_DONE = Path(f"{VH_DIR}/restart-done.json")  # last nightly restart, across panel restarts
 VH_MEM_GUARD = Path(f"{VH_DIR}/mem-guard.json")  # cooldown that survives a panel restart
 VH_RCON_ENV = f"{VH_DIR}/rcon.env"        # readable by the game user, unlike panel.env
 HEALTH_KEEP = 50
@@ -3408,7 +3569,7 @@ def _health_state():
 def _write_health(st):
     st["crashes"] = (st.get("crashes") or [])[-HEALTH_KEEP:]
     try:
-        VH_HEALTH.write_text(json.dumps(st))
+        _save_json(VH_HEALTH, st)
     except Exception:
         pass
 
@@ -3688,7 +3849,7 @@ def public_cfg_set(body: dict = Body(...)):
             cfg[k] = bool(body[k])
     if "note" in body:
         cfg["note"] = str(body["note"])[:280]
-    VH_PUBLIC.write_text(json.dumps(cfg, indent=1))
+    _save_json(VH_PUBLIC, cfg, indent=1)
     _log("public.config", **{k: v for k, v in cfg.items() if k != "note"})
     return {"ok": True}
 
@@ -3716,11 +3877,11 @@ def alerts_set(body: dict = Body(...)):
     n = body.get("ntfy") or {}
     env = _env_file(VH_PANEL_ENV)
     if n.get("server"):
-        if not re.match(r"^https?://[\w.-]+(:\d+)?/?$", n["server"]):
+        if not re.match(r"^https?://[\w.-]+(:\d+)?/?\Z", n["server"]):
             raise HTTPException(400, "ntfy server must be a plain http(s) URL, no path")
         env["NTFY_SERVER"] = n["server"].rstrip("/")
     if "topic" in n:
-        if n["topic"] and not re.match(r"^[\w.-]{1,64}$", n["topic"]):
+        if n["topic"] and not re.match(r"^[\w.-]{1,64}\Z", n["topic"]):
             raise HTTPException(400, "Topic: letters, digits, _ . - only")
         env["NTFY_TOPIC"] = n["topic"]
     if n.get("token") and n["token"] != "***":
@@ -3734,7 +3895,7 @@ def alerts_set(body: dict = Body(...)):
             cfg["events"][k] = bool(v)
     s = body.get("schedule") or {}
     if "restart_at" in s:
-        if s["restart_at"] and not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", s["restart_at"]):
+        if s["restart_at"] and not re.match(r"^([01]\d|2[0-3]):[0-5]\d\Z", s["restart_at"]):
             raise HTTPException(400, "Restart time must be HH:MM")
         cfg["schedule"]["restart_at"] = s["restart_at"]
     for k in ("only_when_empty", "update_when_empty", "speed_when_empty", "ping_when_empty"):
@@ -3751,7 +3912,7 @@ def alerts_set(body: dict = Body(...)):
     if "restart_mem_per_mod" in s:
         cfg["schedule"]["restart_mem_per_mod"] = max(
             0.0, min(3.0, float(s["restart_mem_per_mod"] or 0)))
-    VH_ALERTS.write_text(json.dumps(cfg, indent=1))
+    _save_json(VH_ALERTS, cfg, indent=1)
     _log("alerts.save", topic=env.get("NTFY_TOPIC") or None, enabled=cfg["enabled"],
          on=[k for k, v in cfg["events"].items() if v], schedule=cfg["schedule"])
     return {"ok": True}
@@ -3839,7 +4000,7 @@ def link_test(force: bool = False):
     st["speed"], st["last_speed"] = _speedtest(), int(time.time())
     st["history"] = (st.get("history") or [])[-167:] + [{"t": st["last_ping"], **(st["ping"] or {}),
                                                          **(st["speed"] or {})}]
-    VH_LINK.write_text(json.dumps(st))
+    _save_json(VH_LINK, st)
     _log("link.test", ping=st["ping"], speed=st["speed"])
     return st
 
@@ -3983,10 +4144,20 @@ def _game_update_tick(now_on, manual=False):
                     f"Build {latest} is out; installing when the server is free ({why}).", tags="hourglass")
         _log("update.held", latest=latest, why=why)
         return {"updated": False, "installed": installed, "latest": latest, "held": why}
-    _log("update.start", installed=installed, latest=latest, manual=manual)
-    _sh("systemctl stop valheim", timeout=180)
-    up = _steam_install()
-    _sh("systemctl start valheim", timeout=180)
+    # One install at a time, and while it runs nothing else restarts the game: the button runs
+    # in a request thread, the tick in its own, and the memory guard or the nightly window
+    # used to be able to start the server in the middle of a steamcmd install.
+    if not _GAME_UPDATE_LOCK.acquire(blocking=False):
+        return {"updated": False, "installed": installed, "latest": latest, "held": "an update is already running"}
+    try:
+        _UPDATE_BUSY["at"] = time.time()
+        _log("update.start", installed=installed, latest=latest, manual=manual)
+        _sh("systemctl stop valheim", timeout=180)
+        up = _steam_install()
+        _sh("systemctl start valheim", timeout=180)
+    finally:
+        _UPDATE_BUSY["at"] = 0
+        _GAME_UPDATE_LOCK.release()
     WATCH["active"] = True
     ok = up.returncode == 0
     _log("update.done", ok=ok, latest=latest, rc=up.returncode)
@@ -4072,7 +4243,7 @@ def _tick():
             pass
         life["total"] += 1
         life["up"] += 1 if s["active"] else 0
-        VH_LIFE.write_text(json.dumps(life))
+        _save_json(VH_LIFE, life)
     except Exception:
         pass
 
@@ -4087,7 +4258,7 @@ def _tick():
         pts.append({"t": now, "p": len(now_on), "up": 1 if s["active"] else 0,
                     "cpu": round(100 * m["load"][0] / m["cores"], 1) if m.get("cores") else None,
                     "mem": round(100 * (1 - m["mem_avail"] / m["mem_total"]), 1) if m.get("mem_total") else None})
-        VH_METRICS.write_text(json.dumps(pts[-METRIC_POINTS:]))
+        _save_json(VH_METRICS, pts[-METRIC_POINTS:])
     except Exception:
         pass
 
@@ -4113,7 +4284,7 @@ def _tick():
                 link["speed"], link["last_speed"] = s2, now
                 entry.update(s2 or {})
             link["history"] = (link.get("history") or [])[-(LINK_KEEP - 1):] + [entry]
-            VH_LINK.write_text(json.dumps(link))
+            _save_json(VH_LINK, link)
     except Exception:
         pass
 
@@ -4180,7 +4351,7 @@ def _tick():
         except Exception:
             pass
         if up_for > 2 * 3600 and now - last > 3 * 3600:
-            VH_MEM_GUARD.write_text(json.dumps({"last": now, "mem": LIVE["mem"]}))
+            _save_json(VH_MEM_GUARD, {"last": now, "mem": LIVE["mem"]})
             _notify("maintenance", "Restart na pamięci",
                     f"Pamięć {LIVE['mem']}% przy progu {mem_pct}% "
                     f"({len((_mods_state().get('mods') or {}))} modów), nikt nie grał, "
@@ -4195,12 +4366,25 @@ def _tick():
     at = cfg["schedule"].get("restart_at")
     if at and _game_may_restart(now_on, need_empty=False):
         stamp = datetime.now().strftime("%Y-%m-%d") + " " + at
-        due = datetime.now().strftime("%H:%M") == at and WATCH["restart_done"] != stamp
+        # A ten-minute window, not the exact minute: a tick is 60 s plus however long the tick
+        # takes, so some minutes are never sampled and that night's restart silently did not
+        # happen. What was done is kept on disk, so a panel restart inside the window does
+        # not restart the game a second time.
+        if not WATCH["restart_done"]:
+            WATCH["restart_done"] = _load_json(VH_RESTART_DONE, {}).get("stamp", "")
+        try:
+            h, mnt = map(int, at.split(":"))
+            since = (datetime.now() - datetime.now().replace(hour=h, minute=mnt, second=0,
+                                                            microsecond=0)).total_seconds()
+        except ValueError:
+            since = -1
+        due = 0 <= since < 600 and WATCH["restart_done"] != stamp
         deferred_due = WATCH["deferred_until"] and now >= WATCH["deferred_until"]
         if due or deferred_due:
             empty = len(now_on) == 0
             if empty or not cfg["schedule"].get("only_when_empty", True):
                 WATCH["restart_done"], WATCH["deferred_until"] = stamp, 0
+                _save_json(VH_RESTART_DONE, {"stamp": stamp})
                 _notify("maintenance", "Scheduled restart", "Restarting the server now.", tags="repeat")
                 _log("maintenance.restart", players=len(now_on))
                 _sh("systemctl restart valheim", timeout=180)
@@ -4209,6 +4393,7 @@ def _tick():
                 WATCH["deferred_until"] = now + mins * 60
                 if due:
                     WATCH["restart_done"] = stamp
+                    _save_json(VH_RESTART_DONE, {"stamp": stamp})
                     _notify("maintenance", "Restart put off",
                             f"{len(now_on)} playing, trying again in {mins} min.", tags="hourglass")
                 _log("maintenance.deferred", players=len(now_on), minutes=mins)

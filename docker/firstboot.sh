@@ -19,7 +19,7 @@ cp -a "$IMG"/{start.sh,backup.sh,update.sh,rcon-save.py,panel-passwd.sh,panel-up
 if [ ! -f "$VH/panel.env" ]; then
   cat >"$VH/panel.env" <<ENV
 PANEL_USER='${PANEL_USER:-admin}'
-PANEL_PASS='${PANEL_PASS:-valheim123}'
+PANEL_PASS='${PANEL_PASS:-$(randstr 'A-Za-z0-9' 14)}'
 PANEL_PORT='${PANEL_PORT:-2460}'
 NTFY_SERVER='${NTFY_SERVER:-https://ntfy.sh}'
 NTFY_TOPIC='${NTFY_TOPIC:-valheim-$(randstr 'a-z0-9' 10)}'
@@ -61,3 +61,4 @@ if [ ! -x "$VH/server/valheim_server.x86_64" ]; then
   [ -x "$VH/server/valheim_server.x86_64" ] || { echo "Steam download failed - see $VH/steam-install.log"; exit 1; }
 fi
 echo "ready: panel on port $(grep -oP "PANEL_PORT='\K[0-9]+" "$VH/panel.env"), game on $(grep -oP "PORT='\K[0-9]+" "$VH/server.env")/udp"
+echo "panel login: $(grep -oP "PANEL_USER='\K[^']+" "$VH/panel.env") / $(grep -oP "PANEL_PASS='\K[^']+" "$VH/panel.env")"

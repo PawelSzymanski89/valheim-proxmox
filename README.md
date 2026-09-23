@@ -93,8 +93,8 @@ inside and outside, nothing to map. Details, the plain `docker run` form and wha
 macOS/Windows.
 
 Either way it takes a few minutes, most of it Steam pulling ~1.5 GB. Afterwards the panel
-is on **http://ADDRESS:2460**, login `admin` / `valheim123`, and the panel nags until you
-change it.
+is on **http://ADDRESS:2460**, login `admin` and the password the installer printed at the
+end — generated for this install.
 
 ---
 
@@ -173,9 +173,10 @@ Login happens on the panel's own screen, not the browser's grey box: session coo
 with a secret **and** the current password hash, so changing the password ends every session.
 HTTP Basic still works for `curl` and scripts.
 
-The first login is always the same, deliberately: **`admin` / `valheim123`**. No hunting
-through install output for a generated string. The panel shows a red banner until you change
-it in **Settings → Panel login**, and refuses to let you set the default back.
+The first password is generated for each install and printed at the end of it (with Docker:
+`docker compose logs | grep "panel login"`). Until v1.20.1 it was `valheim123` everywhere; an
+install that still has it shows a red banner until it is changed in **Settings → Panel login**,
+which asks for the current password first.
 
 Locked out? There is no reset dance — set a new password from the Proxmox host:
 

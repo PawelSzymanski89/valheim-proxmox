@@ -93,8 +93,8 @@ zewnątrz, bez mapowania. Szczegóły, goła forma `docker run` i czego to wymag
 macOS/Windows.
 
 Tak czy inaczej trwa to kilka minut, większość to ~1,5 GB pobierane ze Steama. Potem
-panel stoi pod **http://ADRES:2460**, login `admin` / `valheim123`, a panel przypomina,
-dopóki go nie zmienisz.
+panel stoi pod **http://ADRES:2460**, login `admin` i hasło wypisane przez instalator na końcu —
+wylosowane dla tej instalacji.
 
 ---
 
@@ -172,10 +172,10 @@ Logujesz się na własnym ekranie panelu, nie w szarym okienku przeglądarki: ci
 podpisane sekretem **i** skrótem aktualnego hasła, więc zmiana hasła kończy wszystkie sesje.
 HTTP Basic dalej działa — dla `curl`a i skryptów.
 
-Pierwsze logowanie jest **zawsze takie samo, celowo**: **`admin` / `valheim123`**. Żadnego
-szukania wylosowanego ciągu w wyjściu instalatora. Panel pokazuje czerwony baner, dopóki
-hasła nie zmienisz w **Ustawieniach → Logowanie do panelu**, i nie pozwoli ustawić
-domyślnego z powrotem.
+Pierwsze hasło jest losowane dla każdej instalacji i wypisywane na jej końcu (w Dockerze:
+`docker compose logs | grep "panel login"`). Do v1.20.1 wszędzie było to `valheim123`;
+instalacja, która wciąż je ma, pokazuje czerwony baner, dopóki nie zmienisz go w
+**Ustawieniach → Logowanie do panelu** (panel zapyta najpierw o obecne hasło).
 
 Zablokowałeś się? Nie ma żadnej procedury resetu — ustawiasz nowe hasło z hosta Proxmoxa:
 

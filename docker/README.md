@@ -13,7 +13,7 @@ docker compose up -d --build
 docker compose logs -f  # the first start downloads ~1.5 GB from Steam
 ```
 
-Panel: `http://HOST:2460` (login `admin` / `valheim123`, change it in Settings). Game: `HOST:2456/udp`.
+Panel: `http://HOST:2460` (login `admin`, the password is generated on first boot: `docker compose logs | grep "panel login"`). Game: `HOST:2456/udp`.
 
 ## What is where
 

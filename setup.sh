@@ -17,8 +17,8 @@ UPGRADE=${SETUP_MODE:-}; [ "$UPGRADE" = upgrade ] || UPGRADE=
 VH_DIR=${VH_DIR:-/opt/valheim}
 PANEL_PORT=${PANEL_PORT:-2460}
 PANEL_USER=${PANEL_USER:-admin}
-PANEL_PASS=${PANEL_PASS:-valheim123}   # always the same on a fresh install, on purpose — you
-                                    # change it in the panel and the panel nags until you do
+PANEL_PASS=${PANEL_PASS:-}   # empty = a random one, printed at the end. It used to be the same
+                             # valheim123 everywhere - on a root panel listening on the network.
 GAME_PORT=${GAME_PORT:-2456}
 SERVER_NAME=${SERVER_NAME:-Valheim}
 WORLD_NAME=${WORLD_NAME:-Dedicated}
@@ -212,6 +212,7 @@ mv "$VH_DIR/panel/panel-update.sh" "$VH_DIR/panel-update.sh"
 # The first password is fixed and printed, so there is never a "what was it again" moment.
 # It is the same on every install of this repo, which is exactly why the panel keeps warning
 # until it is changed — and why the panel has no business being on the internet before that.
+[ -n "$PANEL_PASS" ] || PANEL_PASS=$(randstr 'A-Za-z0-9' 14)
 if [ -z "$IMAGE" ] && [ ! -f "$VH_DIR/panel.env" ]; then
   cat >"$VH_DIR/panel.env" <<EOF
 PANEL_USER='$PANEL_USER'
@@ -377,7 +378,7 @@ info "the world is generated on first start, give it ~30 s"
 echo
 echo "  Panel:    http://$(hostname -I | awk '{print $1}'):$(grep -oP "PANEL_PORT='\K[0-9]+" "$VH_DIR/panel.env")"
 echo "  User:     $(grep -oP "PANEL_USER='\K[^']+" "$VH_DIR/panel.env")"
-echo "  Password: $(grep -oP "PANEL_PASS='\K[^']+" "$VH_DIR/panel.env")   <- same on every install, change it in Settings"
+echo "  Password: $(grep -oP "PANEL_PASS='\K[^']+" "$VH_DIR/panel.env")   <- generated for this install, keep it (Settings changes it)"
 echo
 echo "  Game:     $(hostname -I | awk '{print $1}'):$GAME_PORT   password: $SERVER_PASS"
 echo

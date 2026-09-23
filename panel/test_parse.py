@@ -142,4 +142,35 @@ assert "Fresh" in [x["name"] for x in app._worlds()]
 assert app._world_files("Old")[0].name == "Old.fwl"
 assert ("Old", "legacy") in [(x["name"], x["format"]) for x in app._worlds()]
 
+# a close with an id nobody has: guessed onto someone only when there is one to guess
+two = LOG[:5] + [L.format("10:06:00", "10:06:00", "Closing socket 999")]
+assert len(app._scan(two)[0]) == 2, "dropped a player on an unmatched close"
+one = LOG[:3] + [L.format("10:06:00", "10:06:00", "Closing socket 999")]
+assert len(app._scan(one)[0]) == 0
+
+# a players.json that exists but does not parse is left alone, not replaced by the journal
+app.VH_STORE = pathlib.Path(tempfile.mkdtemp()) / "players.json"
+app.VH_STORE.write_text('{"players": {"x": ')
+assert app._history(hist) == []
+assert app.VH_STORE.read_text() == '{"players": {"x": ', "overwrote an unreadable history"
+
+# CSRF: a browser request from another site is refused, a script and the page itself are not
+class _Req:
+    def __init__(self, method="POST", **h):
+        self.method, self.headers = method, {k.replace("_", "-"): v for k, v in h.items()}
+assert app._cross_site(_Req(sec_fetch_site="cross-site"))
+assert app._cross_site(_Req(sec_fetch_site="same-site"))
+assert not app._cross_site(_Req(sec_fetch_site="same-origin"))
+assert not app._cross_site(_Req())                                   # curl, the launcher
+assert not app._cross_site(_Req("GET", sec_fetch_site="cross-site"))
+assert app._cross_site(_Req(origin="https://evil.example", host="panel.example"))
+assert not app._cross_site(_Req(origin="https://panel.example", host="panel.example"))
+
+# a value with a line break never reaches an env file
+try:
+    app._no_newlines({"NTFY_TOKEN": "x\nTRUSTED_PROXIES=1.2.3.4"})
+    raise AssertionError("let a newline into an env file")
+except app.HTTPException:
+    pass
+
 print("OK — log parser, login history, the crash watcher and both world formats")

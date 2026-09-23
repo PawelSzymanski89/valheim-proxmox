@@ -129,7 +129,7 @@
   td{padding:6px 8px;border-bottom:1px solid var(--line)}
   th.r,td.r{text-align:right}
   label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);margin:14px 0 5px}
-  input{width:100%;background:#0d1114;color:var(--tx);border:1px solid var(--line);border-radius:3px;padding:11px 12px;font:inherit}
+  input{width:100%;background:#0d1114;color:var(--tx);border:1px solid var(--line);border-radius:3px;padding:11px 12px;font:inherit;font-size:16px}
   input:focus{outline:none;border-color:var(--gold);box-shadow:0 0 0 3px rgba(201,162,39,.10)}
   button{width:100%;margin-top:20px;background:linear-gradient(180deg,#2a3138,#1a2026);color:var(--gold2);
     border:1px solid var(--gold);border-radius:3px;padding:12px;font:600 13px/1 system-ui;
@@ -207,9 +207,9 @@
     <form class="box" id="f">
       <h2 id="h-login">Panel administratora</h2>
       <div class="muted" id="login-hint">Tylko dla administratora serwera.</div>
-      <label id="l-user">Login</label>
+      <label id="l-user" for="u">Login</label>
       <input id="u" autocomplete="username">
-      <label id="l-pass">Hasło</label>
+      <label id="l-pass" for="p">Hasło</label>
       <input id="p" type="password" autocomplete="current-password">
       <button id="b">Wejdź</button>
       <div class="err" id="e"></div>
@@ -532,12 +532,14 @@ async function load(){
     document.getElementById("state").textContent=PL?"Brak połączenia z panelem":"Panel unreachable";
   }
 }
+// bieżący czas działania odliczany lokalnie między odpowiedziami serwera. Zadeklarowane
+// PRZED malowaniem z cache: paint() przypisuje UP0, a let przed deklaracją to ReferenceError
+// (TDZ) - łapany po cichu, zostawiał przyciemnioną ramkę statusu przy każdym odświeżeniu.
+let UP0=null;
 try{
   const c=JSON.parse(sessionStorage.getItem("vhPublic")||"null");
   if(c)paint(c);
 }catch(e){}
-// bieżący czas działania odliczany lokalnie między odpowiedziami serwera
-let UP0=null;
 setInterval(()=>{
   if(!UP0)return;
   const el=document.getElementById("uplive");

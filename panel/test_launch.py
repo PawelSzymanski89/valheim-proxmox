@@ -244,7 +244,8 @@ app._LAUNCH_BUSY["at"] = 0
 
 # the panel does not update itself while a launch is holding the game in place
 STARTED = []
-app._panel_update_start = lambda why: STARTED.append(why)
+RC = {"v": 0}
+app._panel_update_start = lambda why: (STARTED.append(why), type("R", (), {"returncode": RC["v"]})())[1]
 app._panel_newer = lambda: {"tag": "v9.9.9"}
 app._panel_can_update = lambda: True
 app.VH_AUTO_UPDATE_OFF = pathlib.Path(tempfile.mkdtemp()) / "off"
@@ -258,5 +259,29 @@ app._panel_update_tick({"p1": "Eir"})
 assert STARTED == [], "self-updated with someone playing"
 app._panel_update_tick({})
 assert STARTED == ["auto"], STARTED
+app._panel_update_tick({})
+assert STARTED == ["auto"], "tried the same release twice"
+# a start that failed (GitHub down, systemd-run refused) is retried - but not every minute
+app.VH_DIR = tempfile.mkdtemp(); app.WATCH["panel_update_at"] = 0; STARTED.clear(); RC["v"] = 1
+app._panel_update_tick({}); app._panel_update_tick({})
+assert STARTED == ["auto"], "retried a failed start within the hour"
+app.WATCH["panel_update_at"] = 0; RC["v"] = 0
+app._panel_update_tick({})
+assert STARTED == ["auto", "auto"], "never retried a failed start"
+
+# a game update in progress: nothing else restarts the game, and a second one does not start
+import threading
+cfg = dict(app.LAUNCH_DEFAULT); cfg.update(armed=False); app._launch_save(cfg)
+app._LAUNCH_BUSY["at"] = 0
+app._steam_latest_build = lambda: ("100", "200")
+app._update_timer_on = lambda: True
+app._sh = lambda c, **k: type("R", (), {"stdout": "", "returncode": 0})()
+gate = threading.Event()
+app._steam_install = lambda: (gate.wait(5), type("R", (), {"returncode": 0})())[1]
+t = threading.Thread(target=app._game_update_tick, args=({},)); t.start(); time.sleep(0.2)
+assert app._game_may_restart({}) is False, "allowed a restart in the middle of a game update"
+assert app._game_update_tick({}, manual=True).get("held"), "started a second steamcmd"
+gate.set(); t.join()
+assert app._game_may_restart({}) is True, "the update never let go"
 
 print("OK — release, reboot, timezone, and a mod restore that rolls itself back")
