@@ -39,6 +39,11 @@
   .card{background:linear-gradient(180deg,var(--stone2),var(--stone));
     border:1px solid var(--line);border-radius:5px;padding:18px 20px}
   .card h3{margin-top:0}
+  .note{margin:18px 0 0;font-size:15px}
+  .note a{color:var(--gold2)}
+  pre{background:#0f0d0a;border:1px solid var(--line);border-radius:3px;padding:12px 14px;
+      overflow-x:auto;font-size:13px;line-height:1.5;margin:8px 0 14px}
+  pre code{background:none;border:0;padding:0}
   .card p{margin:0;color:var(--ink2);font-size:15px}
   table{width:100%;border-collapse:collapse;margin-top:10px;font-size:15px}
   th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
@@ -101,6 +106,9 @@
       <a class="btn" href="https://github.com/PawelSzymanski89/valheim-proxmox"
          data-pl="Kod i instalacja" data-en="Code and install"></a>
     </div>
+    <p class="note"><a href="#update"
+       data-pl="Nowe w v1.20.0: światy z Valheima 1.0 i panel, który aktualizuje się sam. Masz starszą instalację? Tu jest jedna komenda →"
+       data-en="New in v1.20.0: Valheim 1.0 worlds and a panel that updates itself. Running an older install? One command, here →"></a></p>
   </div>
 </header>
 
@@ -137,6 +145,16 @@
       <h3 data-pl="Alerty na telefon" data-en="Alerts on your phone"></h3>
       <p data-pl="Pad serwera z podaniem przyczyny, wejście gracza, brak miejsca, nieudana kopia, aktualizacja gry — przez ntfy, bez zakładania konta."
          data-en="The server going down and why, a player joining, disk filling up, a failed backup, a game update — over ntfy, no account needed."></p>
+    </div>
+    <div class="card">
+      <h3 data-pl="Aktualizuje się sam" data-en="Updates itself"></h3>
+      <p data-pl="Gra z Steama i panel z GitHuba — nowa wersja instaluje się sama, gdy nikt nie gra. Najpierw backup świata, a jeśli nowa wersja nie wstanie, wraca poprzednia. Świat, ustawienia i mody zostają."
+         data-en="The game from Steam and the panel from GitHub — a new version installs itself while nobody is playing. The world is backed up first, and if the new version does not start, the previous one comes back. World, settings and mods stay."></p>
+    </div>
+    <div class="card">
+      <h3 data-pl="Światy z Valheima 1.0" data-en="Valheim 1.0 worlds"></h3>
+      <p data-pl="Wgrywasz cały folder świata prosto z gry, pobierasz, przełączasz i odtwarzasz z kopii. Stare pliki .db + .fwl też wchodzą — serwer sam je przekonwertuje."
+         data-en="Upload a whole world folder straight from the game, download it, switch between worlds, restore from a backup. Old .db + .fwl files still go in — the server converts them."></p>
     </div>
   </div>
 
@@ -178,10 +196,24 @@
   <h2 data-pl="Zacznij" data-en="Get started"></h2>
   <p data-pl="Na hoście Proxmox VE, jako root — skrypt zbuduje kontener i wypisze dane dostępowe:"
      data-en="On a Proxmox VE host, as root — the script builds the container and prints how to reach it:"></p>
-  <p><code>bash -c "$(curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/install.sh)"</code></p>
+  <pre><code>bash -c "$(curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/install.sh)"</code></pre>
   <p class="muted"
      data-pl="Nie masz Proxmoxa? Ten sam projekt instaluje się w dowolnym Debianie 12/13 skryptem <code>setup.sh</code>, a na maszynie z Dockerem jednym <code>docker compose up -d</code> (katalog <code>docker/</code>). Szczegóły, wymagania i opis wszystkich funkcji są w <a href='https://github.com/PawelSzymanski89/valheim-proxmox'>README na GitHubie</a>."
      data-en="No Proxmox? The same project installs into any Debian 12/13 with <code>setup.sh</code>, or on a box with Docker with one <code>docker compose up -d</code> (the <code>docker/</code> directory). Details, requirements and the full feature list are in the <a href='https://github.com/PawelSzymanski89/valheim-proxmox'>README on GitHub</a>."></p>
+
+  <h2 id="update" data-pl="Masz już serwer? Zaktualizuj raz — dalej sam" data-en="Already running it? Update once — then it updates itself"></h2>
+  <p data-pl="Od <strong>v1.20.0</strong> panel aktualizuje się sam: pokazuje baner o nowej wersji i instaluje ją, gdy nikt nie gra. Instalację sprzed v1.20.0 trzeba zaktualizować <strong>jeden raz</strong> — świat, ustawienia, loginy i mody zostają, gra działa dalej."
+     data-en="Since <strong>v1.20.0</strong> the panel updates itself: a banner shows a new version and it installs while nobody is playing. An install from before v1.20.0 needs updating <strong>once</strong> — the world, settings, logins and mods stay, the game keeps running."></p>
+  <p data-pl="<strong>Instalacja z 7 września 2026 lub nowsza</strong> — w Ustawieniach panelu kliknij raz <strong>Update panel</strong>."
+     data-en="<strong>Installed on 7 September 2026 or later</strong> — click <strong>Update panel</strong> in the panel's Settings once."></p>
+  <p data-pl="<strong>Starsza instalacja albo brak przycisku</strong> — na hoście Proxmox, w miejsce <code>CTID</code> numer kontenera (pokaże go <code>pct list</code>):"
+     data-en="<strong>Older install, or no button</strong> — on the Proxmox host, with your container's id in place of <code>CTID</code> (<code>pct list</code> shows it):"></p>
+  <pre><code>pct exec CTID -- bash -c "curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/panel/panel-update.sh | bash"</code></pre>
+  <p data-pl="Instalacja przez <code>setup.sh</code> prosto na Debianie — tam, jako root:"
+     data-en="Installed with <code>setup.sh</code> straight on Debian — there, as root:"></p>
+  <pre><code>curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/panel/panel-update.sh | bash</code></pre>
+  <p class="muted" data-pl="Docker: <code>git pull &amp;&amp; docker compose up -d --build</code>. Na końcu aktualizacji pojawi się <code>updated to v… - world and settings untouched</code>."
+     data-en="Docker: <code>git pull &amp;&amp; docker compose up -d --build</code>. The update ends with <code>updated to v… - world and settings untouched</code>."></p>
 
 </div>
 
