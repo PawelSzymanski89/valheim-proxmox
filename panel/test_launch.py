@@ -242,4 +242,21 @@ app._LAUNCH_BUSY["at"] = 1
 assert app._game_may_restart({}) is False, "a release in progress blocks a restart"
 app._LAUNCH_BUSY["at"] = 0
 
+# the panel does not update itself while a launch is holding the game in place
+STARTED = []
+app._panel_update_start = lambda why: STARTED.append(why)
+app._panel_newer = lambda: {"tag": "v9.9.9"}
+app._panel_can_update = lambda: True
+app.VH_AUTO_UPDATE_OFF = pathlib.Path(tempfile.mkdtemp()) / "off"
+app.VH_DIR = tempfile.mkdtemp()
+cfg = dict(app.LAUNCH_DEFAULT); cfg.update(armed=True, released=False); app._launch_save(cfg)
+app._LAUNCH_BUSY["at"] = 0
+app._panel_update_tick({})
+assert STARTED == [], "self-updated during an armed launch"
+cfg.update(armed=False); app._launch_save(cfg)
+app._panel_update_tick({"p1": "Eir"})
+assert STARTED == [], "self-updated with someone playing"
+app._panel_update_tick({})
+assert STARTED == ["auto"], STARTED
+
 print("OK — release, reboot, timezone, and a mod restore that rolls itself back")
