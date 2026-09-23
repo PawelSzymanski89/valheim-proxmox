@@ -39,8 +39,10 @@
   .card{background:linear-gradient(180deg,var(--stone2),var(--stone));
     border:1px solid var(--line);border-radius:5px;padding:18px 20px}
   .card h3{margin-top:0}
-  .note{margin:18px 0 0;font-size:15px}
-  .note a{color:var(--gold2)}
+  .notice{margin:22px auto 0;max-width:720px;padding:14px 18px;text-align:left;font-size:15px;
+          border:1px solid var(--gold);border-radius:4px;background:rgba(0,0,0,.35)}
+  .notice b{display:block;color:var(--gold2);margin-bottom:4px}
+  .notice a{color:var(--gold2);white-space:nowrap}
   pre{background:#0f0d0a;border:1px solid var(--line);border-radius:3px;padding:12px 14px;
       overflow-x:auto;font-size:13px;line-height:1.5;margin:8px 0 14px}
   pre code{background:none;border:0;padding:0}
@@ -106,9 +108,13 @@
       <a class="btn" href="https://github.com/PawelSzymanski89/valheim-proxmox"
          data-pl="Kod i instalacja" data-en="Code and install"></a>
     </div>
-    <p class="note"><a href="#update"
-       data-pl="Nowe w v1.20.0: światy z Valheima 1.0 i panel, który aktualizuje się sam. Masz starszą instalację? Tu jest jedna komenda →"
-       data-en="New in v1.20.0: Valheim 1.0 worlds and a panel that updates itself. Running an older install? One command, here →"></a></p>
+    <div class="notice">
+      <b data-pl="Masz serwer postawiony przed v1.20.0? Potrzebna jest jednorazowa, ręczna aktualizacja."
+         data-en="Server installed before v1.20.0? It needs a one-time manual update."></b>
+      <span data-pl="Jedna komenda albo jedno kliknięcie — świat, ustawienia i mody zostają. Po niej panel obsługuje światy z Valheima 1.0 i aktualizuje się już sam."
+            data-en="One command or one click — the world, settings and mods stay. After it the panel handles Valheim 1.0 worlds and updates itself from then on."></span>
+      <a href="#update" data-pl="Jak zaktualizować →" data-en="How to update →"></a>
+    </div>
   </div>
 </header>
 
@@ -201,9 +207,11 @@
      data-pl="Nie masz Proxmoxa? Ten sam projekt instaluje się w dowolnym Debianie 12/13 skryptem <code>setup.sh</code>, a na maszynie z Dockerem jednym <code>docker compose up -d</code> (katalog <code>docker/</code>). Szczegóły, wymagania i opis wszystkich funkcji są w <a href='https://github.com/PawelSzymanski89/valheim-proxmox'>README na GitHubie</a>."
      data-en="No Proxmox? The same project installs into any Debian 12/13 with <code>setup.sh</code>, or on a box with Docker with one <code>docker compose up -d</code> (the <code>docker/</code> directory). Details, requirements and the full feature list are in the <a href='https://github.com/PawelSzymanski89/valheim-proxmox'>README on GitHub</a>."></p>
 
-  <h2 id="update" data-pl="Masz już serwer? Zaktualizuj raz — dalej sam" data-en="Already running it? Update once — then it updates itself"></h2>
-  <p data-pl="Od <strong>v1.20.0</strong> panel aktualizuje się sam: pokazuje baner o nowej wersji i instaluje ją, gdy nikt nie gra. Instalację sprzed v1.20.0 trzeba zaktualizować <strong>jeden raz</strong> — świat, ustawienia, loginy i mody zostają, gra działa dalej."
-     data-en="Since <strong>v1.20.0</strong> the panel updates itself: a banner shows a new version and it installs while nobody is playing. An install from before v1.20.0 needs updating <strong>once</strong> — the world, settings, logins and mods stay, the game keeps running."></p>
+  <h2 id="update" data-pl="Aktualizacja ze starszej wersji — jednorazowo, ręcznie" data-en="Updating an older install — once, by hand"></h2>
+  <p data-pl="Od <strong>v1.20.0</strong> panel aktualizuje się sam: pokazuje baner o nowej wersji i instaluje ją, gdy nikt nie gra (najpierw backup świata, rollback, jeśli nowa wersja nie wstanie). Instalacje sprzed v1.20.0 nie mają jeszcze tego mechanizmu, więc <strong>ten jeden raz trzeba zaktualizować je ręcznie</strong> — każda kolejna wersja przyjdzie już sama. Świat, ustawienia, loginy i mody zostają, gra działa dalej."
+     data-en="Since <strong>v1.20.0</strong> the panel updates itself: a banner shows a new version and it installs while nobody is playing (world backed up first, rolled back if the new version does not start). Installs from before v1.20.0 do not have that mechanism yet, so <strong>this one time they have to be updated by hand</strong> — every version after that arrives on its own. The world, settings, logins and mods stay, the game keeps running."></p>
+  <p data-pl="<strong>Migracja światów do Valheima 1.0</strong> — nic nie trzeba robić ręcznie. Serwer 1.0 sam konwertuje stary świat (<code>.db</code> + <code>.fwl</code>) do nowego formatu (folder świata) przy pierwszym starcie, a zaktualizowany panel rozumie oba formaty: listę, podgląd, pobieranie, wgrywanie, kopie i odtwarzanie. Stary panel nowych światów nie widzi i nie przyjmuje — dlatego ta aktualizacja jest potrzebna."
+     data-en="<strong>Migrating worlds to Valheim 1.0</strong> — nothing to do by hand. The 1.0 server converts an old world (<code>.db</code> + <code>.fwl</code>) to the new format (a world folder) on its first start, and the updated panel understands both: the list, the preview, download, upload, backups and restore. The old panel cannot see or accept the new worlds — which is why this update is needed."></p>
   <p data-pl="<strong>Instalacja z 7 września 2026 lub nowsza</strong> — w Ustawieniach panelu kliknij raz <strong>Update panel</strong>."
      data-en="<strong>Installed on 7 September 2026 or later</strong> — click <strong>Update panel</strong> in the panel's Settings once."></p>
   <p data-pl="<strong>Starsza instalacja albo brak przycisku</strong> — na hoście Proxmox, w miejsce <code>CTID</code> numer kontenera (pokaże go <code>pct list</code>):"
