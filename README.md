@@ -8,13 +8,43 @@
 
 **Players get a launcher for Windows, macOS and Linux — with the server's mods working on all three.**
 
-[Polski →](README.pl.md) · [Screenshots](#what-it-looks-like) · [Panel](#the-panel) · [Mods](#mods-from-a-share-code)
+[Polski →](README.pl.md) · **[Update from an older version](#already-running-it-update-once--then-it-updates-itself)** · [Screenshots](#what-it-looks-like) · [Panel](#the-panel) · [Mods](#mods-from-a-share-code)
 
 [![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-cygan-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/cygan)
 
 </div>
 
 ---
+
+## Already running it? Update once — then it updates itself
+
+> [!IMPORTANT]
+> **Since v1.20.0 the panel updates itself.** A banner shows when a new version is out, and it
+> installs on its own while nobody is playing — world backed up first, rolled back if the new
+> version does not start. You can switch it off in Settings.
+>
+> **Installed before v1.20.0?** Update once, and from then on it is automatic. The world,
+> settings, logins and mods stay; the game keeps running.
+
+**Installed on 7 September 2026 or later** — the panel has an **Update panel** button in
+Settings. Click it once.
+
+**Older install, or no button** — run this once **on the Proxmox host** (put your container's
+id in place of `CTID`, `pct list` shows it):
+
+```bash
+pct exec CTID -- bash -c "curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/panel/panel-update.sh | bash"
+```
+
+Installed with `setup.sh` straight on a Debian machine — run it there, as root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/panel/panel-update.sh | bash
+```
+
+**Docker** — `git pull && docker compose up -d --build` (the image is the update there).
+
+It ends with `updated to v… - world and settings untouched`. Details: [Updating](#updating).
 
 ## Install
 
