@@ -64,7 +64,8 @@ TMP_SRC="$TMP/src"
 # a release from before this engine would run its setup.sh as a fresh install - over the settings
 [ -f "$TMP_SRC/panel/VERSION" ] || { echo "$REF predates the update engine - not installing it"; exit 1; }
 NEW=$(cat "$TMP_SRC/panel/VERSION"); OLD=$(cat $VH/panel/VERSION 2>/dev/null || echo v0.0.0)
-if [ -z "${1:-}" ] && [ "$(printf '%s\n' "$OLD" "$NEW" | sort -V | tail -1)" != "$NEW" ]; then
+num() { local n; n=$(grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$1" | head -1); echo "${n:-0.0.0}"; }   # "test-v1.24.0-rc2" -> 1.24.0
+if [ -z "${1:-}" ] && [ "$(printf '%s\n' "$(num "$OLD")" "$(num "$NEW")" | sort -V | tail -1)" != "$(num "$NEW")" ]; then
   echo "installed $OLD is newer than $NEW - nothing to do"; exit 0
 fi
 $VH/panel/.venv/bin/python -m py_compile "$TMP_SRC/panel/app.py" "$TMP_SRC/panel/icon_badge.py"

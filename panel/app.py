@@ -1080,7 +1080,9 @@ _PANEL_LATEST = {"at": 0, "tag": "", "name": "", "url": "", "notes": ""}
 
 
 def _vtuple(v):
-    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", v or "")
+    # searched, not anchored: a test build named "test-v1.24.0-rc2" read as no version at all,
+    # and "no version" counts as older - the panel then "updated" itself back to the release
+    m = re.search(r"(\d+)\.(\d+)\.(\d+)", v or "")
     return tuple(map(int, m.groups())) if m else None
 
 
