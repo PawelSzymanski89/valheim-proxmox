@@ -574,6 +574,13 @@ systemd: `valheim`, `valheim-panel`, `valheim-backup.timer`, `valheim-update.tim
   only every ~10 minutes; when the two disagree the panel says so rather than hiding it.
 - **The panel runs as root** in its own container. It calls `systemctl` and writes into
   `/opt/valheim`. That is why it is a dedicated container and why it should not face the internet.
+  Everything root does inside the game user's folders (worlds, mods, configs, backups) it does
+  *as* the game user, so a malicious mod cannot trick it into writing or reading elsewhere.
+- **The game password is visible to `ps` inside the container.** The Valheim server takes it only
+  as a command-line argument; the journal masks it, the process list cannot.
+- **SteamCMD's own bootstrap download is not checksummed** — Valve changes it without notice.
+  It runs as the game user, never as root, and the game it installs comes through Steam's own
+  verification.
 
 ## Verified on
 

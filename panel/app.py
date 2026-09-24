@@ -119,11 +119,38 @@ def _check_login(user, password):
 def _session_ok(cookie):
     try:
         user, exp, mac = (cookie or "").split("|")
-        if int(exp) < int(time.time()):
+        if int(exp) < int(time.time()) or mac in _revoked():
             return None
         return user if hmac.compare_digest(mac, _sign(user, exp)) else None
     except Exception:
         return None
+
+
+# Signed-out sessions. The cookie is self-contained, so deleting it in the browser used to be
+# all a logout did - a copy taken earlier stayed good for its whole 30 days. Its signature is
+# kept here until the cookie would have expired anyway.
+VH_REVOKED = Path(f"{VH_DIR}/revoked-sessions.json")
+_REVOKED = {"at": 0.0, "set": set()}
+
+
+def _revoked():
+    if time.time() - _REVOKED["at"] > 5:
+        now = time.time()
+        _REVOKED["set"] = {m for m, exp in _load_json(VH_REVOKED, {}).items() if exp > now}
+        _REVOKED["at"] = now
+    return _REVOKED["set"]
+
+
+def _revoke(cookie):
+    try:
+        _user, exp, mac = cookie.split("|")
+    except (AttributeError, ValueError):
+        return
+    now = time.time()
+    keep = {m: e for m, e in _load_json(VH_REVOKED, {}).items() if e > now}
+    keep[mac] = int(exp)
+    _save_json(VH_REVOKED, keep)
+    _REVOKED["at"] = 0
 
 
 def _basic(request):
@@ -173,12 +200,29 @@ def _cross_site(request):
 
 
 @app.middleware("http")
+async def headers(request: Request, call_next):
+    """Anything that is not an upload has no business being large: the open login route read
+    a body of any size into memory. And no other site may frame the panel - a sibling
+    subdomain counts as the same site for the session cookie."""
+    size = request.headers.get("content-length")
+    upload = "/upload" in request.url.path or request.url.path.endswith(("/map", "/background"))
+    if size and size.isdigit() and int(size) > (400 * 2**20 if upload else 2**20):
+        return JSONResponse({"detail": "Request too large"}, status_code=413)
+    resp = await call_next(request)
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Referrer-Policy"] = "same-origin"
+    return resp
+
+
+@app.middleware("http")
 async def guard(request: Request, call_next):
     # A locked-out address gets nothing checked at all. Checking the Basic header first
     # answered 200 for a right password and 429 for a wrong one - the lockout still leaked
     # which guess was correct.
     if request.headers.get("authorization", "").startswith("Basic "):
-        rec = LOGIN_FAILS.get(_client_ip(request))
+        rec = LOGIN_FAILS.get(_lock_key(_client_ip(request)))
         if rec and rec.get("until", 0) > time.time():
             left = int(rec["until"] - time.time())
             return JSONResponse({"detail": f"Too many attempts — try again in {left // 60 + 1} min"},
@@ -197,7 +241,7 @@ async def guard(request: Request, call_next):
     h = request.headers.get("authorization", "")
     if h.startswith("Basic "):
         ip = _client_ip(request)
-        rec = LOGIN_FAILS.get(ip)
+        rec = LOGIN_FAILS.get(_lock_key(ip))
         if rec and rec.get("until", 0) > time.time():
             left = int(rec["until"] - time.time())
             return JSONResponse({"detail": f"Too many attempts — try again in {left // 60 + 1} min"},
@@ -239,6 +283,20 @@ def _trusted_proxies():
     return {p.strip() for p in raw.split(",") if p.strip()}
 
 
+def _lock_key(ip):
+    """What a lockout is counted against. An IPv6 address is one of 2^64 in the /64 its owner
+    holds - counting per address let anyone with IPv6 guess forever - so the /64 counts."""
+    try:
+        a = ipaddress.ip_address(ip)
+        if a.version == 6:
+            if a.ipv4_mapped:
+                return str(a.ipv4_mapped)
+            return str(ipaddress.ip_network(f"{a}/64", strict=False))
+        return str(a)
+    except ValueError:
+        return ip
+
+
 def _client_ip(request):
     peer = request.client.host if request.client else "?"
     if peer not in _trusted_proxies():
@@ -248,7 +306,7 @@ def _client_ip(request):
 
 
 def _login_guard(ip):
-    rec = LOGIN_FAILS.get(ip)
+    rec = LOGIN_FAILS.get(_lock_key(ip))
     if rec and rec.get("until", 0) > time.time():
         left = int(rec["until"] - time.time())
         raise HTTPException(429, f"Too many attempts — try again in {left // 60 + 1} min",
@@ -270,7 +328,7 @@ def _login_failed(ip, user="", password="", how="form"):
     if len(LOGIN_FAILS) > 1000:            # a scan from many addresses must not grow this forever
         for k in [k for k, r in LOGIN_FAILS.items() if r["until"] < now and now - r["first"] > LOGIN_WINDOW]:
             LOGIN_FAILS.pop(k, None)
-    rec = LOGIN_FAILS.setdefault(ip, {"count": 0, "first": now, "until": 0, "blocks": 0})
+    rec = LOGIN_FAILS.setdefault(_lock_key(ip), {"count": 0, "first": now, "until": 0, "blocks": 0})
     if now - rec["first"] > LOGIN_WINDOW:
         rec.update({"count": 0, "first": now})
     rec["count"] += 1
@@ -304,7 +362,7 @@ def login(l: Login, request: Request, response: Response):
             return JSONResponse({"detail": "The default password was retired", "code": "default_retired"},
                                 status_code=401)
         raise HTTPException(401, "Wrong user or password")
-    LOGIN_FAILS.pop(ip, None)
+    LOGIN_FAILS.pop(_lock_key(ip), None)
     _notify("panel_login", "Panel sign-in", f"{l.user} signed in from {ip}.", tags="key")
     exp = int(time.time()) + SESSION_DAYS * 86400
     response.set_cookie("vh_session", f"{l.user}|{exp}|{_sign(l.user, exp)}",
@@ -314,7 +372,9 @@ def login(l: Login, request: Request, response: Response):
 
 
 @app.post("/api/logout")
-def logout(response: Response):
+def logout(request: Request, response: Response):
+    if _session_ok(request.cookies.get("vh_session")):
+        _revoke(request.cookies.get("vh_session"))
     response.delete_cookie("vh_session")
     return {"ok": True}
 
@@ -408,8 +468,14 @@ def _write(path, text, mode=0o644, own="valheim:valheim"):
     wherever the link points. rename() replaces a link instead of following it, and a crash
     mid-write leaves the old file instead of an empty one."""
     p = Path(path)
-    if p.parent.resolve() != Path(VH_DIR).resolve() and not _in_game_dirs(p.parent):
-        raise HTTPException(400, f"Refusing to write outside the install: {p}")
+    if p.parent.resolve() != Path(VH_DIR).resolve():
+        if not _in_game_dirs(p.parent):
+            raise HTTPException(400, f"Refusing to write outside the install: {p}")
+        # A game folder: written BY the game user, not by root checking and then writing - the
+        # check and the write were two steps, and a mod swapping a folder for a link between
+        # them had root write wherever it pointed. As the game user, a link leads only where
+        # that user could write anyway.
+        return _write_as_game(p, text.encode(), mode)
     fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=f".{p.name}.")
     try:
         with os.fdopen(fd, "w") as f:
@@ -421,6 +487,41 @@ def _write(path, text, mode=0o644, own="valheim:valheim"):
     except BaseException:
         Path(tmp).unlink(missing_ok=True)
         raise
+
+
+_GAME_WRITE = """
+import os, sys, tempfile
+p, mode = sys.argv[1], int(sys.argv[2], 8)
+fd, tmp = tempfile.mkstemp(dir=os.path.dirname(p), prefix="." + os.path.basename(p) + ".")
+try:
+    os.write(fd, sys.stdin.buffer.read()); os.fchmod(fd, mode); os.close(fd)
+    os.replace(tmp, p)
+except BaseException:
+    os.unlink(tmp); raise
+"""
+
+
+def _write_as_game(p, data, mode=0o644):
+    r = subprocess.run(["runuser", "-u", "valheim", "--", "python3", "-c", _GAME_WRITE, str(p), oct(mode)],
+                       input=data, capture_output=True, timeout=60)
+    if r.returncode != 0:
+        raise HTTPException(502, f"Could not write {p.name}: " + r.stderr.decode(errors="replace").strip()[-200:])
+
+
+def _game_sh(cmd, timeout=120):
+    """A shell command run as the game user. For anything that deletes, moves or reads inside
+    its folders: data/worlds_local and everything under server/ can be swapped for a link by
+    that user, and root following one would delete or read wherever it led."""
+    return _sh_ok(f"runuser -u valheim -- sh -c {shlex.quote(cmd)}", timeout=timeout)
+
+
+def _read_as_game(p):
+    """A file in a game folder, read with the game user's rights - root following a link
+    planted there would read, say, panel.env for whoever planted it."""
+    r = subprocess.run(["runuser", "-u", "valheim", "--", "cat", "--", str(p)], capture_output=True, timeout=60)
+    if r.returncode != 0:
+        raise HTTPException(404, f"Could not read {Path(p).name}")
+    return r.stdout.decode(errors="replace")
 
 
 def _save_json(path, obj, **kw):
@@ -1379,7 +1480,7 @@ def world_delete(name: str):
     q = _world_ok(name)
     _not_active(name)
     # rm -r: since 1.0 the world and each of its automatic copies are folders
-    _sh_ok(f"cd {VH_WORLDS} && rm -rf {q} {q}.db {q}.fwl {q}.db.old {q}.fwl.old {q}_backup_auto-*")
+    _game_sh(f"cd {VH_WORLDS} && rm -rf {q} {q}.db {q}.fwl {q}.db.old {q}.fwl.old {q}_backup_auto-*")
     _log("world.delete", world=name)
     return {"ok": True}
 
@@ -1392,7 +1493,7 @@ def world_download(name: str):
         raise HTTPException(404, "No such world")
     # the folder itself goes in, so the archive unpacks straight into a game's worlds_local
     what = q if fwl.parent.name == name else f"{q}.db {q}.fwl"
-    data = base64.b64decode(_sh_ok(f"tar czf - -C {VH_WORLDS} {what} | base64", timeout=120))
+    data = base64.b64decode(_game_sh(f"tar czf - -C {VH_WORLDS} {what} | base64", timeout=120))
     return Response(data, media_type="application/gzip",
                     headers={"Content-Disposition": f'attachment; filename="{name}.tar.gz"'})
 
@@ -1424,14 +1525,9 @@ def world_upload(filename: str, data: bytes = Body(b""), fresh: bool = False):
     p = Path(VH_WORLDS) / filename
     if not _in_game_dirs(p.parent):
         raise HTTPException(400, "worlds_local is not where it should be")
-    # O_NOFOLLOW: a link planted under this name is refused, not written through
-    try:
-        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o644)
-    except OSError:                       # ELOOP: a link sits where the file goes
-        raise HTTPException(409, f"{filename} is a link, not a file - delete it first")
-    with os.fdopen(fd, "wb") as f:
-        f.write(data)
-        os.fchown(f.fileno(), *_ids("valheim:valheim"))
+    # written by the game user: worlds_local itself can be swapped for a link, which an
+    # O_NOFOLLOW on the file name alone does not catch
+    _write_as_game(p, data)
     _log("world.upload", file=filename, size=len(data))
     return {"ok": True, "saved": filename}
 
@@ -1446,9 +1542,12 @@ def world_upload_done(name: str):
     if not {".db2", ".fwl2", ".ok"} <= kinds:
         shutil.rmtree(src, ignore_errors=True)
         raise HTTPException(400, "Not a Valheim 1.0 world folder — it needs _main.N.db2, .fwl2 and .ok")
-    # mv -T: a link planted under the world's name gets replaced, not followed into
-    _sh_ok(f"cd {VH_WORLDS} && rm -rf {q} && chown -R valheim:valheim {shlex.quote(str(src))} "
-           f"&& mv -T {shlex.quote(str(src))} {q}")
+    # copied in by the game user from root's staging folder, the old world removed by it too
+    _sh_ok(f"chown -R valheim:valheim {shlex.quote(str(src))}")
+    try:
+        _game_sh(f"cd {VH_WORLDS} && rm -rf {q} && cp -a {shlex.quote(str(src))} {q}", timeout=300)
+    finally:
+        shutil.rmtree(src, ignore_errors=True)
     _log("world.upload", world=name, files=sum(1 for _ in (Path(VH_WORLDS) / name).iterdir()))
     return {"ok": True, "saved": name}
 
@@ -1547,7 +1646,9 @@ def _verify_backup(fn):
     out = {"file": fn, "at": int(time.time()), "ok": False, "size": None, "error": None}
     try:
         out["size"] = p.stat().st_size
-        r = _sh(f"tar tzf {shlex.quote(str(p))}", timeout=180)
+        # as the game user: the archive sits in its folder, and a tar/gzip parser bug should
+        # not be root's problem
+        r = _sh(f"runuser -u valheim -- tar tzf {shlex.quote(str(p))}", timeout=180)
         if r.returncode != 0:
             out["error"] = (r.stderr or "tar failed").strip()[:160]
             return out
@@ -1572,7 +1673,7 @@ def _verify_backup(fn):
             return out
         # and prove the world inside is readable, not just that the archive opens
         name = dbs[0]
-        head = _sh(f"tar xzOf {shlex.quote(str(p))} {shlex.quote(name)} 2>/dev/null | head -c 12 | base64",
+        head = _sh(f"runuser -u valheim -- tar xzOf {shlex.quote(str(p))} {shlex.quote(name)} 2>/dev/null | head -c 12 | base64",
                    timeout=180).stdout.strip()
         out.update(_read_db_head(base64.b64decode(head)))
         out["ok"] = True
@@ -2091,7 +2192,7 @@ def _wipe_world(world, wipe_mods=False):
     # thing to want; so is going back to vanilla. Wiping them also drops the share code,
     # so the players have to be told either way.
     if wipe_mods:
-        _sh_ok(f"cd {VH_SERVER} && rm -rf BepInEx doorstop_libs unstripped_corlib "
+        _game_sh(f"cd {VH_SERVER} && rm -rf BepInEx doorstop_libs unstripped_corlib "
                f"doorstop_config.ini start_game_bepinex.sh start_server_bepinex.sh .doorstop_version")
         st = _mods_state()
         st["mods"], st["profile_code"], st["profile_name"], st["bepinex_version"] = {}, None, None, None
@@ -2102,12 +2203,11 @@ def _wipe_world(world, wipe_mods=False):
         # exact name only - a glob on "Klans" would also take the world "Klans2"
         if p.name != world and not p.name.startswith((f"{world}.", f"{world}_backup_auto-")):
             continue
-        if p.is_dir():                        # 1.0: the world and its automatic copies are folders
-            shutil.rmtree(p)
+        # 1.0 keeps folders, older builds files; either way removed by the game user
+        if p.is_dir() or p.suffix in (".db", ".fwl", ".old") or ".db" in p.name or ".fwl" in p.name:
             removed.append(p.name)
-        elif p.suffix in (".db", ".fwl", ".old") or ".db" in p.name or ".fwl" in p.name:
-            p.unlink(missing_ok=True)
-            removed.append(p.name)
+    if removed:
+        _game_sh(f"cd {shlex.quote(VH_WORLDS)} && rm -rf -- " + " ".join(shlex.quote(n) for n in removed))
     for f in (VH_SAY, VH_METRICS, VH_LIFE):
         f.unlink(missing_ok=True)
     _save_json(VH_STORE, {"players": {}, "last_ts": int(time.time())})
@@ -2863,7 +2963,12 @@ def launcher_download(request: Request, platform: str = ""):
     if not _launcher_cfg().get("enabled"):
         raise HTTPException(404, "Launcher is off")
     plat = _platform_for(platform, request.headers.get("user-agent", ""))
-    rel = _github_json(f"https://api.github.com/repos/{LAUNCHER_REPO}/releases/latest")
+    # cached: this route is open to anyone, and each uncached call spent one of the 60 GitHub
+    # API requests an hour this address gets - the same budget the panel's own update check uses
+    if time.time() - _ENGINE_REL["at"] > 600 or not _ENGINE_REL["rel"]:
+        _ENGINE_REL.update(rel=_github_json(f"https://api.github.com/repos/{LAUNCHER_REPO}/releases/latest"),
+                           at=time.time())
+    rel = _ENGINE_REL["rel"]
     tag = rel.get("tag_name", "")
     asset = next((a for a in rel.get("assets", [])
                   if a.get("name") == f"launcher-{plat}.zip"), None)
@@ -2901,6 +3006,7 @@ def launcher_download(request: Request, platform: str = ""):
                         media_type="application/zip")
 
 
+_ENGINE_REL = {"at": 0.0, "rel": None}
 _LAUNCHER_BUILD = threading.Lock()
 _LAUNCHER_LAST_BUILD = {}                # platform -> when a build for it last started
 
@@ -3114,20 +3220,19 @@ def backup_restore(fn: str):
     # Step by step, so a failure anywhere puts the world that was there back and the game up
     # on it - one long command chain used to die on its timeout with the game stopped and
     # the folder half unpacked.
+    # all of it as the game user: worlds_local and its neighbours live in that user's folder,
+    # and so does the archive
     w = shlex.quote(VH_WORLDS)
     _sh_ok("systemctl stop valheim", timeout=180)
     try:
-        _sh_ok(f"rm -rf {w}.prev && mv {w} {w}.prev", timeout=300)
+        _game_sh(f"rm -rf {w}.prev && mv {w} {w}.prev", timeout=300)
     except Exception:
         _sh("systemctl start valheim", timeout=180)
         raise
     try:
-        # tar runs as the game user: the archive sits in a folder that user can write, and
-        # root unpacking it would follow whatever links it carries
-        _sh_ok(f"mkdir {w} && chown valheim:valheim {w} && "
-               f"runuser -u valheim -- tar xzf {VH_BACKUPS}/{shlex.quote(fn)} -C {w}", timeout=900)
+        _game_sh(f"mkdir {w} && tar xzf {VH_BACKUPS}/{shlex.quote(fn)} -C {w}", timeout=900)
     except Exception:
-        _sh(f"rm -rf {w} && mv {w}.prev {w}", timeout=300)
+        _sh(f"runuser -u valheim -- sh -c {shlex.quote(f'rm -rf {w} && mv {w}.prev {w}')}", timeout=300)
         _sh("systemctl start valheim", timeout=180)
         raise
     _sh_ok("systemctl start valheim", timeout=180)
@@ -3198,7 +3303,22 @@ def _ts_package(ns, name):
 
 
 def _unpack(data, dest, strip=None):
-    """Unpack a Thunderstore zip. `strip` drops a leading folder the package wraps itself in."""
+    """Unpack a Thunderstore zip. `strip` drops a leading folder the package wraps itself in.
+    Into a folder only root can touch, then copied into place by the game user: unpacking
+    straight into server/ had root check a path and then write it, with a mod able to swap a
+    folder for a link in between."""
+    final = Path(dest)
+    stage = Path(tempfile.mkdtemp(dir=VH_DIR, prefix=".unpack-"))
+    try:
+        _unpack_into(data, stage, strip)
+        _sh_ok(f"chown -hR valheim:valheim {shlex.quote(str(stage))} && chmod 755 {shlex.quote(str(stage))}")
+        _sh_ok(f"runuser -u valheim -- mkdir -p {shlex.quote(str(final))} && "
+               f"runuser -u valheim -- cp -a {shlex.quote(str(stage))}/. {shlex.quote(str(final))}/", timeout=300)
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def _unpack_into(data, dest, strip=None):
     import zipfile
     import io
     dest = Path(dest)
@@ -3234,8 +3354,7 @@ def _install_bepinex():
     ver = pkg["latest"]["version_number"]
     data = _ts_get(pkg["latest"]["download_url"], timeout=180)
     _unpack(data, VH_SERVER, strip="BepInExPack_Valheim/")
-    _sh(f"chown -hR valheim:valheim {VH_SERVER}/BepInEx {VH_SERVER}/doorstop_libs "
-        f"{VH_SERVER}/unstripped_corlib 2>/dev/null; chmod -R u+rwX {VH_SERVER}/BepInEx")
+    _game_sh(f"chmod -R u+rwX {VH_SERVER}/BepInEx")    # unpacked by the game user already
     return ver
 
 
@@ -3257,9 +3376,8 @@ def _install_mod(ns, name, version=None):
     except Exception as e:
         raise HTTPException(404, f"{ns}/{name} {version} could not be downloaded ({e})")
     target = Path(VH_PLUGINS) / full
-    _sh(f"rm -rf {shlex.quote(str(target))}")
+    _game_sh(f"rm -rf {shlex.quote(str(target))}")
     _unpack(data, target)
-    _sh(f"chown -hR valheim:valheim {shlex.quote(str(target))}")
     meta = {}
     try:
         mf = json.loads((target / "manifest.json").read_text())
@@ -3508,7 +3626,7 @@ def mods_clear(c: ModClear):
     """Back to vanilla: snapshot the world, stop, wipe BepInEx and every plugin."""
     _sh_ok(f"runuser -u valheim -- {VH_DIR}/backup.sh", timeout=120)
     _sh_ok("systemctl stop valheim", timeout=180)
-    _sh_ok(f"cd {VH_SERVER} && rm -rf BepInEx doorstop_libs unstripped_corlib "
+    _game_sh(f"cd {VH_SERVER} && rm -rf BepInEx doorstop_libs unstripped_corlib "
            f"doorstop_config.ini start_game_bepinex.sh start_server_bepinex.sh .doorstop_version")
     st = _mods_state()
     st["mods"], st["profile_code"], st["profile_name"], st["bepinex_version"] = {}, None, None, None
@@ -3613,11 +3731,11 @@ def _cfg_snapshot(p):
     if not p.exists():
         return
     d = Path(VH_CFGHIST) / p.name
-    _sh_ok(f"mkdir -p {shlex.quote(str(d))}")
-    _write(d / str(int(time.time())), p.read_text(errors="replace"))
+    _game_sh(f"mkdir -p {shlex.quote(str(d))}")
+    _write(d / str(int(time.time())), _read_as_game(p))
     old = sorted(d.iterdir(), key=lambda f: f.name, reverse=True)[CFG_KEEP:]
-    for f in old:
-        f.unlink(missing_ok=True)
+    if old:
+        _game_sh("rm -f " + " ".join(shlex.quote(str(f)) for f in old))
 
 
 @app.get("/api/mods/configs")
@@ -3677,7 +3795,7 @@ def mod_config_restore(name: str, stamp: int, restart: bool = False):
     if not src.exists():
         raise HTTPException(404, "No such version")
     _cfg_snapshot(p)          # the state being replaced is itself worth keeping
-    _write(str(p), src.read_text(errors="replace"))
+    _write(str(p), _read_as_game(src))
     _log("config.restore", file=name, version=stamp, restarted=restart)
     if restart:
         _sh_ok("systemctl restart valheim", timeout=180)

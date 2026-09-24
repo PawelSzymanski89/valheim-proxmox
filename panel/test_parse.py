@@ -7,6 +7,7 @@ joining and leaving. Run it with the panel's own interpreter:
 """
 import pathlib
 import tempfile
+import time
 
 import app
 
@@ -221,5 +222,19 @@ if S:
     assert not app._release_signed(data + b"x", sig), "a changed release verified"
 assert not app._release_signed(b"anything", b"bm90IGEgc2lnbmF0dXJl"), "garbage verified"
 assert not app._release_signed(b"anything", b"%%%"), "a broken .sig verified"
+
+# a lockout counts an IPv6 /64 as one address, IPv4 as itself
+assert app._lock_key("2001:db8:1:2:3:4:5:6") == app._lock_key("2001:db8:1:2:ffff::1") == "2001:db8:1:2::/64"
+assert app._lock_key("192.168.1.5") == "192.168.1.5" and app._lock_key("::ffff:10.0.0.1") == "10.0.0.1"
+
+# a signed-out session stays out, even with a copy of the cookie
+app.VH_REVOKED = pathlib.Path(tempfile.mkdtemp()) / "revoked.json"
+exp = int(time.time()) + 3600
+cookie = f"admin|{exp}|{app._sign('admin', exp)}"
+assert app._session_ok(cookie) == "admin"
+app._revoke(cookie)
+assert app._session_ok(cookie) is None, "a revoked session still worked"
+other = f"admin|{exp + 1}|{app._sign('admin', exp + 1)}"
+assert app._session_ok(other) == "admin", "revoking one session revoked another"
 
 print("OK — log parser, login history, the crash watcher and both world formats")

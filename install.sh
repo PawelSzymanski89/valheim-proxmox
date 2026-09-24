@@ -159,18 +159,22 @@ done
 msg "Installing inside the container (Steam download takes a few minutes)"
 # The stock Debian template ships without curl, so the host fetches setup.sh and
 # pushes it in. Also lets you run this straight from a git clone.
+# mktemp, not a fixed name in /tmp: this runs as root on the host.
+HOST_TMP=$(mktemp -d); trap 'rm -rf "$HOST_TMP"' EXIT
 if [ -f "$0" ] && [ -f "$(dirname "$0")/setup.sh" ]; then
   pct push "$CTID" "$(dirname "$0")/setup.sh" /tmp/setup.sh
 else
-  curl -fsSL "$REPO_RAW/setup.sh" -o /tmp/valheim-setup.sh
-  pct push "$CTID" /tmp/valheim-setup.sh /tmp/setup.sh
-  rm -f /tmp/valheim-setup.sh
+  curl -fsSL "$REPO_RAW/setup.sh" -o "$HOST_TMP/setup.sh"
+  pct push "$CTID" "$HOST_TMP/setup.sh" /tmp/setup.sh
 fi
-pct exec "$CTID" -- env \
-  REPO_RAW="$REPO_RAW" PANEL_PORT="$PANEL_PORT" GAME_PORT="$GAME_PORT" \
-  PANEL_USER="$PANEL_USER" PANEL_PASS="$PANEL_PASS" \
-  SERVER_NAME="$SERVER_NAME" WORLD_NAME="$WORLD_NAME" SERVER_PASS="$SERVER_PASS" \
-  bash /tmp/setup.sh
+# The settings travel as a root-only file, not on the command line: arguments of
+# "pct exec ... env PANEL_PASS=..." show up in ps for every user of the host.
+( umask 077
+  for v in REPO_RAW PANEL_PORT GAME_PORT PANEL_USER PANEL_PASS SERVER_NAME WORLD_NAME SERVER_PASS; do
+    printf 'export %s=%q\n' "$v" "${!v}"
+  done >"$HOST_TMP/setup.env" )
+pct push "$CTID" "$HOST_TMP/setup.env" /root/.valheim-setup.env --perms 0600
+pct exec "$CTID" -- bash -c '. /root/.valheim-setup.env && rm -f /root/.valheim-setup.env && bash /tmp/setup.sh'
 
 cat <<EOF
 

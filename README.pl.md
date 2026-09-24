@@ -575,6 +575,12 @@ systemd: `valheim`, `valheim-panel`, `valheim-backup.timer`, `valheim-update.tim
   rozjadą, panel to pokazuje, zamiast ukrywać.
 - **Panel chodzi jako root** we własnym kontenerze: woła `systemctl` i pisze po
   `/opt/valheim`. Dlatego to osobny kontener i dlatego nie ma go w internecie.
+  Wszystko, co root robi w katalogach użytkownika gry (światy, mody, konfiguracje, kopie), robi
+  *jako* ten użytkownik, więc złośliwy mod nie namówi go do zapisu ani odczytu gdzie indziej.
+- **Hasło gry widać w `ps` wewnątrz kontenera.** Serwer Valheima przyjmuje je tylko w argumentach;
+  dziennik je maskuje, lista procesów nie może.
+- **Sam instalator SteamCMD nie ma sumy kontrolnej** — Valve zmienia go bez zapowiedzi. Działa jako
+  użytkownik gry, nigdy jako root, a gra, którą instaluje, przechodzi weryfikację samego Steama.
 
 ## Na czym sprawdzone
 

@@ -9,6 +9,10 @@ VH=/opt/valheim
 APPID=896660
 randstr() { local s; s=$(head -c 48 /dev/urandom | base64 | tr -dc "$1"); echo "${s:0:$2}"; }
 
+# systemd has loaded the environment file into this process already; the passwords in it
+# are not left lying around in /run afterwards
+rm -f /run/valheim/env
+
 mkdir -p "$VH"
 # -n: never overwrite what the volume already has (state, worlds, mods, a downloaded game)
 cp -an "$IMG/." "$VH/"

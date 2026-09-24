@@ -6,6 +6,14 @@ container runs systemd as PID 1 rather than rewriting the panel around a process
 The price is `privileged: true` and host networking; the gain is one code path for all
 three ways in.
 
+**Know what that price means.** A privileged container with the host's cgroups and network is
+not a security boundary: whoever gets root in it — through a panel bug, a malicious mod that
+escalates, a poisoned dependency — is root on the Docker host. And with host networking the
+panel listens on every interface of the host, which on a VPS is the internet. Use this path
+on a machine that does nothing else important, keep port 2460 closed to the internet (firewall,
+or a reverse proxy with its own authentication on a private address), and prefer the LXC
+installer on Proxmox, where the container is unprivileged and gets firewall rules.
+
 ```bash
 git clone https://github.com/PawelSzymanski89/valheim-proxmox && cd valheim-proxmox/docker
 cp .env.example .env    # optional: ports, names, passwords
