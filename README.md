@@ -508,6 +508,12 @@ to the same key, and so are the launcher's own self-updates. The panel's Python 
 pinned with hashes (`panel/requirements.txt`), so an install never takes whatever PyPI has that
 day. Maintainers publish with `scripts/release.sh <tag> "<title>" notes.md`.
 
+Two keys are trusted (from v1.29.0): the working one and a backup kept offline. Either can sign a
+release. A release may also carry `release-keys.txt` signed by a key trusted now; every install
+that takes it trusts exactly that list from then on — so a lost or leaked key is replaced by
+publishing one release (`RELEASE_KEYS_FILE=list.txt scripts/release.sh …`), with nobody having to
+update by hand. The list in force is `/opt/valheim/release-keys` (the built-in pair when absent).
+
 The repository runs a fresh install on every push: in a container, Steam download included, then
 the panel and the game have to come up (`.github/workflows/install.yml`). A second job installs
 the latest release the way a server has it, updates it to the pushed commit with the script that

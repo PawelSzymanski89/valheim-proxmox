@@ -505,6 +505,12 @@ dla graczy, i samoaktualizacje launchera. Paczki Pythona panelu są przypięte z
 (`panel/requirements.txt`), więc instalacja nigdy nie bierze tego, co akurat jest na PyPI.
 Opiekun publikuje przez `scripts/release.sh <tag> "<tytuł>" notatki.md`.
 
+Zaufane są dwa klucze (od v1.29.0): roboczy i zapasowy trzymany offline. Każdy może podpisać wydanie.
+Wydanie może też nieść `release-keys.txt` podpisany kluczem zaufanym teraz; każda instalacja, która je
+przyjmie, od tej chwili ufa dokładnie tej liście — więc zgubiony albo wykradziony klucz wymienia się
+jednym wydaniem (`RELEASE_KEYS_FILE=lista.txt scripts/release.sh …`), bez ręcznej aktualizacji u kogokolwiek.
+Obowiązująca lista to `/opt/valheim/release-keys` (wbudowana para, gdy go nie ma).
+
 Wydanie to podbicie `panel/VERSION`, tag i release na GitHubie — instalacje przechodzą na tag, nigdy
 na nieotagowany commit z `main`.
 
