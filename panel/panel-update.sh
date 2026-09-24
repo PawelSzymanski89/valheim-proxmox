@@ -26,7 +26,23 @@ set -euo pipefail
 main() {
 VH=/opt/valheim
 REPO=PawelSzymanski89/valheim-proxmox
-RELEASE_KEY=WwQ2bZrUDQpTQhWzJgT4ojDUo5DXnHi8DuXvTRBZgX0=
+# The release keys: the working one and a backup kept offline. A release signed by either is
+# accepted. A release may carry release-keys.txt (+ .sig, signed by a key trusted now): from
+# then on that list replaces these two - how a lost or leaked key is swapped out without a
+# manual update anywhere. The list in use is kept in $VH/release-keys.
+BUILTIN_KEYS="WwQ2bZrUDQpTQhWzJgT4ojDUo5DXnHi8DuXvTRBZgX0= 649uL/TAv45znSgfclQMBTS3IhUV45Fh3ax2vsYaRDA="
+trusted() { if [ -s "$VH/release-keys" ]; then grep -v '^#' "$VH/release-keys" | grep .; else printf '%s\n' $BUILTIN_KEYS; fi; }
+verify() {  # verify FILE SIGFILE(base64) -> 0 when any trusted key signed it
+  local k
+  base64 -d "$2" >"$2.bin" 2>/dev/null || return 1
+  for k in $(trusted); do
+    { echo "-----BEGIN PUBLIC KEY-----"
+      { printf '\060\052\060\005\006\003\053\145\160\003\041\000'; echo "$k" | base64 -d; } | base64
+      echo "-----END PUBLIC KEY-----"; } >"$2.pem" 2>/dev/null || continue
+    openssl pkeyutl -verify -pubin -inkey "$2.pem" -rawin -in "$1" -sigfile "$2.bin" >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
 [ -d /opt/valheim-image ] && { echo "docker install: rebuild the image instead (docker compose up -d --build)"; exit 2; }
 [ -x $VH/panel/.venv/bin/python ] || { echo "no panel in $VH - this is not a valheim-proxmox install"; exit 1; }
 exec 9>/run/valheim-update.lock
@@ -58,14 +74,20 @@ fi
 if [ $rc -eq 0 ]; then
   # openssl, not Python: it is on every Debian and in the Docker image, and an old install's
   # panel venv may not have the crypto library yet
-  { echo "-----BEGIN PUBLIC KEY-----"
-    { printf '\060\052\060\005\006\003\053\145\160\003\041\000'; echo "$RELEASE_KEY" | base64 -d; } | base64
-    echo "-----END PUBLIC KEY-----"; } >"$TMP/key.pem"
-  base64 -d "$TMP/release.sig" >"$TMP/release.sig.bin" 2>/dev/null || { echo "$REF: the signature file is damaged - not installing"; exit 1; }
-  openssl pkeyutl -verify -pubin -inkey "$TMP/key.pem" -rawin -in "$TMP/release.tar.gz" \
-    -sigfile "$TMP/release.sig.bin" >/dev/null 2>&1 \
+  verify "$TMP/release.tar.gz" "$TMP/release.sig" \
     || { result refused; echo "$REF: the signature does not match - not installing (tampered or damaged download)"; exit 1; }
   echo "signature verified"
+  # a new key list, if this release carries one signed by a key trusted now
+  if fetch "${ASSET%/*}/release-keys.txt" "$TMP/keys" && fetch "${ASSET%/*}/release-keys.txt.sig" "$TMP/keys.sig"; then
+    if verify "$TMP/keys" "$TMP/keys.sig" \
+       && [ "$(grep -v '^#' "$TMP/keys" | grep -c .)" -ge 1 ] \
+       && ! grep -v '^#' "$TMP/keys" | grep . | grep -qvE '^[A-Za-z0-9+/]{43}=$'; then
+      install -m 600 "$TMP/keys" "$VH/release-keys"
+      echo "release keys updated: $(grep -v '^#' "$VH/release-keys" | grep -c .) key(s) trusted from now on"
+    else
+      echo "WARNING: $REF carries a key list that is not signed by a trusted key - ignored"
+    fi
+  fi
   mkdir "$TMP/src" && tar xzf "$TMP/release.tar.gz" -C "$TMP/src" --strip-components=1
 elif [ "${ALLOW_UNSIGNED:-}" = 1 ] && [ -n "${TEST_SRC_DIR:-}" ]; then
   # CI: a local tree instead of a download (the deliberately broken release of the upgrade test)

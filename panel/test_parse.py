@@ -237,4 +237,32 @@ assert app._session_ok(cookie) is None, "a revoked session still worked"
 other = f"admin|{exp + 1}|{app._sign('admin', exp + 1)}"
 assert app._session_ok(other) == "admin", "revoking one session revoked another"
 
+# release keys: either built-in key signs, a stranger's does not; a key list replaces the built-ins
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives import serialization as _ser
+def _kp():
+    k = Ed25519PrivateKey.generate()
+    return k, base64.b64encode(k.public_key().public_bytes(_ser.Encoding.Raw, _ser.PublicFormat.Raw)).decode()
+work, work_pub = _kp(); backup, backup_pub = _kp(); stranger, _ = _kp(); new, new_pub = _kp()
+app.RELEASE_KEYS = (work_pub, backup_pub)
+app.VH_RELEASE_KEYS = pathlib.Path(tempfile.mkdtemp()) / "release-keys"
+blob = b"a release archive"
+sig = lambda k: base64.b64encode(k.sign(blob))
+assert app._release_signed(blob, sig(work)) and app._release_signed(blob, sig(backup))
+assert not app._release_signed(blob, sig(stranger)), "a stranger's key verified"
+app.VH_RELEASE_KEYS.write_text("# rotated\n" + new_pub + "\n" + backup_pub + "\n")
+assert app._trusted_keys() == [new_pub, backup_pub]
+assert not app._release_signed(blob, sig(work)), "a key removed from the list still verified"
+assert app._release_signed(blob, sig(new)) and app._release_signed(blob, sig(backup))
+# the same without the crypto library, through openssl (an old venv) - where openssl can
+import builtins, shutil as _sh
+if _sh.which("openssl") and "OpenSSL 3" in sp.run(["openssl", "version"], capture_output=True, text=True).stdout:
+    real = builtins.__import__
+    builtins.__import__ = lambda n, *a, **k: (_ for _ in ()).throw(ImportError()) if n.startswith("cryptography") else real(n, *a, **k)
+    try:
+        assert app._release_signed(blob, sig(new)) and not app._release_signed(blob, sig(work))
+    finally:
+        builtins.__import__ = real
+app.VH_RELEASE_KEYS.unlink()
+
 print("OK — log parser, login history, the crash watcher and both world formats")

@@ -15,4 +15,13 @@ F="$OUT/valheim-proxmox-$TAG.tar.gz"
 git archive --prefix="valheim-proxmox-$TAG/" "$TAG" | gzip -n >"$F"
 "$PY" scripts/sign-release.py "$F"
 "$PY" scripts/sign-release.py --verify "$F"
-gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES" --verify-tag ${PRE:+--prerelease} "$F" "$F.sig"
+EXTRA=()
+# Rotating the release keys: RELEASE_KEYS_FILE=list.txt (one base64 public key per line). It is
+# signed like the archive - by a key trusted now - and every install that takes this release
+# trusts exactly that list from then on (see panel/panel-update.sh).
+if [ -n "${RELEASE_KEYS_FILE:-}" ]; then
+  cp "$RELEASE_KEYS_FILE" "$OUT/release-keys.txt"
+  "$PY" scripts/sign-release.py "$OUT/release-keys.txt"
+  EXTRA=("$OUT/release-keys.txt" "$OUT/release-keys.txt.sig")
+fi
+gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES" --verify-tag ${PRE:+--prerelease} "$F" "$F.sig" "${EXTRA[@]}"

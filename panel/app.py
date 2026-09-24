@@ -1168,7 +1168,10 @@ def panel_version():
             "docker": Path("/opt/valheim-image").exists(), "can_update": _panel_can_update()}
 
 
-RELEASE_KEY = "WwQ2bZrUDQpTQhWzJgT4ojDUo5DXnHi8DuXvTRBZgX0="   # same key as panel-update.sh and the launcher
+# The working release key and the offline backup - the same pair as panel-update.sh and the
+# launcher. A signed release can replace the list (release-keys.txt); what is in force is here:
+RELEASE_KEYS = ("WwQ2bZrUDQpTQhWzJgT4ojDUo5DXnHi8DuXvTRBZgX0=", "649uL/TAv45znSgfclQMBTS3IhUV45Fh3ax2vsYaRDA=")
+VH_RELEASE_KEYS = Path(f"{VH_DIR}/release-keys")
 
 
 def _fetch(url, timeout):
@@ -1177,10 +1180,23 @@ def _fetch(url, timeout):
         return r.read()
 
 
+def _trusted_keys():
+    """The release keys in force: the list a signed release installed (release-keys, see
+    panel-update.sh), else the two built in - the working key and the offline backup."""
+    try:
+        keys = [ln.strip() for ln in VH_RELEASE_KEYS.read_text().splitlines()
+                if ln.strip() and not ln.startswith("#")]
+        if keys:
+            return keys
+    except FileNotFoundError:
+        pass
+    return list(RELEASE_KEYS)
+
+
 def _release_signed(data, sig_b64):
-    """ed25519 over the file, with the project's release key. The key is made and kept on the
-    maintainer's machine, not on GitHub - a release anyone else publishes does not verify.
-    The crypto library first; openssl where an old venv has not got it yet."""
+    """ed25519 over the file, by any trusted release key. The keys are made and kept off
+    GitHub - a release anyone else publishes does not verify. The crypto library first;
+    openssl where an old venv has not got it yet."""
     try:
         sig = base64.b64decode(sig_b64.strip(), validate=True)
     except Exception:
@@ -1188,23 +1204,29 @@ def _release_signed(data, sig_b64):
     try:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
     except ImportError:
-        d = Path(tempfile.mkdtemp())
+        Ed25519PublicKey = None
+    for key in _trusted_keys():
         try:
-            der = bytes.fromhex("302a300506032b6570032100") + base64.b64decode(RELEASE_KEY)
-            (d / "k.pem").write_text("-----BEGIN PUBLIC KEY-----\n" + base64.b64encode(der).decode()
-                                     + "\n-----END PUBLIC KEY-----\n")
-            (d / "f").write_bytes(data)
-            (d / "s").write_bytes(sig)
-            return subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(d / "k.pem"),
+            raw = base64.b64decode(key)
+            if Ed25519PublicKey:
+                Ed25519PublicKey.from_public_bytes(raw).verify(sig, data)
+                return True
+            d = Path(tempfile.mkdtemp())
+            try:
+                der = bytes.fromhex("302a300506032b6570032100") + raw
+                (d / "k.pem").write_text("-----BEGIN PUBLIC KEY-----\n" + base64.b64encode(der).decode()
+                                         + "\n-----END PUBLIC KEY-----\n")
+                (d / "f").write_bytes(data)
+                (d / "s").write_bytes(sig)
+                if subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(d / "k.pem"),
                                    "-rawin", "-in", str(d / "f"), "-sigfile", str(d / "s")],
-                                  capture_output=True).returncode == 0
-        finally:
-            shutil.rmtree(d, ignore_errors=True)
-    try:
-        Ed25519PublicKey.from_public_bytes(base64.b64decode(RELEASE_KEY)).verify(sig, data)
-        return True
-    except Exception:
-        return False
+                                  capture_output=True).returncode == 0:
+                    return True
+            finally:
+                shutil.rmtree(d, ignore_errors=True)
+        except Exception:
+            continue
+    return False
 
 
 def _panel_update_start(why):
@@ -1216,7 +1238,8 @@ def _panel_update_start(why):
     # The new script comes out of the newest SIGNED release, verified here - it used to be
     # fetched from the main branch, where one push would have run as root everywhere.
     script = Path(f"{VH_DIR}/panel-update.sh")
-    if "RELEASE_KEY=" not in script.read_text():
+    old = script.read_text()
+    if "RELEASE_KEY=" not in old and "BUILTIN_KEYS=" not in old:      # no signature checks at all
         tag = _panel_latest()["tag"]
         if not tag:
             raise HTTPException(502, "Could not ask GitHub for the latest release")
