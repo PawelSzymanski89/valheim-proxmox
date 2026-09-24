@@ -65,6 +65,22 @@ panel tylko z sieci prywatnych (LAN i zakresy CGNAT, np. Tailscale), cała reszt
 także port RCON narzędzi admina, który słucha na każdym interfejsie i nie ma opcji, żeby to
 zmienić. Reguły działają tylko przy włączonym firewallu Proxmoxa na poziomie Datacenter;
 instalator powie, jeśli jest wyłączony. `--no-firewall` je pomija.
+```bash
+# na hoście Proxmox, dla istniejącego kontenera (CTID = jego numer; porty jak przy instalacji)
+cat > /etc/pve/firewall/CTID.fw <<'FW'
+[OPTIONS]
+enable: 1
+policy_in: DROP
+dhcp: 1
+ndp: 1
+
+[RULES]
+IN ACCEPT -p udp -dport 2456:2458 -log nolog
+IN ACCEPT -p tcp -dport 2460 -source 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10 -log nolog
+IN Ping(ACCEPT) -log nolog
+FW
+pct set CTID --net0 "$(pct config CTID | sed -n 's/^net0: //p'),firewall=1"
+```
 
 Domyślnie: 4 rdzenie, 6 GB RAM, 30 GB dysku, DHCP. Każdą wartość zmienisz flagą —
 `--ram 12288 --disk 40 --ip 192.168.1.50/24 --gw 192.168.1.1`, a `--help` wypisze resztę.

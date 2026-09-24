@@ -68,6 +68,22 @@ panel only to private networks (LAN, and CGNAT ranges like Tailscale), everythin
 — including the RCON port of the admin tools, which listens on every interface and has no
 setting to stop it. The rules only act when the Proxmox firewall is on for the datacenter;
 the installer says so if it is not. `--no-firewall` skips them.
+```bash
+# on the Proxmox host, for an existing container (CTID = its id; ports as installed)
+cat > /etc/pve/firewall/CTID.fw <<'FW'
+[OPTIONS]
+enable: 1
+policy_in: DROP
+dhcp: 1
+ndp: 1
+
+[RULES]
+IN ACCEPT -p udp -dport 2456:2458 -log nolog
+IN ACCEPT -p tcp -dport 2460 -source 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10 -log nolog
+IN Ping(ACCEPT) -log nolog
+FW
+pct set CTID --net0 "$(pct config CTID | sed -n 's/^net0: //p'),firewall=1"
+```
 
 ### On any Debian 12/13 machine — installs into the system you are on
 
