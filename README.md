@@ -509,7 +509,11 @@ pinned with hashes (`panel/requirements.txt`), so an install never takes whateve
 day. Maintainers publish with `scripts/release.sh <tag> "<title>" notes.md`.
 
 The repository runs a fresh install on every push: in a container, Steam download included, then
-the panel and the game have to come up (`.github/workflows/install.yml`).
+the panel and the game have to come up (`.github/workflows/install.yml`). A second job installs
+the latest release the way a server has it, updates it to the pushed commit with the script that
+release ships, and checks that the world, the settings and the admin's choices are unchanged and
+the game never restarted; then it feeds in a deliberately broken release, which has to be rolled
+back (`.github/ci/upgrade-test.sh`).
 
 ## Panel log
 

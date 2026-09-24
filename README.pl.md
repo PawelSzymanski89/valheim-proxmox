@@ -509,7 +509,10 @@ Wydanie to podbicie `panel/VERSION`, tag i release na GitHubie — instalacje pr
 na nieotagowany commit z `main`.
 
 Repozytorium robi świeżą instalację przy każdym pushu: w kontenerze, z pobraniem ze Steama, po której
-panel i gra muszą wstać (`.github/workflows/install.yml`).
+panel i gra muszą wstać (`.github/workflows/install.yml`). Drugie zadanie instaluje najnowsze wydanie
+tak, jak ma je serwer, aktualizuje je do wypchniętego commita skryptem z tego wydania i sprawdza, że
+świat, ustawienia i wybory admina są bez zmian, a gra ani razu się nie zrestartowała; potem podsuwa
+celowo zepsute wydanie, które musi zostać wycofane (`.github/ci/upgrade-test.sh`).
 
 ## Dziennik panelu
 

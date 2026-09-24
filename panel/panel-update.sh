@@ -67,6 +67,10 @@ if [ $rc -eq 0 ]; then
     || { result refused; echo "$REF: the signature does not match - not installing (tampered or damaged download)"; exit 1; }
   echo "signature verified"
   mkdir "$TMP/src" && tar xzf "$TMP/release.tar.gz" -C "$TMP/src" --strip-components=1
+elif [ "${ALLOW_UNSIGNED:-}" = 1 ] && [ -n "${TEST_SRC_DIR:-}" ]; then
+  # CI: a local tree instead of a download (the deliberately broken release of the upgrade test)
+  echo "WARNING: installing the local tree $TEST_SRC_DIR, unsigned (ALLOW_UNSIGNED=1)"
+  mkdir "$TMP/src" && cp -a "$TEST_SRC_DIR/." "$TMP/src/"
 elif [ "${ALLOW_UNSIGNED:-}" = 1 ]; then
   echo "WARNING: $REF has no signed release - installing unsigned because ALLOW_UNSIGNED=1"
   mkdir "$TMP/src"

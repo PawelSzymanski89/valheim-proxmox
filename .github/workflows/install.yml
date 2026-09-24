@@ -64,3 +64,16 @@ jobs:
         run: docker exec vh systemctl list-units --failed --no-legend | tee failed.txt; test ! -s failed.txt
       - if: always()
         run: docker logs vh 2>&1 | tail -20; docker rm -f vh || true
+
+  upgrade:
+    name: upgrade from the latest release, and a rollback
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: latest release -> this commit, then a broken release rolled back
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/ci/upgrade-test.sh
+      - if: always()
+        run: docker rm -f vhu >/dev/null 2>&1 || true
