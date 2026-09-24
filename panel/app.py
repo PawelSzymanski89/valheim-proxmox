@@ -1493,7 +1493,13 @@ def world_download(name: str):
         raise HTTPException(404, "No such world")
     # the folder itself goes in, so the archive unpacks straight into a game's worlds_local
     what = q if fwl.parent.name == name else f"{q}.db {q}.fwl"
-    data = base64.b64decode(_game_sh(f"tar czf - -C {VH_WORLDS} {what} | base64", timeout=120))
+    # tar straight to us, as the game user - through "| base64" a failed tar (a folder it may
+    # not enter, say) came back as an empty archive instead of an error
+    r = subprocess.run(["runuser", "-u", "valheim", "--", "sh", "-c", f"tar czf - -C {shlex.quote(VH_WORLDS)} {what}"],
+                       capture_output=True, timeout=300)
+    if r.returncode != 0:
+        raise HTTPException(502, "Could not pack the world: " + r.stderr.decode(errors="replace").strip()[-200:])
+    data = r.stdout
     return Response(data, media_type="application/gzip",
                     headers={"Content-Disposition": f'attachment; filename="{name}.tar.gz"'})
 
