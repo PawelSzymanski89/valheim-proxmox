@@ -27,6 +27,8 @@ with sync_playwright() as p:
     check("Wrong" in pg.inner_text("#e") or "Zły" in pg.inner_text("#e"), "a wrong password is refused with a message")
     pg.fill("#p", PASS); pg.click("#b"); pg.wait_for_timeout(3500)
     check(pg.locator("#tabs").is_visible(), "logs in")
+    ver = open("panel/VERSION").read().strip()
+    check(pg.inner_text("#attrib-ver") == ver, f"the footer shows the version ({pg.inner_text('#attrib-ver')!r}, want {ver!r})")
 
     tabs = pg.locator("#tabs a")
     names = [tabs.nth(i).inner_text().strip() for i in range(tabs.count())]
