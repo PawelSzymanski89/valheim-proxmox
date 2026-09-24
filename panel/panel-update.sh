@@ -32,14 +32,30 @@ RELEASE_KEY=WwQ2bZrUDQpTQhWzJgT4ojDUo5DXnHi8DuXvTRBZgX0=
 exec 9>/run/valheim-update.lock
 flock -n 9 || { echo "another update is running"; exit 3; }
 
-REF=${1:-$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | grep -oP '"tag_name":\s*"\K[^"]+')}
-[ -n "$REF" ] || { echo "could not ask GitHub for the latest release"; exit 1; }
+# The outcome goes where the panel reads it: "<tag> <ok|rollback|refused|network> <epoch>".
+# "network" means GitHub was not reached - the panel tries that release again later, where
+# every other outcome is final for it. (A DNS hiccup used to read as "no signed release"
+# and left the release uninstalled for good.)
+result() { echo "${REF:-unknown} $1 $(date +%s)" >"$VH/update-result"; }
+fetch() {  # fetch URL FILE -> 0 ok, 22 not there (HTTP error), anything else: network trouble
+  local rc=0; curl -fsSL --retry 3 --retry-delay 5 -o "$2" "$1" || rc=$?; return $rc
+}
+
+latest=$(curl -fsSL --retry 3 --retry-delay 5 "https://api.github.com/repos/$REPO/releases/latest") \
+  || { [ -n "${1:-}" ] || { REF=unknown; result network; echo "GitHub could not be reached"; exit 4; }; }
+REF=${1:-$(grep -oP '"tag_name":\s*"\K[^"]+' <<<"$latest")}
+[ -n "$REF" ] || { REF=unknown; result network; echo "could not ask GitHub for the latest release"; exit 4; }
 [[ "$REF" =~ ^[A-Za-z0-9._/-]{1,100}$ ]] || { echo "odd release name: $REF"; exit 1; }
 echo "updating to $REF"
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 ASSET="https://github.com/$REPO/releases/download/$REF/valheim-proxmox-$REF.tar.gz"
-if curl -fsSL -o "$TMP/release.tar.gz" "$ASSET" && curl -fsSL -o "$TMP/release.sig" "$ASSET.sig"; then
+rc=0; fetch "$ASSET" "$TMP/release.tar.gz" || rc=$?
+[ $rc -eq 0 ] && { fetch "$ASSET.sig" "$TMP/release.sig" || rc=$?; }
+if [ $rc -ne 0 ] && [ $rc -ne 22 ]; then
+  result network; echo "$REF: GitHub could not be reached (curl $rc) - trying again later"; exit 4
+fi
+if [ $rc -eq 0 ]; then
   # openssl, not Python: it is on every Debian and in the Docker image, and an old install's
   # panel venv may not have the crypto library yet
   { echo "-----BEGIN PUBLIC KEY-----"
@@ -48,7 +64,7 @@ if curl -fsSL -o "$TMP/release.tar.gz" "$ASSET" && curl -fsSL -o "$TMP/release.s
   base64 -d "$TMP/release.sig" >"$TMP/release.sig.bin" 2>/dev/null || { echo "$REF: the signature file is damaged - not installing"; exit 1; }
   openssl pkeyutl -verify -pubin -inkey "$TMP/key.pem" -rawin -in "$TMP/release.tar.gz" \
     -sigfile "$TMP/release.sig.bin" >/dev/null 2>&1 \
-    || { echo "$REF: the signature does not match - not installing (tampered or damaged download)"; exit 1; }
+    || { result refused; echo "$REF: the signature does not match - not installing (tampered or damaged download)"; exit 1; }
   echo "signature verified"
   mkdir "$TMP/src" && tar xzf "$TMP/release.tar.gz" -C "$TMP/src" --strip-components=1
 elif [ "${ALLOW_UNSIGNED:-}" = 1 ]; then
@@ -56,7 +72,7 @@ elif [ "${ALLOW_UNSIGNED:-}" = 1 ]; then
   mkdir "$TMP/src"
   curl -fsSL "https://codeload.github.com/$REPO/tar.gz/$REF" | tar xz -C "$TMP/src" --strip-components=1
 else
-  echo "$REF has no signed release files - not installing"
+  result refused; echo "$REF has no signed release files - not installing"
   exit 1
 fi
 TMP_SRC="$TMP/src"
@@ -79,6 +95,7 @@ rm -rf $VH/panel.prev/.venv $VH/panel.prev/__pycache__
 cp -a $VH/panel.version $VH/panel.prev/ 2>/dev/null || true
 
 rollback() {
+  result rollback
   echo "rolling back to $(cut -d' ' -f1 $VH/panel.prev/panel.version 2>/dev/null || echo the previous panel)"
   cp -a $VH/panel.prev/. $VH/panel/
   rm -f $VH/panel/panel.version
@@ -88,11 +105,19 @@ rollback() {
 }
 SETUP_MODE=upgrade bash "$TMP_SRC/setup.sh" || { echo "setup.sh failed"; rollback; }
 systemctl restart valheim-panel
-for _ in $(seq 1 30); do
+# Kept only once the panel says it works (/api/health: settings, status, a pass of the
+# background loop, state files, signing) - "the login page answers" let through a panel
+# that was broken everywhere past the login. A panel from before v1.26.0 has no health
+# route; for that one, the old test.
+for _ in $(seq 1 180); do
   sleep 1
-  curl -sf -o /dev/null "http://127.0.0.1:$PORT/" && { echo "updated to $REF - world and settings untouched"; exit 0; }
+  h=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:$PORT/api/health" || true)
+  [ "$h" = 200 ] && { result ok; echo "updated to $REF - health checks pass, world and settings untouched"; exit 0; }
+  [ "$h" = 404 ] && curl -sf -o /dev/null "http://127.0.0.1:$PORT/" && { result ok; echo "updated to $REF (a panel without health checks)"; exit 0; }
 done
-echo "the new panel did not come up"
+echo "the new panel did not pass its health checks:"
+curl -s "http://127.0.0.1:$PORT/api/health" || true
+echo
 rollback
 }
 

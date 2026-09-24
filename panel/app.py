@@ -171,7 +171,7 @@ def _who(request):
 app = FastAPI(title="Valheim panel")
 
 # The login screen and the login call are the only things reachable without a session.
-OPEN_PATHS = {"/", "/icon.svg", "/api/login", "/api/logout", "/api/public"}
+OPEN_PATHS = {"/", "/icon.svg", "/api/login", "/api/logout", "/api/public", "/api/health"}
 # the launcher talks to these without a panel login - see _launcher_cfg for what they expose
 OPEN_PREFIXES = ("/api/launcher/",)
 
@@ -1163,6 +1163,7 @@ def panel_version():
     return {"installed": _panel_installed(), "latest": latest["tag"], "name": latest["name"],
             "url": latest["url"], "notes": latest["notes"], "newer": bool(_panel_newer()),
             "auto": not VH_AUTO_UPDATE_OFF.exists(), "channel": _channel(),
+            "last_result": _update_result(),
             "hold": latest.get("hold", False), "rollout_at": _rollout_at(latest),
             "docker": Path("/opt/valheim-image").exists(), "can_update": _panel_can_update()}
 
@@ -1247,6 +1248,41 @@ def panel_update():
     return {"ok": True}
 
 
+@app.get("/api/health")
+def health(request: Request):
+    """Is this panel actually working - asked by panel-update.sh after an update, before it
+    decides between keeping the new version and rolling back. "The login page answers" was
+    the old test, and a panel whose status call or background loop was broken passed it.
+    Loopback only: it is a question the machine asks itself."""
+    if (request.client.host if request.client else "") not in ("127.0.0.1", "::1"):
+        raise HTTPException(404, "Not Found")
+    checks = {}
+
+    def check(name, fn):
+        try:
+            fn()
+            checks[name] = "ok"
+        except Exception as e:
+            checks[name] = f"{type(e).__name__}: {e}"[:160]
+
+    check("settings", lambda: _parse_env(Path(VH_ENV).read_text().splitlines())["world"])
+    check("status", lambda: status()["settings"])
+    def loop():
+        if time.time() - WATCH.get("tick_ok_at", 0) > 180:
+            raise RuntimeError("no successful pass in the last 3 minutes")
+    check("background loop", loop)
+
+    def writable():
+        fd, t = tempfile.mkstemp(dir=VH_DIR, prefix=".health.")
+        os.close(fd)
+        os.unlink(t)
+    check("state files", writable)
+    check("manifest signing", lambda: _manifest_key().sign(b"health"))
+    ok = all(v == "ok" for v in checks.values())
+    return JSONResponse({"ok": ok, "version": _panel_installed(), "checks": checks},
+                        status_code=200 if ok else 503)
+
+
 @app.post("/api/panel/channel")
 def panel_channel(body: dict = Body(...)):
     ch = body.get("channel")
@@ -1282,7 +1318,12 @@ def _panel_update_tick(now_on):
         return
     tried = Path(f"{VH_DIR}/auto-update.tried")
     if tried.exists() and tried.read_text().strip() == new["tag"]:
-        return
+        # One try per release - unless that try never reached the release: panel-update.sh
+        # records "network" when GitHub could not be reached, and that is tried again (hourly,
+        # by the guard below) instead of leaving the release uninstalled for good.
+        res = _update_result()
+        if not (res.get("tag") in (new["tag"], "unknown") and res.get("status") == "network"):
+            return
     # the one try per release is only spent once the update has really been started - a
     # failed GitHub fetch or systemd-run is tried again, but no more than once an hour
     if time.time() - WATCH.get("panel_update_at", 0) < 3600:
@@ -1310,6 +1351,18 @@ def _retire_default_password():
             "random one. Set your own on the Proxmox host: "
             "pct exec <container id> -- /opt/valheim/panel-passwd.sh <new password>",
             priority="high", tags="lock")
+
+
+VH_UPDATE_RESULT = Path(f"{VH_DIR}/update-result")   # written by panel-update.sh
+
+
+def _update_result():
+    """The last update's outcome as panel-update.sh wrote it: '<tag> <status> <epoch>'."""
+    try:
+        tag, status, at = VH_UPDATE_RESULT.read_text().split()[:3]
+        return {"tag": tag, "status": status, "at": int(at)}
+    except Exception:
+        return {}
 
 
 def _panel_updated_notice():
@@ -4749,6 +4802,7 @@ async def _start_watcher():
                 # in a thread: a game update inside it runs steamcmd for up to an hour, and on
                 # the event loop that froze every route - the public page and the launcher too
                 await asyncio.to_thread(_tick)
+                WATCH["tick_ok_at"] = time.time()       # read by /api/health
             except Exception as e:
                 _log("watch.error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
             await asyncio.sleep(60)

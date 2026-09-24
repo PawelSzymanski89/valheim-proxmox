@@ -294,6 +294,28 @@ assert app._iso_ts("2026-09-24T07:42:22Z") == 1790235742
 assert app._held("fixes\n[hold]\nmore") and app._held("  [HOLD]  ")
 assert not app._held("a line reading `[hold]` stops a release") and not app._held("")
 
+# a try that never reached GitHub is tried again (hourly); any other outcome is final
+def retry(result_line):
+    STARTED.clear(); RC["v"] = 0
+    d = tempfile.mkdtemp()
+    app.VH_DIR, app.VH_CHANNEL = d, pathlib.Path(d) / "update-channel"
+    app.VH_CHANNEL.write_text("early")
+    app.VH_UPDATE_RESULT = pathlib.Path(d) / "update-result"
+    pathlib.Path(d, "auto-update.tried").write_text("v9.9.9")
+    if result_line:
+        app.VH_UPDATE_RESULT.write_text(result_line)
+    app.WATCH["panel_update_at"] = 0
+    app._panel_newer = lambda: {"tag": "v9.9.9", "published": 0, "hold": False}
+    app._panel_update_tick({})
+    return bool(STARTED)
+
+assert retry("v9.9.9 network 1"), "a network failure was not retried"
+assert retry("unknown network 1"), "a failed release lookup was not retried"
+assert not retry("v9.9.9 rollback 1"), "a rolled-back release was retried"
+assert not retry("v9.9.9 refused 1"), "a refused release was retried"
+assert not retry("v9.9.8 network 1"), "an older release's network failure retried this one"
+assert not retry(""), "a tried release with no result was retried"
+
 # a game update in progress: nothing else restarts the game, and a second one does not start
 import threading
 cfg = dict(app.LAUNCH_DEFAULT); cfg.update(armed=False); app._launch_save(cfg)
