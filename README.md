@@ -492,6 +492,15 @@ On a Docker install the banner says to rebuild the image instead.
 A release is a bump of `panel/VERSION`, a tag and a GitHub release — the tag is what installs
 move to, never an untagged commit on `main`.
 
+**Only signed releases are installed** (from v1.23.0). Each release carries
+`valheim-proxmox-<tag>.tar.gz` and a `.sig` made with an ed25519 key that lives on the
+maintainer's machine, not on GitHub; `panel-update.sh` checks it with `openssl` against the
+public key it carries and refuses anything else. A stolen GitHub account can publish a release
+but cannot get it installed anywhere. The launcher builds the panel hands to players are held
+to the same key, and so are the launcher's own self-updates. The panel's Python packages are
+pinned with hashes (`panel/requirements.txt`), so an install never takes whatever PyPI has that
+day. Maintainers publish with `scripts/release.sh <tag> "<title>" notes.md`.
+
 The repository runs a fresh install on every push: in a container, Steam download included, then
 the panel and the game have to come up (`.github/workflows/install.yml`).
 

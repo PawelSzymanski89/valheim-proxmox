@@ -205,9 +205,23 @@ for f in $PANEL_FILES_; do
   else curl -fsSL "$REPO_RAW/panel/$f" -o "$VH_DIR/panel/$f"; fi
 done
 mv "$VH_DIR/panel/panel-update.sh" "$VH_DIR/panel-update.sh"
-[ -x "$VH_DIR/panel/.venv/bin/python" ] || python3 -m venv "$VH_DIR/panel/.venv"
-"$VH_DIR/panel/.venv/bin/pip" install -q --upgrade pip
-"$VH_DIR/panel/.venv/bin/pip" install -q -r "$VH_DIR/panel/requirements.txt"
+# The venv: every package pinned by hash (requirements.txt), and pip itself left as Debian
+# ships it - "pip install --upgrade pip" was one more unpinned download run as root.
+# A venv from before v1.20.1 lived in a folder the game user could write, so it is not
+# trusted: rebuilt once, in place (a venv cannot be moved - its scripts carry their own
+# path), with the old one set aside and put back if the build fails.
+V="$VH_DIR/panel/.venv"
+if [ ! -f "$V/.root-built" ]; then
+  rm -rf "$V.old"; [ -d "$V" ] && mv "$V" "$V.old"
+  if python3 -m venv "$V" && "$V/bin/pip" install -q --require-hashes -r "$VH_DIR/panel/requirements.txt"; then
+    touch "$V/.root-built"; rm -rf "$V.old"
+  else
+    rm -rf "$V"; [ -d "$V.old" ] && mv "$V.old" "$V"
+    die "installing the panel's Python packages failed - the previous ones are back in place"
+  fi
+else
+  "$V/bin/pip" install -q --require-hashes -r "$VH_DIR/panel/requirements.txt"
+fi
 
 # The first password is fixed and printed, so there is never a "what was it again" moment.
 # It is the same on every install of this repo, which is exactly why the panel keeps warning

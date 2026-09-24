@@ -8,6 +8,7 @@ listed in adminlist.txt — the panel manages that list.
 import base64
 import hashlib
 import hmac
+import io
 import ipaddress
 import json
 import os
@@ -1024,23 +1025,71 @@ def panel_version():
             "docker": Path("/opt/valheim-image").exists(), "can_update": _panel_can_update()}
 
 
+RELEASE_KEY = "WwQ2bZrUDQpTQhWzJgT4ojDUo5DXnHi8DuXvTRBZgX0="   # same key as panel-update.sh and the launcher
+
+
+def _fetch(url, timeout):
+    req = urllib.request.Request(url, headers={"User-Agent": "valheim-proxmox-panel"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
+
+
+def _release_signed(data, sig_b64):
+    """ed25519 over the file, with the project's release key. The key is made and kept on the
+    maintainer's machine, not on GitHub - a release anyone else publishes does not verify.
+    The crypto library first; openssl where an old venv has not got it yet."""
+    try:
+        sig = base64.b64decode(sig_b64.strip(), validate=True)
+    except Exception:
+        return False
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    except ImportError:
+        d = Path(tempfile.mkdtemp())
+        try:
+            der = bytes.fromhex("302a300506032b6570032100") + base64.b64decode(RELEASE_KEY)
+            (d / "k.pem").write_text("-----BEGIN PUBLIC KEY-----\n" + base64.b64encode(der).decode()
+                                     + "\n-----END PUBLIC KEY-----\n")
+            (d / "f").write_bytes(data)
+            (d / "s").write_bytes(sig)
+            return subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", str(d / "k.pem"),
+                                   "-rawin", "-in", str(d / "f"), "-sigfile", str(d / "s")],
+                                  capture_output=True).returncode == 0
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+    try:
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(RELEASE_KEY)).verify(sig, data)
+        return True
+    except Exception:
+        return False
+
+
 def _panel_update_start(why):
     """panel-update.sh in its own transient unit - it restarts this very process, so it
     cannot run as our child. The script keeps the previous panel and rolls back by itself."""
     # An install from 2026-09-07 has the old panel-update.sh, which copied the panel files and
     # nothing else - it brings this panel in, but never VERSION or setup.sh. The engine is
     # swapped in first, so the one click on the old button ends on a complete update.
+    # The new script comes out of the newest SIGNED release, verified here - it used to be
+    # fetched from the main branch, where one push would have run as root everywhere.
     script = Path(f"{VH_DIR}/panel-update.sh")
-    if "SETUP_MODE=upgrade" not in script.read_text():
-        req = urllib.request.Request("https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/"
-                                     "panel/panel-update.sh", headers={"User-Agent": "valheim-proxmox-panel"})
-        with urllib.request.urlopen(req, timeout=20) as r:
-            new = r.read().decode()
-        if "SETUP_MODE=upgrade" not in new:
-            raise HTTPException(502, "GitHub did not return the update script")
-        script.write_text(new)
-        script.chmod(0o755)
-        _log("panel.update_engine_installed")
+    if "RELEASE_KEY=" not in script.read_text():
+        tag = _panel_latest()["tag"]
+        if not tag:
+            raise HTTPException(502, "Could not ask GitHub for the latest release")
+        base = f"https://github.com/PawelSzymanski89/valheim-proxmox/releases/download/{tag}/valheim-proxmox-{tag}.tar.gz"
+        data, sig = _fetch(base, 120), _fetch(base + ".sig", 20)
+        if not _release_signed(data, sig):
+            raise HTTPException(502, f"{tag}: the release is not signed with the project key - not installing")
+        import tarfile
+        with tarfile.open(fileobj=io.BytesIO(data)) as t:
+            m = next(x for x in t.getmembers() if x.name.endswith("/panel/panel-update.sh") and x.isfile())
+            new = t.extractfile(m).read()
+        tmp = script.with_suffix(".new")
+        tmp.write_bytes(new)
+        tmp.chmod(0o755)
+        tmp.replace(script)
+        _log("panel.update_engine_installed", tag=tag)
     _log("panel.update", why=why, to=_PANEL_LATEST["tag"])
     return _sh(f"systemd-run --on-active=1 --unit=valheim-panel-update-{int(time.time())} "
                f"{VH_DIR}/panel-update.sh")
@@ -2875,6 +2924,16 @@ def _launcher_build(out, dist, plat, tag, asset, config, env, base):
             for old in dist.glob(f"engine-{plat}-*.zip"):
                 if old != raw:
                     old.unlink(missing_ok=True)
+        # The panel hands this to every player, so it is held to the project's release key
+        # like its own updates - checked on every build, the cached copy included: a release
+        # someone else put on GitHub is never served.
+        try:
+            sig = _fetch(asset["browser_download_url"] + ".sig", 30)
+        except Exception:
+            sig = b""
+        if not _release_signed(raw.read_bytes(), sig):
+            raw.unlink(missing_ok=True)
+            raise HTTPException(503, f"The launcher release {tag} is not signed with the project key - not serving it")
         # What the player double-clicks, named after the server. Renaming a Flutter
         # build is safe: it finds its data next to itself, by position, not by name.
         rename = {"windows": ("server_launcher.exe", f"{base} Launcher.exe"),

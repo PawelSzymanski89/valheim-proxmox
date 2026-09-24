@@ -212,4 +212,14 @@ assert app.VH_PASS_RETIRED.exists()
 before = env["PANEL_PASS"]; app._retire_default_password()
 assert app._env_file(app.VH_PANEL_ENV)["PANEL_PASS"] == before, "rotated a password that was not the default"
 
+# release signatures: a file signed with the project key verifies, anything else does not
+import os, subprocess as sp
+S = os.environ.get("SIGNED_FIXTURE")        # set by the release checklist: FILE with FILE.sig next to it
+if S:
+    data, sig = open(S, "rb").read(), open(S + ".sig", "rb").read()
+    assert app._release_signed(data, sig), "a correctly signed release did not verify"
+    assert not app._release_signed(data + b"x", sig), "a changed release verified"
+assert not app._release_signed(b"anything", b"bm90IGEgc2lnbmF0dXJl"), "garbage verified"
+assert not app._release_signed(b"anything", b"%%%"), "a broken .sig verified"
+
 print("OK — log parser, login history, the crash watcher and both world formats")

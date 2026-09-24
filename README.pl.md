@@ -490,6 +490,15 @@ curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/ma
 
 Na instalacji Docker baner mówi, żeby przebudować obraz.
 
+**Instalowane są tylko podpisane wydania** (od v1.23.0). Każde wydanie ma
+`valheim-proxmox-<tag>.tar.gz` i `.sig` zrobiony kluczem ed25519, który leży na komputerze
+opiekuna projektu, nie na GitHubie; `panel-update.sh` sprawdza go `openssl`em z kluczem publicznym,
+który ma w sobie, i odrzuca wszystko inne. Przejęte konto GitHub pozwala opublikować wydanie, ale
+nie sprawi, że ktokolwiek je zainstaluje. Tego samego klucza pilnują launchery, które panel buduje
+dla graczy, i samoaktualizacje launchera. Paczki Pythona panelu są przypięte z hashami
+(`panel/requirements.txt`), więc instalacja nigdy nie bierze tego, co akurat jest na PyPI.
+Opiekun publikuje przez `scripts/release.sh <tag> "<tytuł>" notatki.md`.
+
 Wydanie to podbicie `panel/VERSION`, tag i release na GitHubie — instalacje przechodzą na tag, nigdy
 na nieotagowany commit z `main`.
 
