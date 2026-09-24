@@ -490,6 +490,12 @@ curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/ma
 
 Na instalacji Docker baner mówi, żeby przebudować obraz.
 
+**Wydania przychodzą falami** (od v1.25.0). Na domyślnym kanale `stable` wydanie instaluje się samo
+48 godzin po publikacji; `early` (Ustawienia) bierze je od razu — dla serwerów autora i testerów,
+które wyłapią złe wydanie, zanim trafi do wszystkich. Przycisk **Aktualizuj teraz** zawsze instaluje
+od razu. Wydanie, w którego opisie jest `[hold]`, nie zainstaluje się samo na żadnym kanale, dopóki
+znacznik tam jest — jedna edycja na GitHubie zatrzymuje wydanie, które okazało się złe.
+
 **Instalowane są tylko podpisane wydania** (od v1.23.0). Każde wydanie ma
 `valheim-proxmox-<tag>.tar.gz` i `.sig` zrobiony kluczem ed25519, który leży na komputerze
 opiekuna projektu, nie na GitHubie; `panel-update.sh` sprawdza go `openssl`em z kluczem publicznym,

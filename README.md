@@ -492,6 +492,13 @@ On a Docker install the banner says to rebuild the image instead.
 A release is a bump of `panel/VERSION`, a tag and a GitHub release — the tag is what installs
 move to, never an untagged commit on `main`.
 
+**Releases arrive in waves** (from v1.25.0). On the default `stable` channel a release installs
+itself 48 hours after it is published; `early` (Settings) takes it at once — meant for the
+maintainer's and testers' servers, which catch a bad release before everyone else does. The
+**Update now** button always installs right away. A release whose notes contain `[hold]` does not
+install itself on any channel while the marker is there — one edit on GitHub stops a release
+that turned out wrong.
+
 **Only signed releases are installed** (from v1.23.0). Each release carries
 `valheim-proxmox-<tag>.tar.gz` and a `.sig` made with an ed25519 key that lives on the
 maintainer's machine, not on GitHub; `panel-update.sh` checks it with `openssl` against the

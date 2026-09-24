@@ -1076,7 +1076,37 @@ echo "game updates are handled by the panel - see the Log tab"
 """
 VH_PANEL_VERSION = Path(f"{VH_DIR}/panel.version")   # written by setup.sh: "v1.20.0 <when>"
 VH_AUTO_UPDATE_OFF = Path(f"{VH_DIR}/auto-update.off")  # present = the admin switched it off
-_PANEL_LATEST = {"at": 0, "tag": "", "name": "", "url": "", "notes": ""}
+_PANEL_LATEST = {"at": 0, "tag": "", "name": "", "url": "", "notes": "", "published": 0, "hold": False}
+# Releases reach servers in waves. "stable" (the default) installs a release on its own only
+# once it has been out for ROLLOUT_HOURS; "early" takes it at once - the maintainer's own
+# servers, which find a bad release before everybody else does. "[hold]" anywhere in the
+# release notes stops every automatic install of it, on both channels, until it is removed:
+# one edit on GitHub pulls the brake on a release that turned out wrong.
+ROLLOUT_HOURS = 48
+VH_CHANNEL = Path(f"{VH_DIR}/update-channel")
+
+
+def _iso_ts(s):
+    try:
+        return int(datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp())
+    except Exception:
+        return 0
+
+
+def _channel():
+    try:
+        return "early" if VH_CHANNEL.read_text().strip() == "early" else "stable"
+    except FileNotFoundError:
+        return "stable"
+
+
+def _rollout_at(latest):
+    """When this install takes the release on its own: 0 = now, None = never (held)."""
+    if latest.get("hold"):
+        return None
+    if _channel() == "early" or not latest.get("published"):
+        return 0
+    return latest["published"] + ROLLOUT_HOURS * 3600
 
 
 def _vtuple(v):
@@ -1100,7 +1130,9 @@ def _panel_latest():
         try:
             r = _github_json("https://api.github.com/repos/PawelSzymanski89/valheim-proxmox/releases/latest")
             _PANEL_LATEST.update(tag=r["tag_name"], name=r.get("name") or r["tag_name"],
-                                 url=r.get("html_url", ""), notes=(r.get("body") or "")[:1500])
+                                 url=r.get("html_url", ""), notes=(r.get("body") or "")[:1500],
+                                 published=_iso_ts(r.get("published_at", "")),
+                                 hold="[hold]" in (r.get("body") or "").lower())
         except Exception:
             pass
     return _PANEL_LATEST
@@ -1124,7 +1156,8 @@ def panel_version():
     latest = _panel_latest()
     return {"installed": _panel_installed(), "latest": latest["tag"], "name": latest["name"],
             "url": latest["url"], "notes": latest["notes"], "newer": bool(_panel_newer()),
-            "auto": not VH_AUTO_UPDATE_OFF.exists(),
+            "auto": not VH_AUTO_UPDATE_OFF.exists(), "channel": _channel(),
+            "hold": latest.get("hold", False), "rollout_at": _rollout_at(latest),
             "docker": Path("/opt/valheim-image").exists(), "can_update": _panel_can_update()}
 
 
@@ -1208,6 +1241,16 @@ def panel_update():
     return {"ok": True}
 
 
+@app.post("/api/panel/channel")
+def panel_channel(body: dict = Body(...)):
+    ch = body.get("channel")
+    if ch not in ("stable", "early"):
+        raise HTTPException(400, "Channel is stable or early")
+    VH_CHANNEL.write_text(ch + "\n")
+    _log("panel.channel", channel=ch)
+    return {"ok": True, "channel": ch}
+
+
 @app.post("/api/panel/auto-update")
 def panel_auto_update(body: dict = Body(...)):
     if body.get("on"):
@@ -1224,6 +1267,9 @@ def _panel_update_tick(now_on):
     while nobody is watching. One try per release: a rolled-back update waits for the next."""
     new = _panel_newer()
     if not new or VH_AUTO_UPDATE_OFF.exists() or not _panel_can_update() or now_on:
+        return
+    at = _rollout_at(new)
+    if at is None or time.time() < at:          # held, or this wave has not come yet
         return
     # an armed or releasing launch is holding the game in a precise state - leave it alone
     if _launch_waiting() or _LAUNCH_BUSY["at"]:

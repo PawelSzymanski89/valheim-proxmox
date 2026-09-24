@@ -296,6 +296,10 @@
           <button class="mini" id="pv-update" style="display:none">Update panel</button></div>
         <label class="muted" id="pv-auto-row" style="display:none;gap:6px;align-items:center;margin-top:8px">
           <input type="checkbox" id="pv-auto"> Install new versions automatically, while nobody is playing</label>
+        <label class="muted" id="pv-ch-row" style="display:none;gap:6px;align-items:center;margin-top:8px">Channel
+          <select id="pv-channel" style="width:auto">
+            <option value="stable">stable — a release installs itself 48 h after it is out</option>
+            <option value="early">early — at once (for testing servers)</option></select></label>
         <div class="muted" id="pv-msg" style="margin-top:6px;font-size:12px"></div>
       </div>
 
@@ -693,6 +697,11 @@ const I18N={
  "A world from an older version comes as a pair":"Świat ze starszej wersji to para plików",
  "— the server converts it on the next start.":"— serwer przekonwertuje go przy najbliższym starcie.",
  "World folder":"Folder świata",
+ "Channel":"Kanał","stable — a release installs itself 48 h after it is out":"stable — wydanie instaluje się samo 48 h po publikacji",
+ "early — at once (for testing servers)":"early — od razu (dla serwerów testowych)",
+ "The maintainer put this release on hold — it will not install itself for now.":"Autor wstrzymał to wydanie — na razie nie zainstaluje się samo.",
+ "It installs itself after":"Zainstaluje się samo po",
+ ", when nobody is playing — the world and settings stay.":", gdy nikt nie będzie grał — świat i ustawienia zostają.",
  "Release now?":"Wydać teraz?",
  "Installs the newest build now":"Instaluje teraz najnowszy build",
  "and wipes":"i czyści",
@@ -1725,6 +1734,8 @@ async function pvLoad(){
     $("pv-update").style.display=d.can_update&&d.newer?"":"none";
     $("pv-auto-row").style.display=d.can_update?"flex":"none";
     $("pv-auto").checked=d.auto;
+    $("pv-ch-row").style.display=d.can_update?"flex":"none";
+    $("pv-channel").value=d.channel||"stable";
     $("pv-msg").textContent=d.docker?t("Docker install: rebuild the image to update."):"";
     // the banner: everyone with a panel sees a release the moment it is out
     $("warn-update").style.display=d.newer?"block":"none";
@@ -1733,6 +1744,8 @@ async function pvLoad(){
       $("wu-link").href=d.url||"https://github.com/PawelSzymanski89/valheim-proxmox/releases";
       $("wu-note").textContent=d.docker?t("Docker install: rebuild the image to update."):
         !d.can_update?t("This install is too old for the button — update once from the terminal, see the README."):
+        d.hold?t("The maintainer put this release on hold — it will not install itself for now."):
+        d.auto&&d.rollout_at&&d.rollout_at*1000>Date.now()?t("It installs itself after")+" "+fmtTs(d.rollout_at)+t(", when nobody is playing — the world and settings stay."):
         d.auto?t("It installs itself as soon as nobody is playing — the world and settings stay."):
         t("The world and settings stay; the panel restarts, the game keeps running.");
       $("wu-btn").style.display=d.can_update?"":"none";
@@ -1756,6 +1769,11 @@ async function pvUpdate(){
   }catch(e){toast(e.message,"bad");}
 }
 $("pv-update").onclick=pvUpdate;$("wu-btn").onclick=pvUpdate;
+$("pv-channel").onchange=async()=>{
+  try{await jf("/api/panel/channel",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({channel:$("pv-channel").value})});pvLoad();toast(t("Saved"),"ok");}
+  catch(e){toast(e.message,"bad");}
+};
 $("pv-auto").onchange=async()=>{
   try{await jf("/api/panel/auto-update",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({on:$("pv-auto").checked})});pvLoad();}

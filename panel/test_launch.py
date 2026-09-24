@@ -269,6 +269,28 @@ app.WATCH["panel_update_at"] = 0; RC["v"] = 0
 app._panel_update_tick({})
 assert STARTED == ["auto", "auto"], "never retried a failed start"
 
+# releases come in waves: "stable" waits ROLLOUT_HOURS, "early" does not, "[hold]" stops both
+def wave(published, channel, hold=False):
+    STARTED.clear(); RC["v"] = 0
+    d = tempfile.mkdtemp()
+    app.VH_DIR, app.VH_CHANNEL = d, pathlib.Path(d) / "update-channel"
+    if channel == "early":
+        app.VH_CHANNEL.write_text("early")
+    app.WATCH["panel_update_at"] = 0
+    app._panel_newer = lambda: {"tag": "v9.9.9", "published": published, "hold": hold}
+    app._panel_update_tick({})
+    return bool(STARTED)
+
+now = time.time()
+assert not wave(now - 3600, "stable"), "stable took a release an hour old"
+assert wave(now - 49 * 3600, "stable"), "stable never took a release two days old"
+assert wave(now - 60, "early"), "early did not take a fresh release"
+assert not wave(now - 99 * 3600, "early", hold=True), "a held release installed itself"
+assert not wave(now - 99 * 3600, "stable", hold=True), "a held release installed itself"
+assert wave(0, "stable"), "a release with no date never installed"     # unknown date: no wave to wait for
+assert app._rollout_at({"published": 1000, "hold": False}) == 1000 + app.ROLLOUT_HOURS * 3600
+assert app._iso_ts("2026-09-24T07:42:22Z") == 1790235742
+
 # a game update in progress: nothing else restarts the game, and a second one does not start
 import threading
 cfg = dict(app.LAUNCH_DEFAULT); cfg.update(armed=False); app._launch_save(cfg)
