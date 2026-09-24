@@ -549,7 +549,7 @@
   </div>
   <!-- Stopka: autor i licencja MIT. Notka o prawach autorskich jest warunkiem MIT. -->
   <div class="attrib">
-    <a href="https://github.com/PawelSzymanski89/valheim-proxmox" target="_blank" rel="noopener">valheim-proxmox</a>
+    <a href="https://github.com/PawelSzymanski89/valheim-proxmox" target="_blank" rel="noopener">valheim-proxmox</a> <a href="https://github.com/PawelSzymanski89/valheim-proxmox/releases" target="_blank" rel="noopener" id="attrib-ver"></a>
     <span class="sep">·</span>© 2026 Paweł Szymański<span class="sep">·</span>
     <a href="https://github.com/PawelSzymanski89/valheim-proxmox/blob/main/LICENSE" target="_blank" rel="noopener" id="attrib-lic">MIT</a>
   </div>
@@ -1753,6 +1753,7 @@ async function vhSaveSettings(restart){
 async function pvLoad(){
   try{
     const d=await jf("/api/panel/version");
+    $("attrib-ver").textContent=d.installed;
     $("pv-state").textContent=t("Panel version")+" — "+d.installed+(d.latest?(d.newer?" · "+t("GitHub has")+" "+d.latest:" · "+t("up to date")):"");
     $("pv-update").style.display=d.can_update&&d.newer?"":"none";
     $("pv-auto-row").style.display=d.can_update?"flex":"none";
