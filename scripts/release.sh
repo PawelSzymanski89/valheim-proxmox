@@ -24,4 +24,4 @@ if [ -n "${RELEASE_KEYS_FILE:-}" ]; then
   "$PY" scripts/sign-release.py "$OUT/release-keys.txt"
   EXTRA=("$OUT/release-keys.txt" "$OUT/release-keys.txt.sig")
 fi
-gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES" --verify-tag ${PRE:+--prerelease} "$F" "$F.sig" "${EXTRA[@]}"
+gh release create "$TAG" --title "$TITLE" --notes-file "$NOTES" --verify-tag ${PRE:+--prerelease} "$F" "$F.sig" ${EXTRA[@]+"${EXTRA[@]}"}
