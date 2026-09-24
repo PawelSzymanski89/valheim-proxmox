@@ -1079,11 +1079,17 @@ VH_AUTO_UPDATE_OFF = Path(f"{VH_DIR}/auto-update.off")  # present = the admin sw
 _PANEL_LATEST = {"at": 0, "tag": "", "name": "", "url": "", "notes": "", "published": 0, "hold": False}
 # Releases reach servers in waves. "stable" (the default) installs a release on its own only
 # once it has been out for ROLLOUT_HOURS; "early" takes it at once - the maintainer's own
-# servers, which find a bad release before everybody else does. "[hold]" anywhere in the
-# release notes stops every automatic install of it, on both channels, until it is removed:
+# servers, which find a bad release before everybody else does. A line reading just "[hold]"
+# in the release notes stops every automatic install of it, on both channels, until it is removed:
 # one edit on GitHub pulls the brake on a release that turned out wrong.
 ROLLOUT_HOURS = 48
 VH_CHANNEL = Path(f"{VH_DIR}/update-channel")
+
+
+def _held(notes):
+    """A line that is exactly [hold]. Anywhere in the text was too loose: the release notes that
+    introduced the marker explained it, and held themselves."""
+    return any(ln.strip().lower() == "[hold]" for ln in notes.splitlines())
 
 
 def _iso_ts(s):
@@ -1132,7 +1138,7 @@ def _panel_latest():
             _PANEL_LATEST.update(tag=r["tag_name"], name=r.get("name") or r["tag_name"],
                                  url=r.get("html_url", ""), notes=(r.get("body") or "")[:1500],
                                  published=_iso_ts(r.get("published_at", "")),
-                                 hold="[hold]" in (r.get("body") or "").lower())
+                                 hold=_held(r.get("body") or ""))
         except Exception:
             pass
     return _PANEL_LATEST

@@ -290,6 +290,9 @@ assert not wave(now - 99 * 3600, "stable", hold=True), "a held release installed
 assert wave(0, "stable"), "a release with no date never installed"     # unknown date: no wave to wait for
 assert app._rollout_at({"published": 1000, "hold": False}) == 1000 + app.ROLLOUT_HOURS * 3600
 assert app._iso_ts("2026-09-24T07:42:22Z") == 1790235742
+# the marker is a line of its own - notes that merely mention it (as v1.25.0's did) hold nothing
+assert app._held("fixes\n[hold]\nmore") and app._held("  [HOLD]  ")
+assert not app._held("a line reading `[hold]` stops a release") and not app._held("")
 
 # a game update in progress: nothing else restarts the game, and a second one does not start
 import threading
