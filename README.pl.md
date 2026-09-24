@@ -60,6 +60,12 @@ Debianem, instaluje w nim wszystko i wypisuje adres, login oraz hasło do gry.
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/install.sh)"
 ```
 
+Kontener dostaje własne reguły firewalla Proxmoxa: porty gry (UDP) otwarte dla wszystkich,
+panel tylko z sieci prywatnych (LAN i zakresy CGNAT, np. Tailscale), cała reszta blokowana —
+także port RCON narzędzi admina, który słucha na każdym interfejsie i nie ma opcji, żeby to
+zmienić. Reguły działają tylko przy włączonym firewallu Proxmoxa na poziomie Datacenter;
+instalator powie, jeśli jest wyłączony. `--no-firewall` je pomija.
+
 Domyślnie: 4 rdzenie, 6 GB RAM, 30 GB dysku, DHCP. Każdą wartość zmienisz flagą —
 `--ram 12288 --disk 40 --ip 192.168.1.50/24 --gw 192.168.1.1`, a `--help` wypisze resztę.
 
@@ -176,6 +182,10 @@ Pierwsze hasło jest losowane dla każdej instalacji i wypisywane na jej końcu 
 `docker compose logs | grep "panel login"`). Do v1.20.1 wszędzie było to `valheim123`;
 instalacja, która wciąż je ma, pokazuje czerwony baner, dopóki nie zmienisz go w
 **Ustawieniach → Logowanie do panelu** (panel zapyta najpierw o obecne hasło).
+
+Wpisałeś `valheim123` i panel mówi, że zostało wyłączone? Każda instalacja do v1.21.0 startowała
+z tym hasłem, a aktualizacja go nie ruszała — więc od v1.22.0 panel przy pierwszym starcie zamienia
+je na losowe. Własne ustawiasz tak samo jak po zablokowaniu:
 
 Zablokowałeś się? Nie ma żadnej procedury resetu — ustawiasz nowe hasło z hosta Proxmoxa:
 

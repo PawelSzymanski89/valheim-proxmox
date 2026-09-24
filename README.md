@@ -63,6 +63,12 @@ bash -c "$(curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim
 Defaults: 4 cores, 6 GB RAM, 30 GB disk, DHCP. Change any of them with flags —
 `--ram 12288 --disk 40 --ip 192.168.1.50/24 --gw 192.168.1.1`, and `--help` lists the rest.
 
+The container gets its own Proxmox firewall rules: the game ports (UDP) open to everyone, the
+panel only to private networks (LAN, and CGNAT ranges like Tailscale), everything else dropped
+— including the RCON port of the admin tools, which listens on every interface and has no
+setting to stop it. The rules only act when the Proxmox firewall is on for the datacenter;
+the installer says so if it is not. `--no-firewall` skips them.
+
 ### On any Debian 12/13 machine — installs into the system you are on
 
 No Proxmox, no container: a VPS, a spare box, an LXC you already made. Run as root
@@ -177,6 +183,10 @@ The first password is generated for each install and printed at the end of it (w
 `docker compose logs | grep "panel login"`). Until v1.20.1 it was `valheim123` everywhere; an
 install that still has it shows a red banner until it is changed in **Settings → Panel login**,
 which asks for the current password first.
+
+Tried `valheim123` and got told it was retired? Every install up to v1.21.0 started with that
+password, and an update never touched it — so from v1.22.0 the panel replaces it with a random
+one the first time it starts. Set your own the same way as after a lockout:
 
 Locked out? There is no reset dance — set a new password from the Proxmox host:
 
