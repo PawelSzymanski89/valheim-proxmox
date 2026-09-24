@@ -93,18 +93,45 @@ $VH/panel/.venv/bin/python -m py_compile "$TMP_SRC/panel/app.py" "$TMP_SRC/panel
 [ -x $VH/backup.sh ] && runuser -u valheim -- $VH/backup.sh || echo "backup skipped"
 
 PORT=$(grep -oP "PANEL_PORT='\K[^']*" $VH/panel.env 2>/dev/null || echo 2460)
-rm -rf $VH/panel.prev && mkdir -p $VH/panel.prev
-cp -a $VH/panel/. $VH/panel.prev/ 2>/dev/null || true
-rm -rf $VH/panel.prev/.venv $VH/panel.prev/__pycache__
-cp -a $VH/panel.version $VH/panel.prev/ 2>/dev/null || true
+# The whole of what setup.sh may change, set aside before it runs: the panel with its venv,
+# the scripts, the systemd units and whether each is enabled. A rollback used to restore the
+# panel files alone - the new release's units, scripts and packages stayed, and the old
+# panel could be left running on dependencies it was never built for.
+SNAP=$VH/rollback
+UNITS="valheim.service valheim-panel.service valheim-backup.service valheim-backup.timer valheim-update.service valheim-update.timer"
+rm -rf "$SNAP" "$VH/panel.prev" && mkdir -p "$SNAP/panel" "$SNAP/scripts" "$SNAP/units" && chmod 700 "$SNAP"
+cp -a $VH/panel/. "$SNAP/panel/"
+rm -rf "$SNAP/panel/__pycache__"
+for f in start.sh backup.sh update.sh rcon-save.py panel-passwd.sh panel-update.sh panel.version; do
+  [ -e "$VH/$f" ] && cp -a "$VH/$f" "$SNAP/scripts/"
+done
+for u in $UNITS; do
+  [ -f "/etc/systemd/system/$u" ] && cp -a "/etc/systemd/system/$u" "$SNAP/units/"
+  echo "$u $(systemctl is-enabled "$u" 2>/dev/null || echo missing)"
+done >"$SNAP/enabled"
 
 rollback() {
   result rollback
-  echo "rolling back to $(cut -d' ' -f1 $VH/panel.prev/panel.version 2>/dev/null || echo the previous panel)"
-  cp -a $VH/panel.prev/. $VH/panel/
-  rm -f $VH/panel/panel.version
-  echo "$(cut -d' ' -f1 $VH/panel.prev/panel.version 2>/dev/null || echo unknown) $(date -u +%FT%TZ) rollback" >$VH/panel.version
+  echo "rolling back to $(cut -d' ' -f1 "$SNAP/scripts/panel.version" 2>/dev/null || echo the previous panel)"
+  rm -rf "$VH/panel.failed" && mv "$VH/panel" "$VH/panel.failed"
+  cp -a "$SNAP/panel" "$VH/panel"
+  cp -a "$SNAP/scripts/." "$VH/"
+  # units: the old files back, anything the new release added removed, each unit enabled or
+  # not exactly as before; the game's own running state is left alone
+  for u in $UNITS; do
+    if [ -f "$SNAP/units/$u" ]; then cp -a "$SNAP/units/$u" "/etc/systemd/system/$u"
+    else rm -f "/etc/systemd/system/$u"; fi
+  done
+  systemctl daemon-reload
+  while read -r u state; do
+    case "$state" in
+      enabled) case "$u" in *.timer) systemctl enable --now "$u" ;; *) systemctl enable "$u" ;; esac ;;
+      disabled) case "$u" in *.timer) systemctl disable --now "$u" ;; *) systemctl disable "$u" ;; esac ;;
+    esac >/dev/null 2>&1 || true
+  done <"$SNAP/enabled"
+  echo "$(cut -d' ' -f1 "$SNAP/scripts/panel.version" 2>/dev/null || echo unknown) $(date -u +%FT%TZ) rollback" >$VH/panel.version
   systemctl restart valheim-panel
+  rm -rf "$VH/panel.failed"
   exit 1
 }
 SETUP_MODE=upgrade bash "$TMP_SRC/setup.sh" || { echo "setup.sh failed"; rollback; }

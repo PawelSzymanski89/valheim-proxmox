@@ -51,13 +51,24 @@ python3 - <<'PY'
 p = "broken/panel/app.py"; s = open(p).read()
 s = s.replace("def _tick():\n", "def _tick():\n    raise RuntimeError('broken on purpose - CI rollback test')\n", 1)
 open(p, "w").write(s)
+# ...and it changes what setup.sh owns, so the rollback has more than panel files to undo:
+# a systemd unit, a script, and the venv
+s = open("broken/setup.sh").read()
+s = s.replace("OnUnitActiveSec=2h", "OnUnitActiveSec=7h", 1)
+s = s.replace("ts=$(date +%Y%m%d-%H%M%S)", "# changed by the broken release\nts=$(date +%Y%m%d-%H%M%S)", 1)
+s = s.replace('V="$VH_DIR/panel/.venv"', 'V="$VH_DIR/panel/.venv"; touch "$V/BROKEN-RELEASE-WAS-HERE"', 1)
+open("broken/setup.sh", "w").write(s)
 PY
+grep -q "OnUnitActiveSec=7h" broken/setup.sh && grep -q "BROKEN-RELEASE-WAS-HERE" broken/setup.sh || fail "could not build the broken release"
 echo ci-broken > broken/panel/VERSION
 docker cp broken vhu:/root/broken
+owned() { x "cd /opt/valheim && md5sum /etc/systemd/system/valheim*.timer /etc/systemd/system/valheim*.service backup.sh start.sh && ls panel/.venv && systemctl is-enabled valheim-update.timer valheim-backup.timer || true"; }
+OWNED=$(owned)
 set +e; x "ALLOW_UNSIGNED=1 TEST_SRC_DIR=/root/broken /opt/valheim/panel-update.sh ci-broken" | tail -4; rc=${PIPESTATUS[0]}; set -e
 x "grep -q ' rollback ' /opt/valheim/update-result" || fail "the broken release was not rolled back (rc=$rc): $(x cat /opt/valheim/update-result)"
 [ "$(x cat /opt/valheim/panel/VERSION)" = "$(cat panel/VERSION)" ] || fail "the rollback did not bring this commit's panel back"
 [ "$(snap)" = "$BEFORE" ] || fail "the rollback changed the world or settings"
+[ "$(owned)" = "$OWNED" ] || { diff <(echo "$OWNED") <(owned); fail "the rollback left the broken release's units, scripts or venv behind"; }
 [ "$(x "systemctl show valheim -p MainPID --value")" = "$PID" ] || fail "the game was restarted"
 for _ in $(seq 1 60); do x "curl -sf http://127.0.0.1:2460/api/health" >/dev/null && break; sleep 2; done
 x "curl -sf http://127.0.0.1:2460/api/health" >/dev/null || fail "the rolled-back panel is not healthy"
