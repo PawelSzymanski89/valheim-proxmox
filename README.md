@@ -185,7 +185,7 @@ plus the panel login.
 | **Players** | who is online right now — name, id, **live session timer** — and a persistent login history (first seen / last seen / number of joins) |
 | **Access & bans** | admin list, ban list, allowlist; ban straight from the online list or the history. **An allowlist that is not empty locks everyone else out** — that is Valheim's own rule, not the panel's |
 | **World** | list worlds, switch the active one, download, delete, upload a world — a Valheim 1.0 world folder, or an old `.db` + `.fwl` pair the server converts |
-| **Backups** | restore, download, delete; toggles for the auto-backup and auto-update timers |
+| **Backups** | restore, download, delete; copies to another machine over SSH; toggles for the auto-backup and auto-update timers |
 | **Settings** | server name, world, password, **game port**, **panel port**, public listing, crossplay, world preset and modifiers (combat, death penalty, resources, raids, portals) and the world toggles (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
 | **Mods** | paste a Thunderstore Mod Manager / r2modman **share code**: the panel expands it, shows what is inside, and installs the picked packages (BepInEx included, world backed up first). Also installs single packages by name |
 | **Log** | server events, with the PlayFab keepalive noise filtered out |
@@ -428,6 +428,22 @@ The **Players** tab keeps a leaderboard — total time played, longest single se
 sessions, last seen — and a bar per hour of the day showing when people actually play. All of it
 comes out of the session log the panel already keeps, so nothing extra runs on the game server and
 nothing is asked of the players.
+
+## Backups on another machine
+
+A backup on the same disk as the world dies with that disk. From v1.32.0 the **Backups** tab has
+an **Offsite copy** box: give it `user@host` of any machine you can SSH into (a NAS, a second
+server, a Raspberry Pi) and every new backup is also sent there, with its own number kept.
+
+1. On the target, save `scripts/offsite-sink.sh` as `~/bin/valheim-sink` and `chmod +x` it.
+2. Type `user@host` in the panel, tick **on** and save. The panel makes its own SSH key and shows
+   one line (under **How to set up the target**); add it to `~/.ssh/authorized_keys` on the target.
+3. **Test**, then **Send the newest now**.
+
+That key can do nothing but store world backups: the line pins it to `valheim-sink`, which accepts
+only files named like `world-YYYYMMDD-HHMMSS.tar.gz` into one folder, lists them and prunes the
+oldest — no shell, no other paths, no tunnels. If the target is down, the panel retries every ten
+minutes and sends one **backup failed** alert.
 
 ## Link quality
 

@@ -184,7 +184,7 @@ na wartość przykładową — zrzut nigdy nie wynosi sieci, w której powstał.
 | **Players** | kto gra teraz — nick, identyfikator, **licznik czasu sesji na żywo** — oraz trwała historia logowań (pierwszy raz / ostatnio / ile wejść) |
 | **Access & bans** | lista adminów, lista banów, whitelista; ban prosto z listy online albo z historii. **Niepusta whitelista wpuszcza wyłącznie wpisanych** — to reguła samego Valheima, nie panelu |
 | **World** | lista światów, przełączanie aktywnego, pobieranie, kasowanie, wgrywanie świata — folderu świata z Valheima 1.0 albo starej pary `.db` + `.fwl`, którą serwer przekonwertuje |
-| **Backups** | przywróć, pobierz, usuń; przełączniki timerów auto-backup i auto-update |
+| **Backups** | przywróć, pobierz, usuń; kopie na inną maszynę po SSH; przełączniki timerów auto-backup i auto-update |
 | **Settings** | nazwa serwera, świat, hasło, **port gry**, **port panelu**, widoczność na liście serwerów, crossplay, preset i modyfikatory świata (walka, kara za śmierć, surowce, najazdy, portale) oraz przełączniki (`nobuildcost`, `playerevents`, `passivemobs`, `nomap`) |
 | **Mods** | wklejasz **kod udostępniania** z Thunderstore Mod Managera / r2modman: panel go rozwija, pokazuje zawartość i instaluje zaznaczone paczki (BepInEx w komplecie, świat najpierw do kopii). Umie też pojedyncze paczki po nazwie |
 | **Log** | zdarzenia serwera, bez szumu keepalive od PlayFaba |
@@ -430,6 +430,22 @@ Zakładka **Gracze** prowadzi ranking — łączny czas gry, najdłuższa pojedy
 ostatnia obecność — oraz słupek na każdą godzinę doby, pokazujący, kiedy ludzie realnie grają.
 Wszystko wychodzi z dziennika sesji, który panel i tak prowadzi, więc na serwerze gry nic
 dodatkowego nie chodzi i nikt niczego nie musi instalować.
+
+## Kopie na innej maszynie
+
+Kopia leżąca na tym samym dysku co świat umiera razem z nim. Od v1.32.0 zakładka **Backupy** ma
+sekcję **Kopia poza serwerem**: podajesz `user@host` dowolnej maszyny, na którą wchodzisz po SSH
+(NAS, drugi serwer, Raspberry Pi), i każda nowa kopia leci też tam, z własnym limitem sztuk.
+
+1. Na celu zapisz `scripts/offsite-sink.sh` jako `~/bin/valheim-sink` i daj `chmod +x`.
+2. Wpisz `user@host` w panelu, zaznacz **włączone** i zapisz. Panel robi własny klucz SSH i pokazuje
+   jedną linię (pod **Jak przygotować cel**) — dopisz ją do `~/.ssh/authorized_keys` na celu.
+3. **Test**, potem **Wyślij najnowszą teraz**.
+
+Ten klucz nie umie nic poza składaniem kopii świata: linia przypina go do `valheim-sink`, który
+przyjmuje tylko pliki o nazwach `world-RRRRMMDD-GGMMSS.tar.gz` do jednego katalogu, listuje je
+i kasuje najstarsze — bez powłoki, bez innych ścieżek, bez tuneli. Gdy cel nie odpowiada, panel
+ponawia co dziesięć minut i wysyła jeden alert **kopia się nie udała**.
 
 ## Jakość łącza
 
