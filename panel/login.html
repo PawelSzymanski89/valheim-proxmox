@@ -553,10 +553,15 @@ document.getElementById("f").onsubmit=async ev=>{
   try{
     const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},
       body:JSON.stringify({user:document.getElementById("u").value.trim(),password:document.getElementById("p").value})});
-    if(!r.ok)throw 0;
+    if(!r.ok){let d={};try{d=await r.json();}catch(x){}throw d;}
     location.href="/";
   }catch(err){
-    document.getElementById("e").textContent=PL?"Zły login albo hasło":"Wrong user or password";
+    // the retired default password gets an explanation, not a bare "wrong password"
+    document.getElementById("e").textContent=err&&err.code==="default_retired"
+      ?(PL?"Domyślne hasło valheim123 zostało wyłączone. Ustaw własne na hoście Proxmox: pct exec NUMER_KONTENERA -- /opt/valheim/panel-passwd.sh NOWE_HASLO"
+          :"The default password valheim123 was retired. Set your own on the Proxmox host: pct exec CONTAINER_ID -- /opt/valheim/panel-passwd.sh NEW_PASSWORD")
+      :err&&err.status===429?(err.detail||"")
+      :(PL?"Zły login albo hasło":"Wrong user or password");
     b.disabled=false;document.getElementById("p").value="";document.getElementById("p").focus();
   }
 };

@@ -43,6 +43,7 @@ VH_PANEL_ENV = f"{VH_DIR}/panel.env"
 VH_STORE = Path(os.environ.get("VH_STORE", f"{VH_DIR}/players.json"))
 HERE = Path(__file__).resolve().parent
 
+VH_PASS_RETIRED = Path(f"{VH_DIR}/panel-pass-retired")
 PANEL_DEFAULT_PASS = "valheim123"   # the installer's starting password; the UI nags until changed
 VH_LISTS = {"admin": "adminlist.txt", "banned": "bannedlist.txt", "permitted": "permittedlist.txt"}
 VH_TIMERS = {"backup": "valheim-backup.timer", "update": "valheim-update.timer"}
@@ -172,6 +173,15 @@ def _cross_site(request):
 
 @app.middleware("http")
 async def guard(request: Request, call_next):
+    # A locked-out address gets nothing checked at all. Checking the Basic header first
+    # answered 200 for a right password and 429 for a wrong one - the lockout still leaked
+    # which guess was correct.
+    if request.headers.get("authorization", "").startswith("Basic "):
+        rec = LOGIN_FAILS.get(_client_ip(request))
+        if rec and rec.get("until", 0) > time.time():
+            left = int(rec["until"] - time.time())
+            return JSONResponse({"detail": f"Too many attempts — try again in {left // 60 + 1} min"},
+                                status_code=429, headers={"Retry-After": str(left)})
     if _cross_site(request):
         _log("panel.cross_site_refused", ok=False, path=request.url.path,
              origin=request.headers.get("origin"), site=request.headers.get("sec-fetch-site"))
@@ -289,6 +299,9 @@ def login(l: Login, request: Request, response: Response):
     if not _check_login(l.user, l.password):
         _login_failed(ip, l.user, l.password)
         time.sleep(1)          # a scripted guess costs a second; a human never notices
+        if l.password == PANEL_DEFAULT_PASS and VH_PASS_RETIRED.exists():
+            return JSONResponse({"detail": "The default password was retired", "code": "default_retired"},
+                                status_code=401)
         raise HTTPException(401, "Wrong user or password")
     LOGIN_FAILS.pop(ip, None)
     _notify("panel_login", "Panel sign-in", f"{l.user} signed in from {ip}.", tags="key")
@@ -656,8 +669,10 @@ def icon():
 
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
-    # the page itself decides: logged in -> panel, otherwise our own login screen
-    return (HERE / ("index.html" if _who(request) else "login.html")).read_text()
+    # the page itself decides: logged in -> panel, otherwise our own login screen. The session
+    # only: "/" is an open path, and answering a Basic header here was a password oracle that
+    # sat outside the lockout - index.html for a right guess, login.html for a wrong one.
+    return (HERE / ("index.html" if _session_ok(request.cookies.get("vh_session")) else "login.html")).read_text()
 
 
 @app.get("/api/valheim")
@@ -1071,6 +1086,26 @@ def _panel_update_tick(now_on):
     WATCH["panel_update_at"] = time.time()
     if _panel_update_start("auto").returncode == 0:
         tried.write_text(new["tag"])
+
+
+def _retire_default_password():
+    """Until v1.21.0 every install started with the same password, and an update never touched
+    panel.env - so upgraded servers still had it: a root panel, on the network, behind a
+    password printed in the README. It is replaced by a random one here, once, on every kind
+    of install. The admin sets their own on the host (panel-passwd.sh); the login page says
+    how when someone tries the old one."""
+    cfg = _env_file(VH_PANEL_ENV)
+    if cfg.get("PANEL_PASS") != PANEL_DEFAULT_PASS:
+        return
+    cfg["PANEL_PASS"] = secrets.token_urlsafe(18)
+    _save_panel_env(cfg)
+    VH_PASS_RETIRED.touch()
+    _log("panel.default_password_retired")
+    _notify("panel_login", "Panel password replaced",
+            "The panel still had the default password everyone knows, so it was replaced with a "
+            "random one. Set your own on the Proxmox host: "
+            "pct exec <container id> -- /opt/valheim/panel-passwd.sh <new password>",
+            priority="high", tags="lock")
 
 
 def _panel_updated_notice():
@@ -1543,6 +1578,9 @@ def _rcon(command, timeout=6):
         return out
 
 
+VH_CHAR_NAME_RE = re.compile(r"[^\W_][\w '-]{0,23}")   # unicode letters: Michał stays Michał
+
+
 def _ingame(text):
     """Valheim's font has no Polish letters - they arrive as question marks - so anything
     headed for a player's screen is folded to ASCII first. Only the message text: a player
@@ -1803,6 +1841,12 @@ def _greet_tick():
         name = c.get("name")
         if not name:
             continue                        # the character line has not arrived yet
+        # The name comes from the player's own client and goes into a console command. Only
+        # what a character name can honestly be gets through: a modified client naming itself
+        # "x;kick Bob" would otherwise have the greeting run a second command.
+        if not VH_CHAR_NAME_RE.fullmatch(name):
+            _log("say.odd_name", ok=False, player=name[:40])
+            continue
         for r in rules:
             if r["when"] == "on_join":
                 if pid in GREETED:
@@ -2503,8 +2547,13 @@ _SERVER_ONLY = re.compile(r"rcon|server_devcommands|servercommands|admin", re.I)
 # A config line that hands out a secret. Any file carrying one never leaves this box,
 # whatever mod it belongs to - config file names cannot be mapped back to packages
 # reliably, so this is checked on content rather than on the name.
-_SECRET_LINE = re.compile(rb"^\s*(password|passwd|secret|token|api[_-]?key)\s*=\s*\S",
+# A config line whose KEY mentions a secret anywhere - "Admin Password", "RconPassword",
+# "Discord Webhook", "Api Key" - with a value. The old pattern only caught keys that began
+# with the word, and handed the rest to anyone who asked the launcher.
+_SECRET_LINE = re.compile(rb"^[ \t]*[^#;\r\n=]*(pass(word|wd|phrase)|secret|token|webhook|api[ _-]?key|auth[ _-]?(key|code)|credential)[^=\r\n]*=[ \t]*\S",
                           re.I | re.M)
+# the admin tooling runs on the server only; players have no use for its settings
+_ADMIN_CFG = re.compile(r"rcon|devcommands", re.I)
 
 
 def _client_mods():
@@ -2606,6 +2655,8 @@ def _mod_files_uncached():
         if rel.startswith("plugins/") and rel.split("/")[1] not in wanted:
             continue
         if rel.startswith("config/"):
+            if _ADMIN_CFG.search(rel):
+                continue
             try:
                 if _SECRET_LINE.search(p.read_bytes()):
                     continue
@@ -2619,8 +2670,41 @@ def _mod_files_uncached():
     return out
 
 
+# The manifest is signed. Players reach the panel over plain http more often than not, and
+# the manifest decides which DLLs land in their game - anyone on the path could otherwise
+# swap it (and the hashes in it) and run code on every player. The key is made on first use
+# and its public half goes into every launcher this panel builds (panel_config.json), so a
+# launcher trusts exactly the panel it came from.
+VH_MANIFEST_KEY = Path(f"{VH_DIR}/manifest.key")
+
+
+def _manifest_key():
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives import serialization as ser
+    if not VH_MANIFEST_KEY.exists():
+        raw = Ed25519PrivateKey.generate().private_bytes(ser.Encoding.Raw, ser.PrivateFormat.Raw,
+                                                         ser.NoEncryption())
+        fd = os.open(VH_MANIFEST_KEY, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(raw)
+    return Ed25519PrivateKey.from_private_bytes(VH_MANIFEST_KEY.read_bytes())
+
+
+def _manifest_pub():
+    from cryptography.hazmat.primitives import serialization as ser
+    return base64.b64encode(_manifest_key().public_key().public_bytes(
+        ser.Encoding.Raw, ser.PublicFormat.Raw)).decode()
+
+
 @app.get("/api/launcher/manifest")
 def launcher_manifest(request: Request):
+    body = json.dumps(_launcher_manifest(request), separators=(",", ":")).encode()
+    return Response(body, media_type="application/json",
+                    headers={"X-Manifest-Signature": base64.b64encode(_manifest_key().sign(body)).decode(),
+                             "X-Manifest-Key": _manifest_pub()})
+
+
+def _launcher_manifest(request):
     cfg = _launcher_cfg()
     if not cfg.get("enabled"):
         raise HTTPException(404, "Launcher is off")
@@ -2631,8 +2715,10 @@ def launcher_manifest(request: Request):
                        "address": _join_address(request, cfg),
                        "password_required": bool(env["password"]),
                        "crossplay": env["crossplay"]},
+            # the admin tooling is the server's business, and listing it told the internet
+            # that an RCON port was there to knock on
             "mods": [{"full_name": k, "version": v.get("version"), "name": v.get("name")}
-                     for k, v in sorted(st.get("mods", {}).items())],
+                     for k, v in sorted(st.get("mods", {}).items()) if k not in ADMIN_TOOLS],
             "profile_code": st.get("profile_code"),
             "files": files,
             "bytes": sum(f["size"] for f in files),
@@ -2747,7 +2833,7 @@ def launcher_download(request: Request, platform: str = ""):
         raise HTTPException(400, "Odd host name")
     env = _parse_env(Path(VH_ENV).read_text().splitlines())
     config = json.dumps({"serverName": env["name"], "panelUrl": f"{proto}://{host}",
-                         "engineRepo": LAUNCHER_REPO})
+                         "engineRepo": LAUNCHER_REPO, "manifestKey": _manifest_pub()})
     base = _exe_base(env["name"])
     # The name of the program is part of what makes this build this server's, so it
     # belongs in the cache key - renaming the server must not serve the old name.
@@ -3712,8 +3798,25 @@ def _public_cfg():
     return cfg
 
 
+_PUBLIC_CACHE = {"at": 0.0, "data": None, "lock": threading.Lock()}
+
+
 @app.get("/api/public")
 def public_status():
+    """Cached for ten seconds: it is open to anyone, and one uncached answer costs five
+    processes and a week of journal - a loop of requests used to take the panel down and
+    load the machine the game runs on. One request builds, the rest wait for it."""
+    if time.time() - _PUBLIC_CACHE["at"] < 10 and _PUBLIC_CACHE["data"] is not None:
+        return _PUBLIC_CACHE["data"]
+    with _PUBLIC_CACHE["lock"]:
+        if time.time() - _PUBLIC_CACHE["at"] < 10 and _PUBLIC_CACHE["data"] is not None:
+            return _PUBLIC_CACHE["data"]
+        data = _public_status()
+        _PUBLIC_CACHE.update(at=time.time(), data=data)
+        return data
+
+
+def _public_status():
     """The only endpoint reachable without logging in. Everything here is deliberate: the
     address and port are already public DNS, the mod list and share code are what a player
     needs before joining. The game password, disk, logs and checks never appear."""
@@ -3850,6 +3953,7 @@ def public_cfg_set(body: dict = Body(...)):
     if "note" in body:
         cfg["note"] = str(body["note"])[:280]
     _save_json(VH_PUBLIC, cfg, indent=1)
+    _PUBLIC_CACHE["at"] = 0
     _log("public.config", **{k: v for k, v in cfg.items() if k != "note"})
     return {"ok": True}
 
@@ -4423,6 +4527,10 @@ async def _start_watcher():
             except Exception as e:
                 _log("live.error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
             await asyncio.sleep(10)
+    try:
+        _retire_default_password()
+    except Exception as e:
+        _log("panel.retire_error", ok=False, error=str(e)[:120])
     try:
         _panel_updated_notice()
     except Exception as e:

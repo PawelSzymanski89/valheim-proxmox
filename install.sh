@@ -13,6 +13,7 @@ DISK=${DISK:-30}
 CORES=${CORES:-4}
 RAM=${RAM:-6144}
 BRIDGE=${BRIDGE:-vmbr0}
+FIREWALL=${FIREWALL:-1}        # 0 = no Proxmox firewall rules for the container
 IP=${IP:-dhcp}                 # or a fixed address: IP=192.168.89.21/24 GW=192.168.89.1
 GW=${GW:-}
 STORAGE=${STORAGE:-}
@@ -36,6 +37,7 @@ Valheim on Proxmox — creates an LXC and installs the server + admin panel.
   --disk GB           rootfs size in GB       (default: $DISK)
   --storage NAME      proxmox storage         (default: first one taking a rootfs)
   --bridge NAME       network bridge          (default: $BRIDGE)
+  --no-firewall       do not write Proxmox firewall rules for the container
   --ip ADDR           static address, e.g. 192.168.89.21/24 (default: dhcp)
   --gw ADDR           gateway for a static address
   --game-port N       game port, uses N..N+2  (default: $GAME_PORT)
@@ -61,6 +63,7 @@ while [ $# -gt 0 ]; do
     --disk) DISK=$2; shift 2;;
     --storage) STORAGE=$2; shift 2;;
     --bridge) BRIDGE=$2; shift 2;;
+    --no-firewall) FIREWALL=0; shift;;
     --ip) IP=$2; shift 2;;
     --gw) GW=$2; shift 2;;
     --game-port) GAME_PORT=$2; shift 2;;
@@ -117,9 +120,33 @@ pct create "$CTID" "$TEMPLATE_STORAGE:vztmpl/$TEMPLATE" \
   --hostname "$HOSTNAME_" \
   --cores "$CORES" --memory "$RAM" --swap 512 \
   --rootfs "$STORAGE:$DISK" \
-  --net0 "name=eth0,bridge=$BRIDGE,ip=$IP${GW:+,gw=$GW}" \
+  --net0 "name=eth0,bridge=$BRIDGE,ip=$IP${GW:+,gw=$GW}$([ "$FIREWALL" = 1 ] && echo ,firewall=1)" \
   --unprivileged 1 --features nesting=1 \
   --onboot 1 --start 1 >/dev/null
+
+# The container's own firewall: the game from anywhere, the panel from private networks only,
+# everything else - the RCON port of the admin tools above all, which binds to every
+# interface and has no setting to stop it - dropped. DHCP and IPv6 neighbour discovery are
+# allowed explicitly, or the container would lose its address at the first lease renewal.
+if [ "$FIREWALL" = 1 ]; then
+  cat >"/etc/pve/firewall/$CTID.fw" <<FW
+[OPTIONS]
+enable: 1
+policy_in: DROP
+policy_out: ACCEPT
+dhcp: 1
+ndp: 1
+
+[RULES]
+IN ACCEPT -p udp -dport $GAME_PORT:$((GAME_PORT + 2)) -log nolog # Valheim game and query
+IN ACCEPT -p tcp -dport $PANEL_PORT -source 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,100.64.0.0/10 -log nolog # panel, private networks and CGNAT VPNs
+IN ACCEPT -p tcp -dport $PANEL_PORT -source fc00::/7 -log nolog # panel, private IPv6
+IN Ping(ACCEPT) -log nolog
+FW
+  if ! grep -qs "^enable: *1" /etc/pve/firewall/cluster.fw; then
+    FW_NOTE="The container has firewall rules, but the Proxmox firewall is off for the whole datacenter, so they do nothing yet (Datacenter -> Firewall -> Options -> Firewall: Yes)."
+  fi
+fi
 
 msg "Waiting for the network"
 for _ in $(seq 1 30); do
@@ -155,5 +182,7 @@ cat <<EOF
   Settings -> Panel login. To play from the internet, forward UDP
   $GAME_PORT-$((GAME_PORT+2)) to $IP on your router — the panel itself should stay
   on the LAN or behind a VPN.
-
+${FW_NOTE:+
+  $FW_NOTE
+}
 EOF

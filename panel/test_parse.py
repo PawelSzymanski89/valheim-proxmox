@@ -173,4 +173,43 @@ try:
 except app.HTTPException:
     pass
 
+# character names that may go into a console command, and the ones that may not
+for ok in ("Michał", "Skjor", "Eir the Red", "O'Hara", "Jan-Olof"):
+    assert app.VH_CHAR_NAME_RE.fullmatch(ok), ok
+for bad in ("x;kick Bob", "a\nb", "", " lead", "x" * 30, "<b>", "a|b"):
+    assert not app.VH_CHAR_NAME_RE.fullmatch(bad), bad
+
+# config lines that carry a secret, and the ones that only look like it
+for sec in (b"password = x", b"Admin Password = x", b"RconPassword=x", b"Discord Webhook = h", b"Api Key = k"):
+    assert app._SECRET_LINE.search(sec), sec
+for plain in (b"Passive Mobs = true", b"Author = me", b"password = ", b"# Password: shown\nSpeed = 1"):
+    assert not app._SECRET_LINE.search(plain), plain
+
+# the manifest signature verifies with the key the launcher is given, and nothing else does
+import base64
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+app.VH_MANIFEST_KEY = pathlib.Path(tempfile.mkdtemp()) / "manifest.key"
+body = b'{"files":[]}'
+sig = app._manifest_key().sign(body)
+pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(app._manifest_pub()))
+pub.verify(sig, body)
+try:
+    pub.verify(sig, body + b" ")
+    raise AssertionError("a changed manifest verified")
+except Exception as e:
+    assert type(e).__name__ == "InvalidSignature", e
+assert oct(app.VH_MANIFEST_KEY.stat().st_mode & 0o777) == "0o600"
+
+# the default password is replaced once, and the marker explains a later try of it
+d = pathlib.Path(tempfile.mkdtemp())
+app.VH_PANEL_ENV, app.VH_PASS_RETIRED, app.VH_DIR = str(d / "panel.env"), d / "retired", str(d)
+(d / "panel.env").write_text("PANEL_USER='admin'\nPANEL_PASS='valheim123'\nNTFY_TOPIC='t'\n")
+app._write = lambda path, text, **k: pathlib.Path(path).write_text(text)
+app._retire_default_password()
+env = app._env_file(app.VH_PANEL_ENV)
+assert env["PANEL_PASS"] != "valheim123" and len(env["PANEL_PASS"]) >= 20 and env["NTFY_TOPIC"] == "t", env
+assert app.VH_PASS_RETIRED.exists()
+before = env["PANEL_PASS"]; app._retire_default_password()
+assert app._env_file(app.VH_PANEL_ENV)["PANEL_PASS"] == before, "rotated a password that was not the default"
+
 print("OK — log parser, login history, the crash watcher and both world formats")

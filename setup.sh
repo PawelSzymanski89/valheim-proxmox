@@ -229,15 +229,22 @@ cat >"$VH_DIR/panel-passwd.sh" <<'EOF'
 #!/bin/bash
 # Reset the panel login without the panel. Run inside the container:
 #   /opt/valheim/panel-passwd.sh [user] <password>
+# Only the login lines change - the session secret, the ntfy topic and the rest of
+# panel.env stay (rewriting the whole file used to drop them, and with them the alerts).
 set -eu
 ENV=/opt/valheim/panel.env
 [ $# -ge 1 ] || { echo "usage: $0 [user] <password>"; exit 1; }
 if [ $# -ge 2 ]; then USER_=$1; PASS=$2; else USER_=$(grep -oP "PANEL_USER='\K[^']*" $ENV || echo admin); PASS=$1; fi
 [ ${#PASS} -ge 8 ] || { echo "password must be at least 8 characters"; exit 1; }
-PORT=$(grep -oP "PANEL_PORT='\K[^']*" $ENV 2>/dev/null || echo 2460)
-printf "PANEL_USER='%s'\nPANEL_PASS='%s'\nPANEL_PORT='%s'\n" "$USER_" "$PASS" "$PORT" >$ENV
-chmod 600 $ENV
-echo "panel login is now $USER_ / $PASS (no restart needed)"
+[ "$PASS" != valheim123 ] || { echo "that is the old default everyone knows - pick another"; exit 1; }
+case "$USER_$PASS" in *"'"*|*$'\n'*) echo "no quotes or line breaks, please"; exit 1;; esac
+[[ "$USER_" =~ ^[A-Za-z0-9_.-]{3,32}$ ]] || { echo "user: 3-32 letters, digits, _ . -"; exit 1; }
+TMP=$(mktemp /opt/valheim/.panel.env.XXXXXX)
+{ grep -v -E "^PANEL_(USER|PASS)=" $ENV 2>/dev/null || true
+  printf "PANEL_USER='%s'\nPANEL_PASS='%s'\n" "$USER_" "$PASS"; } >"$TMP"
+chmod 600 "$TMP"; mv "$TMP" $ENV
+rm -f /opt/valheim/panel-pass-retired
+echo "panel login changed for $USER_ (no restart needed; open sessions are signed out)"
 EOF
 chmod +x "$VH_DIR/panel-passwd.sh"
 

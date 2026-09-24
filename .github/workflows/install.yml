@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install -q fastapi "uvicorn[standard]" pyyaml
+      - run: pip install -q -r panel/requirements.txt
       - run: bash -n setup.sh install.sh docker/firstboot.sh docker/entry.sh
       - run: cd panel && python test_launch.py && python test_parse.py
   docker:
