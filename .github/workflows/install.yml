@@ -51,6 +51,8 @@ jobs:
             -d '{"user":"admin","password":"ci-password-1"}' -c ck.txt
           curl -sf -b ck.txt http://127.0.0.1:2560/api/valheim | tee status.json
           python3 -c "import json; d=json.load(open('status.json')); assert int(d['settings']['port'])==2556, d['settings']"
+          curl -sf -b ck.txt http://127.0.0.1:2560/api/panel/version | tee version.json
+          python3 -c "import json; d=json.load(open('version.json')); assert d['docker'] is True and d['can_update'] is False, d"
       - name: the game comes up
         run: |
           for i in $(seq 1 60); do

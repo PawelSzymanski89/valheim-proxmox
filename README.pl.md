@@ -42,7 +42,10 @@ Instalacja przez `setup.sh` prosto na Debianie — uruchom tam, jako root:
 curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/panel/panel-update.sh | bash
 ```
 
-**Docker** — `git pull && docker compose up -d --build` (tam aktualizacją jest obraz).
+**Docker** — tam aktualizacją jest obraz. W katalogu `docker/` swojego klona:
+`git fetch --tags && git checkout vX.Y.Z && docker compose up -d --build` — baner w panelu podaje
+dokładne polecenie dla najnowszego wydania. Tag wydania, nie `main`: tagów nie da się na GitHubie
+przesunąć ani usunąć, więc budujesz sprawdzone, podpisane wydanie, a nie to, co akurat jest na `main`.
 
 Na końcu pojawi się `updated to v… - world and settings untouched`. Szczegóły: [Aktualizacje](#aktualizacje).
 

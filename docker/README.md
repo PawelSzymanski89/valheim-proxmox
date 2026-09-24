@@ -23,6 +23,20 @@ docker compose logs -f  # the first start downloads ~1.5 GB from Steam
 
 Panel: `http://HOST:2460` (login `admin`, the password is generated on first boot: `docker compose logs | grep "panel login"`). Game: `HOST:2456/udp`.
 
+## Updating
+
+The image is the unit of update — the panel cannot replace its own code inside it, so it shows a
+banner with the exact commands instead. From this folder:
+
+```bash
+git fetch --tags && git checkout vX.Y.Z   # the release the banner names
+docker compose up -d --build
+```
+
+A release tag rather than `main`: release tags on GitHub cannot be moved or deleted, so what you
+build is the published, signed release. The world, settings, mods and the panel login live in
+the volume and survive the rebuild.
+
 ## What is where
 
 | Path in the container | What |

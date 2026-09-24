@@ -697,6 +697,7 @@ const I18N={
  "A world from an older version comes as a pair":"Świat ze starszej wersji to para plików",
  "— the server converts it on the next start.":"— serwer przekonwertuje go przy najbliższym starcie.",
  "World folder":"Folder świata",
+ "Docker install — update in the folder with docker-compose.yml:":"Instalacja Docker — zaktualizuj w katalogu z docker-compose.yml:",
  "Channel":"Kanał","stable — a release installs itself 48 h after it is out":"stable — wydanie instaluje się samo 48 h po publikacji",
  "early — at once (for testing servers)":"early — od razu (dla serwerów testowych)",
  "The maintainer put this release on hold — it will not install itself for now.":"Autor wstrzymał to wydanie — na razie nie zainstaluje się samo.",
@@ -1736,13 +1737,17 @@ async function pvLoad(){
     $("pv-auto").checked=d.auto;
     $("pv-ch-row").style.display=d.can_update?"flex":"none";
     $("pv-channel").value=d.channel||"stable";
-    $("pv-msg").textContent=d.docker?t("Docker install: rebuild the image to update."):"";
+    // Docker: the image is the unit of update, so the panel hands over the exact commands - to a
+    // release tag (immutable on GitHub), not to whatever main is today
+    const dockerCmd=d.latest?`git fetch --tags && git checkout ${d.latest} && docker compose up -d --build`:"";
+    $("pv-msg").innerHTML=d.docker?esc(t("Docker install — update in the folder with docker-compose.yml:"))+
+      (dockerCmd?` <code>${esc(dockerCmd)}</code>`:""):"";
     // the banner: everyone with a panel sees a release the moment it is out
     $("warn-update").style.display=d.newer?"block":"none";
     if(d.newer){
       $("wu-title").textContent=t("A new version is out")+": "+d.latest;
       $("wu-link").href=d.url||"https://github.com/PawelSzymanski89/valheim-proxmox/releases";
-      $("wu-note").textContent=d.docker?t("Docker install: rebuild the image to update."):
+      $("wu-note").textContent=d.docker?t("Docker install — update in the folder with docker-compose.yml:")+" "+dockerCmd:
         !d.can_update?t("This install is too old for the button — update once from the terminal, see the README."):
         d.hold?t("The maintainer put this release on hold — it will not install itself for now."):
         d.auto&&d.rollout_at&&d.rollout_at*1000>Date.now()?t("It installs itself after")+" "+fmtTs(d.rollout_at)+t(", when nobody is playing — the world and settings stay."):

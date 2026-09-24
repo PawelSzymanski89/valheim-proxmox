@@ -42,7 +42,10 @@ Installed with `setup.sh` straight on a Debian machine — run it there, as root
 curl -fsSL https://raw.githubusercontent.com/PawelSzymanski89/valheim-proxmox/main/panel/panel-update.sh | bash
 ```
 
-**Docker** — `git pull && docker compose up -d --build` (the image is the update there).
+**Docker** — the image is the update there. In the `docker/` folder of your clone:
+`git fetch --tags && git checkout vX.Y.Z && docker compose up -d --build` — the panel's banner shows
+the exact command for the newest release. A release tag, not `main`: tags cannot be moved or
+deleted on GitHub, so the build is the reviewed, signed release and not whatever `main` is that day.
 
 It ends with `updated to v… - world and settings untouched`. Details: [Updating](#updating).
 
