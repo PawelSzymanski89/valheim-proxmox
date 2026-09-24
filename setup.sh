@@ -49,7 +49,7 @@ export LANG=C.UTF-8 LC_ALL=C.UTF-8
 dpkg --add-architecture i386
 apt-get update -qq
 apt-get install -y -qq --no-install-recommends \
-  ca-certificates curl tar gzip unzip procps \
+  ca-certificates curl tar gzip unzip procps openssh-client \
   lib32gcc-s1 libsdl2-2.0-0:i386 libatomic1 \
   libpulse0 libpulse-mainloop-glib0 \
   python3 python3-venv python3-pip >/dev/null

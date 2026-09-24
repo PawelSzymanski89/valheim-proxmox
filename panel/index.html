@@ -272,6 +272,20 @@
         <button class="mini" id="vh-verify">Verify the newest now</button></div>
       <table style="margin-top:10px"><thead><tr><th>Backup</th><th>Date</th><th class="r">Size</th><th class="r">Actions</th></tr></thead>
       <tbody id="vh-backups"><tr><td colspan="4" class="muted">—</td></tr></tbody></table>
+      <div class="stat" style="margin-top:14px" id="os-box" data-guard>
+        <div class="row"><b>Offsite copy</b><span class="muted" id="os-state">—</span></div>
+        <div class="muted" style="margin:6px 0">Every new backup is also sent to another machine (a NAS, any Linux box with SSH) — a backup on the same disk as the world is gone with it. The key below can only store backups there, nothing else.</div>
+        <div class="add">
+          <input id="os-target" placeholder="user@nas.local" aria-label="target">
+          <input id="os-keep" type="number" min="1" max="9999" style="max-width:110px" aria-label="copies kept">
+          <label class="muted" style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="os-enabled"> on</label>
+          <button class="mini" id="os-save">Save</button><button class="mini" id="os-test">Test</button><button class="mini" id="os-push">Send the newest now</button>
+        </div>
+        <details style="margin-top:8px"><summary class="muted">How to set up the target</summary>
+          <div class="muted" style="margin:6px 0">1. On the target, save <code>scripts/offsite-sink.sh</code> from the repository as <code>~/bin/valheim-sink</code> and make it executable.
+            2. Add this line to <code>~/.ssh/authorized_keys</code> there:</div>
+          <textarea id="os-line" readonly rows="3" style="width:100%;font-size:12px"></textarea></details>
+      </div>
     </div>
 
     <div class="pane" id="t-settings">
@@ -697,6 +711,13 @@ const I18N={
  "A world from an older version comes as a pair":"Świat ze starszej wersji to para plików",
  "— the server converts it on the next start.":"— serwer przekonwertuje go przy najbliższym starcie.",
  "World folder":"Folder świata",
+ "Offsite copy":"Kopia poza serwerem",
+ "Every new backup is also sent to another machine (a NAS, any Linux box with SSH) — a backup on the same disk as the world is gone with it. The key below can only store backups there, nothing else.":"Każda nowa kopia trafia też na inną maszynę (NAS albo dowolny Linux z SSH) — kopia na tym samym dysku co świat przepada razem z nim. Klucz poniżej może tam tylko zapisywać kopie, nic więcej.",
+ "on":"włączone","Test":"Test","Send the newest now":"Wyślij najnowszą teraz","How to set up the target":"Jak przygotować cel",
+ "1. On the target, save":"1. Na maszynie docelowej zapisz","from the repository as":"z repozytorium jako","and make it executable.":"i nadaj prawo wykonania.",
+ "2. Add this line to":"2. Dopisz tę linię do","there:":"na tamtej maszynie:",
+ "not set up":"nieskonfigurowana","failing":"nie działa","last copy":"ostatnia kopia","on the target":"na celu","nothing sent yet":"nic jeszcze nie wysłano",
+ "The target answers":"Cel odpowiada","free":"wolnego","Sent":"Wysłano",
  "Docker install — update in the folder with docker-compose.yml:":"Instalacja Docker — zaktualizuj w katalogu z docker-compose.yml:",
  "Channel":"Kanał","stable — a release installs itself 48 h after it is out":"stable — wydanie instaluje się samo 48 h po publikacji",
  "early — at once (for testing servers)":"early — od razu (dla serwerów testowych)",
@@ -1019,6 +1040,7 @@ $("tabs").querySelectorAll("a").forEach(a=>a.onclick=()=>{
   if(a.dataset.pane==="t-mods")vhMods();
   if(a.dataset.pane==="t-cfg")vhCfgList();
   if(a.dataset.pane==="t-alerts")vhAlerts();
+  if(a.dataset.pane==="t-backups")osLoad();
 });
 
 const LIST_LABEL={admin:"Admins (in-game console)",banned:"Banned",permitted:"Allowlist"};
@@ -2152,6 +2174,29 @@ document.querySelectorAll("[data-logsrc]").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("[data-logsrc]").forEach(x=>x.classList.toggle("primary",x===b));
   vhLog();
 });
+async function osLoad(){
+  try{
+    const d=await jf("/api/valheim/offsite");
+    if(!editing($("os-box"))){$("os-target").value=d.target||"";$("os-keep").value=d.keep;$("os-enabled").checked=d.enabled;}
+    $("os-line").value=d.authorized_keys_line;
+    $("os-state").textContent=!d.target?t("not set up"):d.last_error?t("failing")+": "+d.last_error:
+      d.last_pushed?t("last copy")+" "+d.last_pushed+" · "+fmtTs(d.last_at)+" · "+(d.remote||[]).length+" "+t("on the target"):t("nothing sent yet");
+  }catch(e){$("os-state").textContent=e.message;}
+}
+$("os-save").onclick=async()=>{
+  try{await jf("/api/valheim/offsite",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({target:$("os-target").value.trim(),keep:+$("os-keep").value||30,enabled:$("os-enabled").checked})});
+    clean($("os-box"));toast(t("Saved"),"ok");osLoad();}catch(e){toast(e.message,"bad");}
+};
+$("os-test").onclick=async()=>{
+  try{const r=await jf("/api/valheim/offsite/test",{method:"POST"});toast(t("The target answers")+(r.free?" · "+fmtBytes(r.free)+" "+t("free"):""),"ok");}
+  catch(e){toast(e.message,"bad");}
+};
+$("os-push").onclick=async()=>{
+  $("os-push").classList.add("loading");
+  try{await jf("/api/valheim/offsite/push",{method:"POST"});toast(t("Sent"),"ok");}catch(e){toast(e.message,"bad");}
+  $("os-push").classList.remove("loading");osLoad();
+};
 $("vh-wup-btn").onclick=async()=>{
   const f=$("vh-wup").files, dirs={};
   // 1.0: webkitRelativePath is "NAME/file"; whoever picks worlds_local itself gets one

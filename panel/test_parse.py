@@ -265,4 +265,10 @@ if _sh.which("openssl") and "OpenSSL 3" in sp.run(["openssl", "version"], captur
         builtins.__import__ = real
 app.VH_RELEASE_KEYS.unlink()
 
+# offsite target: user@host only - it goes into an ssh command line
+for ok in ("klans@192.168.89.34", "backup@nas.local", "a_b-c.d@host-1.example.org"):
+    assert app.OFFSITE_TARGET_RE.fullmatch(ok), ok
+for bad in ("nas", "-oProxyCommand=x@h", "u@h;rm", "u@h x", "@h", "u@", "u@h\n"):
+    assert not app.OFFSITE_TARGET_RE.fullmatch(bad), bad
+
 print("OK — log parser, login history, the crash watcher and both world formats")

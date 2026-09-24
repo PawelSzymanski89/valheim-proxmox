@@ -3328,6 +3328,137 @@ def health():
         return {"crashes": [], "backup": None}
 
 
+# ---------- offsite copies ----------
+# Every backup also lives on another machine: a backup on the same disk as the world is gone
+# with it. The panel pushes each new archive over SSH to scripts/offsite-sink.sh on the target,
+# which the key can run and nothing else (a forced command in authorized_keys): store under a
+# strict name, list, drop the oldest. The key is made here, root-only, and never leaves.
+VH_OFFSITE = Path(f"{VH_DIR}/offsite.json")
+VH_OFFSITE_KEY = Path(f"{VH_DIR}/offsite_key")
+VH_OFFSITE_HOSTS = Path(f"{VH_DIR}/offsite_known_hosts")
+OFFSITE_TARGET_RE = re.compile(r"[A-Za-z0-9._-]{1,32}@[A-Za-z0-9.-]{1,253}")
+_OFFSITE_LOCK = threading.Lock()
+
+
+def _offsite_cfg():
+    cfg = {"enabled": False, "target": "", "port": 22, "keep": 30,
+           "last_pushed": "", "last_at": 0, "last_error": "", "remote": []}
+    cfg.update(_load_json(VH_OFFSITE, {}))
+    return cfg
+
+
+def _offsite_pub():
+    if not VH_OFFSITE_KEY.exists():
+        _sh_ok(f"ssh-keygen -q -t ed25519 -N '' -C valheim-panel -f {shlex.quote(str(VH_OFFSITE_KEY))}")
+        os.chmod(VH_OFFSITE_KEY, 0o600)
+    return Path(str(VH_OFFSITE_KEY) + ".pub").read_text().strip()
+
+
+def _offsite_ssh(cfg, command, stdin=None, timeout=60):
+    """One call to the sink. BatchMode: never a password prompt; the host key is taken on first
+    contact and held to after (its own known_hosts, not root's)."""
+    _offsite_pub()
+    args = ["ssh", "-i", str(VH_OFFSITE_KEY), "-p", str(int(cfg["port"])),
+            "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes", "-o", "ConnectTimeout=15",
+            "-o", "StrictHostKeyChecking=accept-new", "-o", f"UserKnownHostsFile={VH_OFFSITE_HOSTS}",
+            cfg["target"], command]
+    return subprocess.run(args, stdin=stdin, capture_output=True, timeout=timeout)
+
+
+def _offsite_push(cfg, name):
+    """Send one backup, confirm the size on the other side, keep the newest cfg['keep']."""
+    p = Path(VH_BACKUPS) / _bak_ok(name)
+    size = p.stat().st_size
+    with p.open("rb") as f:
+        r = _offsite_ssh(cfg, f"put {name}", stdin=f, timeout=1800)
+    if r.returncode != 0:
+        raise RuntimeError((r.stderr or r.stdout).decode(errors="replace").strip()[-200:] or f"ssh {r.returncode}")
+    listing = _offsite_ssh(cfg, "list")
+    remote = dict(ln.split()[:2] for ln in listing.stdout.decode().splitlines() if len(ln.split()) >= 2)
+    if remote.get(name) != str(size):
+        raise RuntimeError(f"size on the target is {remote.get(name)}, here {size}")
+    _offsite_ssh(cfg, f"prune {int(cfg['keep'])}")
+    return sorted(remote)[-int(cfg["keep"]):]
+
+
+def _offsite_tick(force=False):
+    """Called from the minute loop: the newest local backup goes out once. force: the button."""
+    cfg = _offsite_cfg()
+    if not cfg["target"] or not (cfg["enabled"] or force):
+        return
+    names = sorted(f.name for f in Path(VH_BACKUPS).glob("world-*.tar.gz") if VH_BAK_RE.match(f.name))
+    if not names or (names[-1] == cfg["last_pushed"] and not force):
+        return
+    if not force and cfg["last_error"] and time.time() - cfg["last_at"] < 600:
+        return                                   # a failing target is retried every 10 minutes
+    if not _OFFSITE_LOCK.acquire(blocking=False):
+        return
+    try:
+        remote = _offsite_push(cfg, names[-1])
+        cfg.update(last_pushed=names[-1], last_at=int(time.time()), last_error="", remote=remote)
+        _log("offsite.pushed", file=names[-1])
+    except Exception as e:
+        first = not cfg["last_error"]
+        cfg.update(last_at=int(time.time()), last_error=f"{type(e).__name__}: {e}"[:200])
+        _log("offsite.failed", ok=False, file=names[-1], error=cfg["last_error"])
+        if first:
+            _notify("backup_failed", "Offsite copy failed",
+                    f"{names[-1]} did not reach {cfg['target']}: {cfg['last_error']}", priority="high", tags="warning")
+    finally:
+        _save_json(VH_OFFSITE, cfg)
+        _OFFSITE_LOCK.release()
+
+
+@app.get("/api/valheim/offsite")
+def offsite_get():
+    cfg = _offsite_cfg()
+    return {**cfg, "public_key": _offsite_pub(),
+            "authorized_keys_line": 'command="$HOME/bin/valheim-sink $HOME/valheim-backups",no-port-forwarding,'
+                                    "no-pty,no-agent-forwarding,no-X11-forwarding " + _offsite_pub()}
+
+
+@app.post("/api/valheim/offsite")
+def offsite_set(body: dict = Body(...)):
+    cfg = _offsite_cfg()
+    target = str(body.get("target", cfg["target"])).strip()
+    if target and not OFFSITE_TARGET_RE.fullmatch(target):
+        raise HTTPException(400, "Target is user@host")
+    port, keep = int(body.get("port", cfg["port"])), int(body.get("keep", cfg["keep"]))
+    if not (1 <= port <= 65535 and 1 <= keep <= 9999):
+        raise HTTPException(400, "Port 1-65535, keep 1-9999")
+    if target != cfg["target"]:
+        VH_OFFSITE_HOSTS.unlink(missing_ok=True)            # a new machine, a new host key to learn
+        cfg.update(last_pushed="", last_error="", remote=[])
+    cfg.update(enabled=bool(body.get("enabled", cfg["enabled"])), target=target, port=port, keep=keep)
+    _save_json(VH_OFFSITE, cfg)
+    _log("offsite.config", target=target, enabled=cfg["enabled"], keep=keep)
+    return offsite_get()
+
+
+@app.post("/api/valheim/offsite/test")
+def offsite_test():
+    cfg = _offsite_cfg()
+    if not cfg["target"]:
+        raise HTTPException(400, "Set the target first")
+    r = _offsite_ssh(cfg, "test")
+    out = (r.stdout or r.stderr).decode(errors="replace").strip()
+    if r.returncode != 0 or not out.startswith("ok"):
+        raise HTTPException(502, f"The target did not answer as a valheim sink: {out[-200:] or r.returncode}")
+    return {"ok": True, "free": int(out.split()[1]) if len(out.split()) > 1 else None}
+
+
+@app.post("/api/valheim/offsite/push")
+def offsite_push_now():
+    """Push the newest backup now - the button, and the way to prove the setup end to end."""
+    if not _offsite_cfg()["target"]:
+        raise HTTPException(400, "Set the target first")
+    _offsite_tick(force=True)
+    cfg = _offsite_cfg()
+    if cfg["last_error"]:
+        raise HTTPException(502, cfg["last_error"])
+    return cfg
+
+
 @app.post("/api/valheim/backups/verify")
 def backup_verify(body: dict = Body(default={})):
     fn = body.get("file")
@@ -4737,6 +4868,11 @@ def _tick():
     # Game updates, every two hours - a steamcmd round trip. The install happens here, not
     # in update.sh: one place asks _game_may_restart, so an update can no longer slip past
     # the launch or a full server. valheim-update.timer stays the operator's on/off switch.
+    try:
+        _offsite_tick()
+    except Exception as e:
+        _log("offsite.error", ok=False, error=f"{type(e).__name__}: {e}"[:200])
+
     try:
         _panel_update_tick(now_on)
     except Exception as e:
