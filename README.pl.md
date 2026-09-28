@@ -367,6 +367,15 @@ gniazda konsoli, bez czatu. Trzy mody **po stronie serwera** to zapewniają, a z
 **Gracze nie instalują nic.** Te mody działają wyłącznie na serwerze, a czysty klient
 dołącza jak wcześniej. Wszystko, co od nich zależy, zostaje ukryte w panelu, dopóki nie odpowiedzą.
 
+**Polskie litery docierają do gry od v1.33.0.** Mod RCON czytał polecenia jako ASCII, więc każde
+ą czy ł zamieniało się w `?`. Panel dokłada obok własną małą wtyczkę (`panel/rcon-utf8`, ze
+źródłem), która przestawia to czytanie na UTF-8. Zostaje na serwerze i nigdy nie trafia do graczy.
+Na zaktualizowanej instalacji działa od najbliższego restartu serwera — do tego czasu panel pisze
+bez ogonków.
+
+Wiadomości na środku ekranu gra pokazuje przez 4 sekundy i serwer nie może tego wydłużyć, więc
+panel wysyła każdą jeszcze raz co 2,5 s. Wisi mniej więcej trzy razy dłużej.
+
 RCON włącza się z wylosowanym hasłem na porcie **2465** — celowo nie domyślnym 2458 moda,
 bo ten mieści się w zakresie 2456-2458, na który wskazuje forward na routerze. Nasłuchuje
 dla panelu na tej samej maszynie — nie ma powodu, żeby go wystawiać, i same powody, żeby tego nie robić.

@@ -1881,13 +1881,47 @@ def _rcon(command, timeout=6):
 VH_CHAR_NAME_RE = re.compile(r"[^\W_][\w '-]{0,23}")   # unicode letters: Michał stays Michał
 
 
+# The RCON mod reads commands as ASCII, so every Polish letter reached the game as '?'
+# (it was blamed on the game's font until v1.33.0 - the font is fine). rcon-utf8/RconUtf8.dll,
+# our own small plugin, switches that one call to UTF-8; the panel puts it next to the mod.
+RCON_UTF8_SRC = HERE / "rcon-utf8" / "RconUtf8.dll"
+RCON_UTF8_DIR = "valheim-proxmox-rcon_utf8"
+
+
+def _rcon_utf8_ensure():
+    """Put the UTF-8 plugin next to the RCON mod if it is missing or stale. It loads on the
+    next server start; True when a new copy was written."""
+    plugins = Path(VH_SERVER) / "BepInEx" / "plugins"
+    if not RCON_UTF8_SRC.exists() or not (plugins / "AviiNL-rcon").is_dir():
+        return False
+    new = RCON_UTF8_SRC.read_bytes()
+    dst = plugins / RCON_UTF8_DIR / "RconUtf8.dll"
+    have = subprocess.run(["runuser", "-u", "valheim", "--", "sha256sum", "--", str(dst)],
+                          capture_output=True, text=True, timeout=30).stdout.split(" ")[0]
+    if have == hashlib.sha256(new).hexdigest():
+        return False
+    _game_sh(f"mkdir -p {shlex.quote(str(dst.parent))}")
+    _write_as_game(dst, new)
+    _log("admin_tools.utf8", written=True)
+    return True
+
+
+def _rcon_utf8():
+    """Whether the running server loaded the plugin: BepInEx rewrites its log on every start."""
+    try:
+        return "rcon reads UTF-8" in _read_as_game(Path(VH_SERVER) / "BepInEx" / "LogOutput.log")
+    except Exception:
+        return False
+
+
 def _ingame(text):
-    """Valheim's font has no Polish letters - they arrive as question marks - so anything
-    headed for a player's screen is folded to ASCII first. Only the message text: a player
+    """Text headed for a player's screen. Without the UTF-8 plugin loaded, Polish letters are
+    folded to ASCII (plain letters beat question marks). Only the message text: a player
     named Michał has to stay Michał or the command finds nobody. The panel's own history
     keeps the original, because that one is read in a browser."""
-    text = text.replace("ł", "l").replace("Ł", "L")
-    text = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    if not _rcon_utf8():
+        text = text.replace("ł", "l").replace("Ł", "L")
+        text = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
     for a, b in (("—", "-"), ("–", "-"), ("„", '"'), ("”", '"'), ("’", "'"), ("…", "...")):
         text = text.replace(a, b)
     return text
@@ -1955,6 +1989,7 @@ def admin_tools_setup():
     Path(VH_RCON_ENV).chmod(0o600)
     _sh(f"chown valheim:valheim {VH_RCON_ENV}")
     os.environ["RCON_PORT"], os.environ["RCON_PASS"] = str(port), pw
+    _rcon_utf8_ensure()                                   # loads with the restart below
     _sh_ok("systemctl restart valheim", timeout=240)
     _log("admin_tools.setup", port=port)
     return {"ok": True, "port": int(port)}
@@ -5016,6 +5051,10 @@ async def _start_watcher():
         _retire_default_password()
     except Exception as e:
         _log("panel.retire_error", ok=False, error=str(e)[:120])
+    try:
+        _rcon_utf8_ensure()          # an upgraded panel: in effect from the next server restart
+    except Exception as e:
+        _log("admin_tools.utf8_error", ok=False, error=str(e)[:120])
     try:
         _panel_updated_notice()
     except Exception as e:

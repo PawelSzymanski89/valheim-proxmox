@@ -367,6 +367,15 @@ three from a single button:
 **Players install nothing.** These run on the server only and vanilla clients join as before.
 Everything that depends on them stays hidden in the panel until they answer.
 
+**Polish letters (and any other non-ASCII) reach the game from v1.33.0.** The RCON mod reads
+commands as ASCII, which turned every ą or ł into `?`. The panel adds a small plugin of its own
+next to it (`panel/rcon-utf8`, source included) that switches that read to UTF-8. It stays on the
+server and is never sent to players. On an upgraded install it takes effect after the next server
+restart; until then the panel keeps writing without diacritics.
+
+Messages in the middle of the screen are shown by the game for 4 seconds and cannot be made longer
+from the server, so the panel sends each one again every 2.5 s. It stays up about three times as long.
+
 RCON is enabled with a generated password on port **2465** — deliberately not the mod's default
 2458, which sits inside the 2456-2458 range a router forward points at. It listens for the panel
 on the same machine; there is no reason to expose it, and every reason not to.

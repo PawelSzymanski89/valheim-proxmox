@@ -298,4 +298,12 @@ app._show("broadcast center hi", "center"); app._show("broadcast side yo", "side
 app._rcon = real
 assert sent.count("broadcast center hi") == 1 + app.CENTER_REPEATS and sent.count("broadcast side yo") == 1, sent
 
+# Polish letters: folded while the UTF-8 plugin is not loaded, kept once it is.
+real = app._rcon_utf8
+app._rcon_utf8 = lambda: False
+assert app._ingame("Zaraz będzie ciemno — Łoś") == "Zaraz bedzie ciemno - Los"
+app._rcon_utf8 = lambda: True
+assert app._ingame("Zaraz będzie ciemno — Łoś") == "Zaraz będzie ciemno - Łoś"
+app._rcon_utf8 = real
+
 print("OK — log parser, login history, the crash watcher and both world formats")
