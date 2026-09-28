@@ -271,4 +271,18 @@ for ok in ("klans@192.168.89.34", "backup@nas.local", "a_b-c.d@host-1.example.or
 for bad in ("nas", "-oProxyCommand=x@h", "u@h;rm", "u@h x", "@h", "u@", "u@h\n"):
     assert not app.OFFSITE_TARGET_RE.fullmatch(bad), bad
 
+# The clock phase, from the game's own EnvMan: daylight is 0.15-0.85 of the 1800 s cycle.
+assert app._clock(0.15 * 1800 + 1)["night"] is False and app._clock(0.15 * 1800 - 1)["night"] is True
+assert app._clock(0.85 * 1800 - 1)["night"] is False and app._clock(0.85 * 1800 + 1)["night"] is True
+assert app._clock(2040)["time"] in ("03:11", "03:12")                         # a fresh world, just before dawn
+assert app._clock(0.85 * 1800 - 60)["changes_in"] == 60            # the dusk rule's 0.8 h = 60 s
+
+# A centre message goes out 1 + CENTER_REPEATS times, a side one once.
+import time as _t
+sent, real = [], app._rcon
+app._rcon, app.CENTER_GAP = (lambda c, timeout=6: sent.append(c)), 0.01
+app._show("broadcast center hi", "center"); app._show("broadcast side yo", "side"); _t.sleep(0.3)
+app._rcon = real
+assert sent.count("broadcast center hi") == 1 + app.CENTER_REPEATS and sent.count("broadcast side yo") == 1, sent
+
 print("OK — log parser, login history, the crash watcher and both world formats")

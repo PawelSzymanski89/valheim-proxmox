@@ -1701,11 +1701,12 @@ def _bak_ok(fn):
 # two backups taken from an empty server are byte-identical.
 DAY_SECONDS = 1800
 # One in-game hour is 75 real seconds; of the 30-minute cycle, 21 minutes are daylight and
-# 9 are night, which puts night at roughly 20:24-03:36. What is *not* documented anywhere is
-# the phase - which clock time the saved counter's zero corresponds to. A fresh world starts
-# in the morning, so 06:00 is the assumption, and CLOCK_OFFSET_H is the knob to correct it:
-# compare the panel against the sky once and shift it by the difference.
-CLOCK_OFFSET_H = float(os.environ.get("VH_CLOCK_OFFSET", 6))
+# 9 are night, which puts night at 20:24-03:36. The phase comes from the game's own code
+# (EnvMan.RescaleDayFraction/CalculateNight in assembly_valheim.dll): the counter's zero is the
+# middle of the night and daylight is 0.15-0.85 of the cycle, so no offset. A fresh world starts
+# at 2040 s (ZNet.m_netTime), 03:12, just before dawn. Until v1.33.0 this assumed 06:00, which
+# put every "before dark" message 7.5 minutes early. VH_CLOCK_OFFSET is left as a knob.
+CLOCK_OFFSET_H = float(os.environ.get("VH_CLOCK_OFFSET", 0))
 NIGHT_FROM, NIGHT_TO = 20 + 24 / 60, 3 + 36 / 60
 
 
@@ -1879,6 +1880,27 @@ def _ingame(text):
     return text
 
 
+CENTER_REPEATS, CENTER_GAP = 3, 2.5
+
+
+def _show(command, where):
+    """Send a message command. A centre message is drawn at full strength and faded out over
+    4 s (MessageHud.ShowMessage, fixed in the client), too short to read - so it is sent again
+    every 2.5 s, which keeps it up about three times as long. The first send reports errors;
+    the repeats run in the background and give up quietly."""
+    out = _rcon(command)
+    if where == "center":
+        def again(n):
+            try:
+                _rcon(command)
+            except Exception:
+                return
+            if n > 1:
+                threading.Timer(CENTER_GAP, again, (n - 1,)).start()
+        threading.Timer(CENTER_GAP, again, (CENTER_REPEATS,)).start()
+    return out
+
+
 def _admin_tools_state():
     have = set((_mods_state().get("mods") or {}).keys())
     env = {**_env_file(VH_PANEL_ENV), **_env_file(VH_RCON_ENV)}
@@ -1945,9 +1967,9 @@ def say(p: Say):
         raise HTTPException(400, "Keep it under 200 characters")
     where = p.where if p.where in ("center", "side") else "center"
     if p.players.strip():
-        out = _rcon(f'message {p.players.strip()} {where} {_ingame(_signed(text))}')
+        out = _show(f'message {p.players.strip()} {where} {_ingame(_signed(text))}', where)
     else:
-        out = _rcon(f"broadcast {where} {_ingame(_signed(text))}")
+        out = _show(f"broadcast {where} {_ingame(_signed(text))}", where)
     _say_log({"t": int(time.time()), "text": text, "where": where,
               "to": p.players.strip() or "all", "by": "panel"})
     _log("say", where=where, to=p.players.strip() or "all", chars=len(text))
@@ -1984,7 +2006,7 @@ def _rules():
 
 DEFAULT_RULES = [
     {"id": "dusk", "text": "Zaraz będzie ciemno!", "where": "center",
-     "when": "before_night", "value": 1, "enabled": True},
+     "when": "before_night", "value": 0.8, "enabled": True},       # 0.8 in-game h = 60 s
 ]
 
 
@@ -2149,7 +2171,7 @@ def _greet_tick():
             if not text:
                 continue
             try:
-                _rcon(f"message {name} {r['where']} {_ingame(_signed(text))}")
+                _show(f"message {name} {r['where']} {_ingame(_signed(text))}", r["where"])
                 _say_log({"t": now, "text": text, "where": r["where"], "to": name, "by": r["id"]})
                 _log("say.player", player=name, rule=r["id"], when=r["when"])
             except Exception as e:
@@ -2196,7 +2218,7 @@ def _rules_tick():
         if not text:
             continue
         try:
-            _rcon(f"broadcast {r['where']} {_ingame(_signed(text))}")
+            _show(f"broadcast {r['where']} {_ingame(_signed(text))}", r["where"])
             _say_log({"t": now, "text": text, "where": r["where"], "to": "all", "by": r["id"]})
             _log("say.scheduled", rule=r["id"], when=r["when"])
         except Exception as e:
