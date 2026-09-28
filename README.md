@@ -389,9 +389,9 @@ the panel extrapolates it from the world file: the day, the time of day, and how
 turns. The public page shows it too. One in-game hour is 75 real seconds, and of the 30-minute
 cycle roughly 21 minutes are daylight.
 
-What no source documents is the phase — which clock time the saved counter's zero corresponds to.
-The panel assumes 06:00; if it reads differently from the sky in your world, `VH_CLOCK_OFFSET`
-shifts it.
+The phase comes from the game's own code: the counter's zero is the middle of the night, daylight
+runs from 03:36 to 20:24, and a new world starts at 03:12. `VH_CLOCK_OFFSET` shifts it if you ever
+need to. (Before v1.33.0 the panel assumed 06:00, and "before dark" messages came 7.5 minutes early.)
 
 ## Alerts on your phone, and a restart window
 

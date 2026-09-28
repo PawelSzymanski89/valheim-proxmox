@@ -390,9 +390,9 @@ nie ma, więc panel wylicza go z pliku świata: dzień, porę dnia i ile został
 publiczna też to pokazuje. Jedna godzina w grze to 75 sekund realnych, a z trzydziestominutowego
 cyklu jasnym dniem jest z grubsza 21 minut.
 
-Czego żadne źródło nie opisuje, to faza — której godzinie zegara odpowiada zero zapisanego
-licznika. Panel zakłada 06:00; jeśli w Twoim świecie niebo pokazuje coś innego, przesuwa to
-`VH_CLOCK_OFFSET`.
+Fazę panel bierze z kodu samej gry: zero licznika to środek nocy, dzień trwa od 03:36 do 20:24,
+a nowy świat startuje o 03:12. W razie potrzeby przesuwa ją `VH_CLOCK_OFFSET`. (Przed v1.33.0
+panel zakładał 06:00 i komunikaty „przed zmrokiem” przychodziły 7,5 minuty za wcześnie.)
 
 ## Alerty na telefon i okno serwisowe
 
