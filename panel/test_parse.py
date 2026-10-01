@@ -40,6 +40,19 @@ assert app._scan(with_code + [L.format("11:00:00", "11:00:00", "Valheim version:
 restarted, *_ = app._scan(LOG + [L.format("11:00:00", "11:00:00", "Valheim version: l-0.221.12")])
 assert restarted == [], restarted
 
+# Issue #2: a lost "Closing socket" kept a player online for days. "Connections 0" clears
+# them, and the session ends there - but not someone who connected moments before the line.
+STALE = LOG[:-1] + [
+    L.format("10:15:00", "10:15:00", "Got connection SteamID 76561198000000003"),
+    L.format("10:15:30", "10:15:30", " Connections 0 ZDOS:81  sent:0 recv:0"),
+]
+stale_conns, stale_hist, *_ = app._scan(STALE)
+assert [c["id"] for c in stale_conns] == ["76561198000000003"], stale_conns
+left = {c["id"]: t for t, kind, c in stale_hist if kind == "leave"}
+assert left == {"76561198000000001": app._ts("2026-07-31T10:15:30+0000"),
+                "76561198000000002": app._ts("2026-07-31T10:15:30+0000")}, left
+assert app._scan(LOG + [L.format("10:20:00", "10:20:00", " Connections 0 ZDOS:81  sent:0 recv:0")])[0] == []
+
 # Straight from a production log: the server prints "Got connection" AND "Got handshake"
 # for one peer, and a reconnect prints the pair again. This read as three players online.
 DUP = [

@@ -627,6 +627,9 @@ def _events(lines):
             yield t, "joincode", m.group(1)
 
 
+COUNT_GRACE = 120
+
+
 def _scan(lines):
     """One pass over the log: who is connected now + events for the history store.
 
@@ -675,6 +678,16 @@ def _scan(lines):
                 hist.append((t, "death", c))
         elif kind == "count":
             count, count_ts = int(val), t
+            # "Connections 0" leaves nothing to guess: nobody is on, so whoever is still listed
+            # lost their "Closing socket" line. Left in, they kept the server "busy" for days
+            # (no updates, no restarts) and the next boot closed them as one giant session
+            # (issue #2). A connection newer than COUNT_GRACE is spared: a player still
+            # typing the password may not be in the server's count yet, and dropping them
+            # would make a busy server look empty to every restart.
+            if count == 0:
+                for c in [x for x in conns if t - x["since"] > COUNT_GRACE]:
+                    conns.remove(c)
+                    hist.append((t, "leave", c))
         elif kind == "joincode":
             joincode = val
     return conns, hist, count, count_ts, version, joincode
