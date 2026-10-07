@@ -173,7 +173,7 @@ plus the panel login.
 |---|---|
 | **Game server** | Valheim dedicated, systemd unit with a clean stop (`SIGINT`, so the world is saved) |
 | **Panel** | web UI on port **2460**, HTTP Basic auth, password generated at install |
-| **Backups** | world snapshot every 2 h, 30 kept, restore with one click |
+| **Backups** | world snapshot every 2 h, 30 kept (both set in the panel), restore with one click |
 | **Updates** | checks Steam every 2 h and restarts **only** when there is a new build |
 | **Defaults** | 4 cores, 6 GB RAM, 30 GB disk, container starts on boot |
 
@@ -594,7 +594,7 @@ bash -c "$(curl -fsSL .../install.sh)" -- --ram 12288 --disk 40 --ip 192.168.89.
 /opt/valheim/
 ├── server/            game files (SteamCMD)
 ├── data/              savedir: worlds_local/, adminlist.txt, bannedlist.txt, permittedlist.txt
-├── backups/           world-YYYYMMDD-HHMMSS.tar.gz, 30 kept
+├── backups/           world-YYYYMMDD-HHMMSS.tar.gz, 30 kept by default
 ├── server.env         launch settings — this is what the panel edits
 ├── panel.env          panel user, password, port (600)
 ├── players.json       login history (the journal rotates, this does not)

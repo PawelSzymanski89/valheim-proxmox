@@ -153,7 +153,10 @@ fi
 
 ts=$(date +%Y%m%d-%H%M%S)
 tar czf "$DST/world-$ts.tar.gz" -C "$SRC" . 2>/dev/null && echo "backup world-$ts.tar.gz"
-ls -1t "$DST"/world-*.tar.gz 2>/dev/null | tail -n +31 | xargs -r rm -f
+# how many to keep is set in the panel (backup.env, root-owned); 30 when unset or garbled
+KEEP=$(sed -n 's/^KEEP=\([0-9][0-9]*\)$/\1/p' /opt/valheim/backup.env 2>/dev/null)
+[ "${KEEP:-0}" -ge 1 ] 2>/dev/null || KEEP=30
+ls -1t "$DST"/world-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
 EOF
 
 cat >"$VH_DIR/update.sh" <<'EOF'
@@ -341,7 +344,7 @@ EOF
 
 cat >/etc/systemd/system/valheim-backup.timer <<'EOF'
 [Unit]
-Description=Valheim world backup every 2h
+Description=Valheim world backup (interval: panel, Backups)
 [Timer]
 OnBootSec=10min
 OnUnitActiveSec=2h

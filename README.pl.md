@@ -172,7 +172,7 @@ na wartość przykładową — zrzut nigdy nie wynosi sieci, w której powstał.
 |---|---|
 | **Serwer gry** | Valheim dedicated, systemd z czystym stopem (`SIGINT`, więc świat się zapisuje) |
 | **Panel** | WWW na porcie **2460**, autoryzacja HTTP Basic, hasło losowane przy instalacji |
-| **Backupy** | kopia świata co 2 h, trzyma 30, przywracanie jednym klikiem |
+| **Backupy** | kopia świata co 2 h, trzyma 30 (oba do ustawienia w panelu), przywracanie jednym klikiem |
 | **Aktualizacje** | sprawdza Steama co 2 h i restartuje **tylko** gdy jest nowy build |
 | **Domyślnie** | 4 rdzenie, 6 GB RAM, 30 GB dysku, kontener wstaje z hostem |
 
