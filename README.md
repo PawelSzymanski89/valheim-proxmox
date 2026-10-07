@@ -173,7 +173,7 @@ plus the panel login.
 |---|---|
 | **Game server** | Valheim dedicated, systemd unit with a clean stop (`SIGINT`, so the world is saved) |
 | **Panel** | web UI on port **2460**, HTTP Basic auth, password generated at install |
-| **Backups** | world snapshot every 2 h, 30 kept, restore with one click |
+| **Backups** | world snapshot every 2 h, 30 kept (both set in the panel), restore with one click |
 | **Updates** | checks Steam every 2 h and restarts **only** when there is a new build |
 | **Defaults** | 4 cores, 6 GB RAM, 30 GB disk, container starts on boot |
 
@@ -367,6 +367,15 @@ three from a single button:
 **Players install nothing.** These run on the server only and vanilla clients join as before.
 Everything that depends on them stays hidden in the panel until they answer.
 
+**Polish letters (and any other non-ASCII) reach the game from v1.33.0.** The RCON mod reads
+commands as ASCII, which turned every ą or ł into `?`. The panel adds a small plugin of its own
+next to it (`panel/rcon-utf8`, source included) that switches that read to UTF-8. It stays on the
+server and is never sent to players. On an upgraded install it takes effect after the next server
+restart; until then the panel keeps writing without diacritics.
+
+Messages in the middle of the screen are shown by the game for 4 seconds and cannot be made longer
+from the server, so the panel sends each one again every 2.5 s. It stays up about three times as long.
+
 RCON is enabled with a generated password on port **2465** — deliberately not the mod's default
 2458, which sits inside the 2456-2458 range a router forward points at. It listens for the panel
 on the same machine; there is no reason to expose it, and every reason not to.
@@ -389,9 +398,9 @@ the panel extrapolates it from the world file: the day, the time of day, and how
 turns. The public page shows it too. One in-game hour is 75 real seconds, and of the 30-minute
 cycle roughly 21 minutes are daylight.
 
-What no source documents is the phase — which clock time the saved counter's zero corresponds to.
-The panel assumes 06:00; if it reads differently from the sky in your world, `VH_CLOCK_OFFSET`
-shifts it.
+The phase comes from the game's own code: the counter's zero is the middle of the night, daylight
+runs from 03:36 to 20:24, and a new world starts at 03:12. `VH_CLOCK_OFFSET` shifts it if you ever
+need to. (Before v1.33.0 the panel assumed 06:00, and "before dark" messages came 7.5 minutes early.)
 
 ## Alerts on your phone, and a restart window
 
@@ -585,7 +594,7 @@ bash -c "$(curl -fsSL .../install.sh)" -- --ram 12288 --disk 40 --ip 192.168.89.
 /opt/valheim/
 ├── server/            game files (SteamCMD)
 ├── data/              savedir: worlds_local/, adminlist.txt, bannedlist.txt, permittedlist.txt
-├── backups/           world-YYYYMMDD-HHMMSS.tar.gz, 30 kept
+├── backups/           world-YYYYMMDD-HHMMSS.tar.gz, 30 kept by default
 ├── server.env         launch settings — this is what the panel edits
 ├── panel.env          panel user, password, port (600)
 ├── players.json       login history (the journal rotates, this does not)

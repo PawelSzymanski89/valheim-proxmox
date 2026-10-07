@@ -172,7 +172,7 @@ na wartość przykładową — zrzut nigdy nie wynosi sieci, w której powstał.
 |---|---|
 | **Serwer gry** | Valheim dedicated, systemd z czystym stopem (`SIGINT`, więc świat się zapisuje) |
 | **Panel** | WWW na porcie **2460**, autoryzacja HTTP Basic, hasło losowane przy instalacji |
-| **Backupy** | kopia świata co 2 h, trzyma 30, przywracanie jednym klikiem |
+| **Backupy** | kopia świata co 2 h, trzyma 30 (oba do ustawienia w panelu), przywracanie jednym klikiem |
 | **Aktualizacje** | sprawdza Steama co 2 h i restartuje **tylko** gdy jest nowy build |
 | **Domyślnie** | 4 rdzenie, 6 GB RAM, 30 GB dysku, kontener wstaje z hostem |
 
@@ -367,6 +367,15 @@ gniazda konsoli, bez czatu. Trzy mody **po stronie serwera** to zapewniają, a z
 **Gracze nie instalują nic.** Te mody działają wyłącznie na serwerze, a czysty klient
 dołącza jak wcześniej. Wszystko, co od nich zależy, zostaje ukryte w panelu, dopóki nie odpowiedzą.
 
+**Polskie litery docierają do gry od v1.33.0.** Mod RCON czytał polecenia jako ASCII, więc każde
+ą czy ł zamieniało się w `?`. Panel dokłada obok własną małą wtyczkę (`panel/rcon-utf8`, ze
+źródłem), która przestawia to czytanie na UTF-8. Zostaje na serwerze i nigdy nie trafia do graczy.
+Na zaktualizowanej instalacji działa od najbliższego restartu serwera — do tego czasu panel pisze
+bez ogonków.
+
+Wiadomości na środku ekranu gra pokazuje przez 4 sekundy i serwer nie może tego wydłużyć, więc
+panel wysyła każdą jeszcze raz co 2,5 s. Wisi mniej więcej trzy razy dłużej.
+
 RCON włącza się z wylosowanym hasłem na porcie **2465** — celowo nie domyślnym 2458 moda,
 bo ten mieści się w zakresie 2456-2458, na który wskazuje forward na routerze. Nasłuchuje
 dla panelu na tej samej maszynie — nie ma powodu, żeby go wystawiać, i same powody, żeby tego nie robić.
@@ -390,9 +399,9 @@ nie ma, więc panel wylicza go z pliku świata: dzień, porę dnia i ile został
 publiczna też to pokazuje. Jedna godzina w grze to 75 sekund realnych, a z trzydziestominutowego
 cyklu jasnym dniem jest z grubsza 21 minut.
 
-Czego żadne źródło nie opisuje, to faza — której godzinie zegara odpowiada zero zapisanego
-licznika. Panel zakłada 06:00; jeśli w Twoim świecie niebo pokazuje coś innego, przesuwa to
-`VH_CLOCK_OFFSET`.
+Fazę panel bierze z kodu samej gry: zero licznika to środek nocy, dzień trwa od 03:36 do 20:24,
+a nowy świat startuje o 03:12. W razie potrzeby przesuwa ją `VH_CLOCK_OFFSET`. (Przed v1.33.0
+panel zakładał 06:00 i komunikaty „przed zmrokiem” przychodziły 7,5 minuty za wcześnie.)
 
 ## Alerty na telefon i okno serwisowe
 

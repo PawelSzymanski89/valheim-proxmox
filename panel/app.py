@@ -553,11 +553,14 @@ def _ts(s):
         return None
 
 
-VH_LOG_FILTER = ("grep -E 'Got connection|Got handshake|Closing socket|ZDOID|Connections [0-9]|"
-                 "Valheim version|join code'")
-# How far back status() reads the journal. The whole of it took 3 s on two months of
-# production log and grew by the day - on every tick and every page poll. What a longer
-# session needs from before the window (its version and join code) is kept in VH_SESSION.
+VH_LOG_RE = ("Got connection|Got handshake|Closing socket|ZDOID|Connections [0-9]|"
+             "Valheim version|join code")
+VH_LOG_FILTER = f"grep -E '{VH_LOG_RE}'"
+# How far back the player log reaches. Reading the whole window on every tick and page poll
+# grew with every line the server or a chatty mod wrote: 5.7M lines a week took 55 s (#4).
+# Now the window is read once per panel start; after that only what came since the journal
+# cursor. What a longer session needs from before the window (its version and join code)
+# is kept in VH_SESSION.
 VH_LOG_DAYS = 7
 VH_SESSION = Path(f"{VH_DIR}/session.json")
 VH_STATUS_SH = f"""
@@ -573,8 +576,33 @@ echo '@timers'; for t in {' '.join(VH_TIMERS.values())}; do \
   echo "$t $(systemctl is-enabled $t 2>/dev/null) $(systemctl is-active $t 2>/dev/null) $(date -d "$n" +%s 2>/dev/null || echo 0)"; done
 echo '@disk'; df -B1 --output=used,avail {VH_DIR} 2>/dev/null | tail -1
 echo '@machine'; cat /proc/loadavg; nproc; awk '/MemTotal|MemAvailable/{{print $2}}' /proc/meminfo; cut -d' ' -f1 /proc/uptime
-echo '@log'; journalctl -u valheim -o short-iso --no-pager --since "-{VH_LOG_DAYS} days" | {VH_LOG_FILTER} | tail -n 4000
 """
+
+
+VH_LOG_KEEP = 4000
+_VH_LOG = {"cursor": "", "lines": []}
+_VH_LOG_LOCK = threading.RLock()
+
+
+def _vh_log():
+    """The last VH_LOG_KEEP player-log lines from the last VH_LOG_DAYS days, read incrementally."""
+    with _VH_LOG_LOCK:
+        since = (f"--after-cursor={shlex.quote(_VH_LOG['cursor'])}" if _VH_LOG["cursor"]
+                 else f'--since "-{VH_LOG_DAYS} days"')
+        cmd = (f"journalctl -u valheim -o short-iso --no-pager -q --show-cursor {since} "
+               f"| {{ grep -E '{VH_LOG_RE}|^-- cursor: ' || true; }}")
+        r = _sh(f"bash -o pipefail -c {shlex.quote(cmd)}", timeout=90)
+        if r.returncode != 0 and _VH_LOG["cursor"]:
+            # the cursor is gone (journal vacuumed or rotated away): read the window again
+            _VH_LOG.update(cursor="", lines=[])
+            return _vh_log()
+        out = r.stdout.splitlines()
+        if out and out[-1].startswith("-- cursor: "):
+            _VH_LOG["cursor"] = out.pop()[len("-- cursor: "):]
+        cut = time.time() - VH_LOG_DAYS * 86400
+        lines = _VH_LOG["lines"] + out
+        _VH_LOG["lines"] = [ln for ln in lines[-VH_LOG_KEEP:] if (_ts(ln.partition(" ")[0]) or 0) >= cut]
+        return list(_VH_LOG["lines"])
 
 
 def _sections(out):
@@ -837,7 +865,7 @@ def status():
                    "uptime": int(float(m[4]))}
     except Exception:
         pass
-    conns, hist, count, count_ts, version, joincode = _scan(sec.get("log", []))
+    conns, hist, count, count_ts, version, joincode = _scan(_vh_log())
     # the boot line is in the window: remember it; it is not: the session is older than the
     # window, and what was remembered is still its version and join code
     try:
@@ -1714,11 +1742,12 @@ def _bak_ok(fn):
 # two backups taken from an empty server are byte-identical.
 DAY_SECONDS = 1800
 # One in-game hour is 75 real seconds; of the 30-minute cycle, 21 minutes are daylight and
-# 9 are night, which puts night at roughly 20:24-03:36. What is *not* documented anywhere is
-# the phase - which clock time the saved counter's zero corresponds to. A fresh world starts
-# in the morning, so 06:00 is the assumption, and CLOCK_OFFSET_H is the knob to correct it:
-# compare the panel against the sky once and shift it by the difference.
-CLOCK_OFFSET_H = float(os.environ.get("VH_CLOCK_OFFSET", 6))
+# 9 are night, which puts night at 20:24-03:36. The phase comes from the game's own code
+# (EnvMan.RescaleDayFraction/CalculateNight in assembly_valheim.dll): the counter's zero is the
+# middle of the night and daylight is 0.15-0.85 of the cycle, so no offset. A fresh world starts
+# at 2040 s (ZNet.m_netTime), 03:12, just before dawn. Until v1.33.0 this assumed 06:00, which
+# put every "before dark" message 7.5 minutes early. VH_CLOCK_OFFSET is left as a knob.
+CLOCK_OFFSET_H = float(os.environ.get("VH_CLOCK_OFFSET", 0))
 NIGHT_FROM, NIGHT_TO = 20 + 24 / 60, 3 + 36 / 60
 
 
@@ -1880,16 +1909,71 @@ def _rcon(command, timeout=6):
 VH_CHAR_NAME_RE = re.compile(r"[^\W_][\w '-]{0,23}")   # unicode letters: Michał stays Michał
 
 
+# The RCON mod reads commands as ASCII, so every Polish letter reached the game as '?'
+# (it was blamed on the game's font until v1.33.0 - the font is fine). rcon-utf8/RconUtf8.dll,
+# our own small plugin, switches that one call to UTF-8; the panel puts it next to the mod.
+RCON_UTF8_SRC = HERE / "rcon-utf8" / "RconUtf8.dll"
+RCON_UTF8_DIR = "valheim-proxmox-rcon_utf8"
+
+
+def _rcon_utf8_ensure():
+    """Put the UTF-8 plugin next to the RCON mod if it is missing or stale. It loads on the
+    next server start; True when a new copy was written."""
+    plugins = Path(VH_SERVER) / "BepInEx" / "plugins"
+    if not RCON_UTF8_SRC.exists() or not (plugins / "AviiNL-rcon").is_dir():
+        return False
+    new = RCON_UTF8_SRC.read_bytes()
+    dst = plugins / RCON_UTF8_DIR / "RconUtf8.dll"
+    have = subprocess.run(["runuser", "-u", "valheim", "--", "sha256sum", "--", str(dst)],
+                          capture_output=True, text=True, timeout=30).stdout.split(" ")[0]
+    if have == hashlib.sha256(new).hexdigest():
+        return False
+    _game_sh(f"mkdir -p {shlex.quote(str(dst.parent))}")
+    _write_as_game(dst, new)
+    _log("admin_tools.utf8", written=True)
+    return True
+
+
+def _rcon_utf8():
+    """Whether the running server loaded the plugin: BepInEx rewrites its log on every start."""
+    try:
+        return "rcon reads UTF-8" in _read_as_game(Path(VH_SERVER) / "BepInEx" / "LogOutput.log")
+    except Exception:
+        return False
+
+
 def _ingame(text):
-    """Valheim's font has no Polish letters - they arrive as question marks - so anything
-    headed for a player's screen is folded to ASCII first. Only the message text: a player
+    """Text headed for a player's screen. Without the UTF-8 plugin loaded, Polish letters are
+    folded to ASCII (plain letters beat question marks). Only the message text: a player
     named Michał has to stay Michał or the command finds nobody. The panel's own history
     keeps the original, because that one is read in a browser."""
-    text = text.replace("ł", "l").replace("Ł", "L")
-    text = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    if not _rcon_utf8():
+        text = text.replace("ł", "l").replace("Ł", "L")
+        text = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
     for a, b in (("—", "-"), ("–", "-"), ("„", '"'), ("”", '"'), ("’", "'"), ("…", "...")):
         text = text.replace(a, b)
     return text
+
+
+CENTER_REPEATS, CENTER_GAP = 3, 2.5
+
+
+def _show(command, where):
+    """Send a message command. A centre message is drawn at full strength and faded out over
+    4 s (MessageHud.ShowMessage, fixed in the client), too short to read - so it is sent again
+    every 2.5 s, which keeps it up about three times as long. The first send reports errors;
+    the repeats run in the background and give up quietly."""
+    out = _rcon(command)
+    if where == "center":
+        def again(n):
+            try:
+                _rcon(command)
+            except Exception:
+                return
+            if n > 1:
+                threading.Timer(CENTER_GAP, again, (n - 1,)).start()
+        threading.Timer(CENTER_GAP, again, (CENTER_REPEATS,)).start()
+    return out
 
 
 def _admin_tools_state():
@@ -1933,6 +2017,7 @@ def admin_tools_setup():
     Path(VH_RCON_ENV).chmod(0o600)
     _sh(f"chown valheim:valheim {VH_RCON_ENV}")
     os.environ["RCON_PORT"], os.environ["RCON_PASS"] = str(port), pw
+    _rcon_utf8_ensure()                                   # loads with the restart below
     _sh_ok("systemctl restart valheim", timeout=240)
     _log("admin_tools.setup", port=port)
     return {"ok": True, "port": int(port)}
@@ -1958,9 +2043,9 @@ def say(p: Say):
         raise HTTPException(400, "Keep it under 200 characters")
     where = p.where if p.where in ("center", "side") else "center"
     if p.players.strip():
-        out = _rcon(f'message {p.players.strip()} {where} {_ingame(_signed(text))}')
+        out = _show(f'message {p.players.strip()} {where} {_ingame(_signed(text))}', where)
     else:
-        out = _rcon(f"broadcast {where} {_ingame(_signed(text))}")
+        out = _show(f"broadcast {where} {_ingame(_signed(text))}", where)
     _say_log({"t": int(time.time()), "text": text, "where": where,
               "to": p.players.strip() or "all", "by": "panel"})
     _log("say", where=where, to=p.players.strip() or "all", chars=len(text))
@@ -1997,7 +2082,7 @@ def _rules():
 
 DEFAULT_RULES = [
     {"id": "dusk", "text": "Zaraz będzie ciemno!", "where": "center",
-     "when": "before_night", "value": 1, "enabled": True},
+     "when": "before_night", "value": 0.8, "enabled": True},       # 0.8 in-game h = 60 s
 ]
 
 
@@ -2162,7 +2247,7 @@ def _greet_tick():
             if not text:
                 continue
             try:
-                _rcon(f"message {name} {r['where']} {_ingame(_signed(text))}")
+                _show(f"message {name} {r['where']} {_ingame(_signed(text))}", r["where"])
                 _say_log({"t": now, "text": text, "where": r["where"], "to": name, "by": r["id"]})
                 _log("say.player", player=name, rule=r["id"], when=r["when"])
             except Exception as e:
@@ -2209,7 +2294,7 @@ def _rules_tick():
         if not text:
             continue
         try:
-            _rcon(f"broadcast {r['where']} {_ingame(_signed(text))}")
+            _show(f"broadcast {r['where']} {_ingame(_signed(text))}", r["where"])
             _say_log({"t": now, "text": text, "where": r["where"], "to": "all", "by": r["id"]})
             _log("say.scheduled", rule=r["id"], when=r["when"])
         except Exception as e:
@@ -3069,7 +3154,7 @@ def _launcher_status_refresh():
         conns = []
         if active:
             try:
-                conns, _h, _c, _cts, _v, _jc = _scan(_sections(_sh(VH_STATUS_SH, timeout=90).stdout).get("log", []))
+                conns, _h, _c, _cts, _v, _jc = _scan(_vh_log())
             except Exception:
                 conns = []
         out = {"name": env["name"], "online": active,
@@ -3542,6 +3627,52 @@ def timer(name: str, state: str):
     _sh_ok(f"systemctl {'enable --now' if state == 'on' else 'disable --now'} {unit}")
     _log("timer." + state, timer=name)
     return {"ok": True}
+
+
+# Local retention and the timer interval. backup.sh reads KEEP from backup.env; the interval
+# is a timer drop-in. /etc is not on the Docker volume, so the drop-in is re-applied at startup.
+VH_BK_ENV = f"{VH_DIR}/backup.env"
+VH_BK_DROPIN = Path("/etc/systemd/system/valheim-backup.timer.d/panel.conf")
+
+
+def _bk_cfg():
+    cfg = {"keep": 30, "hours": 2}
+    try:
+        for ln in Path(VH_BK_ENV).read_text().splitlines():
+            k, _, v = ln.partition("=")
+            if k.lower() in cfg and v.isdigit():
+                cfg[k.lower()] = int(v)
+    except OSError:
+        pass
+    return cfg
+
+
+def _bk_apply_interval(hours):
+    want = f"[Timer]\nOnUnitActiveSec=\nOnUnitActiveSec={hours}h\n"
+    if VH_BK_DROPIN.exists() and VH_BK_DROPIN.read_text() == want:
+        return
+    VH_BK_DROPIN.parent.mkdir(parents=True, exist_ok=True)
+    VH_BK_DROPIN.write_text(want)
+    # reload alone re-times a running timer; a restart drops it to "elapsed" until the next
+    # boot when the backup service has not run since boot (seen on the test LXC)
+    _sh("systemctl daemon-reload")
+
+
+@app.get("/api/valheim/backup-settings")
+def backup_settings_get():
+    return _bk_cfg()
+
+
+@app.post("/api/valheim/backup-settings")
+def backup_settings_set(body: dict = Body(...)):
+    cfg = _bk_cfg()
+    keep, hours = int(body.get("keep", cfg["keep"])), int(body.get("hours", cfg["hours"]))
+    if not (1 <= keep <= 9999 and 1 <= hours <= 168):
+        raise HTTPException(400, "Keep 1-9999, every 1-168 h")
+    _write(VH_BK_ENV, f"KEEP={keep}\nHOURS={hours}\n", own="root:root")
+    _bk_apply_interval(hours)
+    _log("backup.config", keep=keep, hours=hours)
+    return _bk_cfg()
 
 
 # ---------- mods (Thunderstore) ----------
@@ -4298,7 +4429,7 @@ def _public_status():
     active = _sh("systemctl is-active valheim").stdout.strip() == "active"
     started = _sh('date -d "$(systemctl show valheim -p ActiveEnterTimestamp --value)" +%s 2>/dev/null || echo 0').stdout.strip()
     ver = _sh("journalctl -u valheim -n 2000 --no-pager -o cat | grep -m1 -oP 'Valheim version: \\K\\S+' | tail -1").stdout.strip()
-    conns, _h, _c, _cts, _v, _jc = _scan(_sections(_sh(VH_STATUS_SH, timeout=90).stdout).get("log", []))
+    conns, _h, _c, _cts, _v, _jc = _scan(_vh_log())
     out = {"name": env["name"], "world": env["world"], "active": active,
            "crossplay": env["crossplay"], "note": cfg.get("note") or None,
            "uptime": (int(time.time()) - int(started)) if active and started.isdigit() and int(started) else None}
@@ -4551,7 +4682,7 @@ def link_test(force: bool = False):
     people are playing unless you say force, because it pushes 200 MB through their line."""
     if not force:
         sec = _sections(_sh(VH_STATUS_SH, timeout=90).stdout)
-        conns, *_ = _scan(sec.get("log", []))
+        conns, *_ = _scan(_vh_log())
         if conns:
             raise HTTPException(409, f"{len(conns)} playing — a throughput test moves 200 MB "
                                      "through the same line. Retry when the server is empty, "
@@ -4967,6 +5098,10 @@ def _tick():
 
 @app.on_event("startup")
 async def _start_watcher():
+    try:
+        _bk_apply_interval(_bk_cfg()["hours"])
+    except Exception as e:
+        _log("backup.interval", ok=False, error=f"{type(e).__name__}: {e}"[:200])
     async def run():
         import asyncio
         while True:
@@ -4994,6 +5129,10 @@ async def _start_watcher():
         _retire_default_password()
     except Exception as e:
         _log("panel.retire_error", ok=False, error=str(e)[:120])
+    try:
+        _rcon_utf8_ensure()          # an upgraded panel: in effect from the next server restart
+    except Exception as e:
+        _log("admin_tools.utf8_error", ok=False, error=str(e)[:120])
     try:
         _panel_updated_notice()
     except Exception as e:

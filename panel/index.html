@@ -268,6 +268,11 @@
 
     <div class="pane" id="t-backups">
       <div class="row"><div class="muted" id="vh-bk-note">—</div><div id="vh-timers" style="display:flex;gap:14px"></div></div>
+      <div class="add" style="margin-top:10px" id="bk-box" data-guard>
+        <span class="muted">Every</span><input id="bk-hours" type="number" min="1" max="168" style="max-width:80px" aria-label="hours"><span class="muted">h · keep</span>
+        <input id="bk-keep" type="number" min="1" max="9999" style="max-width:90px" aria-label="backups kept"><span class="muted">local backups</span>
+        <button class="mini" id="bk-save">Save</button>
+      </div>
       <div class="row" style="margin-top:10px"><div class="muted" id="vh-verify-msg">The newest backup is opened and read once a day.</div>
         <button class="mini" id="vh-verify">Verify the newest now</button></div>
       <table style="margin-top:10px"><thead><tr><th>Backup</th><th>Date</th><th class="r">Size</th><th class="r">Actions</th></tr></thead>
@@ -530,7 +535,7 @@
         <tbody id="say-rules"></tbody></table>
         <div class="add" style="margin-top:8px">
           <input id="nr-text" placeholder="message text" maxlength="200">
-          <select id="nr-when"><option value="before_night">in-game hours before nightfall</option>
+          <select id="nr-when"><option value="before_night">in-game hours before nightfall (1 = 75 s, 0.8 = 1 min)</option>
             <option value="ingame_at">at in-game hour</option><option value="every">every N real minutes</option>
             <option value="on_join">when a player joins — leave the text empty for a random Viking greeting</option>
             <option value="after_join">N minutes after joining — leave the text empty for a random Valheim joke</option></select>
@@ -717,6 +722,7 @@ const I18N={
  "1. On the target, save":"1. Na maszynie docelowej zapisz","from the repository as":"z repozytorium jako","and make it executable.":"i nadaj prawo wykonania.",
  "2. Add this line to":"2. Dopisz tę linię do","there:":"na tamtej maszynie:",
  "not set up":"nieskonfigurowana","failing":"nie działa","last copy":"ostatnia kopia","on the target":"na celu","nothing sent yet":"nic jeszcze nie wysłano",
+ "Every":"Co","h · keep":"h · trzymaj","local backups":"lokalnych kopii",
  "The target answers":"Cel odpowiada","free":"wolnego","Sent":"Wysłano",
  "Docker install — update in the folder with docker-compose.yml:":"Instalacja Docker — zaktualizuj w katalogu z docker-compose.yml:",
  "Channel":"Kanał","stable — a release installs itself 48 h after it is out":"stable — wydanie instaluje się samo 48 h po publikacji",
@@ -796,7 +802,7 @@ const I18N={
  "Warn when free disk drops below (GB)":"Ostrzeż, gdy wolnego miejsca będzie mniej niż (GB)",
  "middle of the screen":"środek ekranu","corner":"róg ekranu",
  "Send":"Wyślij","Add":"Dodaj","Text":"Treść","Value":"Wartość","Where":"Gdzie","When":"Kiedy","On":"Wł.",
- "in-game hours before nightfall":"godzin w grze przed zmierzchem","at in-game hour":"o godzinie w grze",
+ "in-game hours before nightfall (1 = 75 s, 0.8 = 1 min)":"godzin w grze przed zmierzchem (1 = 75 s, 0,8 = 1 min)","at in-game hour":"o godzinie w grze",
  "every N real minutes":"co N realnych minut",
  "Sent":"Wysłane","Remove it":"Usuń mapę",
  "message text":"treść komunikatu","It\'ll be dark soon!":"Zaraz będzie ciemno!","ModName":"NazwaModa",
@@ -1040,7 +1046,7 @@ $("tabs").querySelectorAll("a").forEach(a=>a.onclick=()=>{
   if(a.dataset.pane==="t-mods")vhMods();
   if(a.dataset.pane==="t-cfg")vhCfgList();
   if(a.dataset.pane==="t-alerts")vhAlerts();
-  if(a.dataset.pane==="t-backups")osLoad();
+  if(a.dataset.pane==="t-backups"){osLoad();bkLoad();}
 });
 
 const LIST_LABEL={admin:"Admins (in-game console)",banned:"Banned",permitted:"Allowlist"};
@@ -2175,6 +2181,15 @@ document.querySelectorAll("[data-logsrc]").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("[data-logsrc]").forEach(x=>x.classList.toggle("primary",x===b));
   vhLog();
 });
+async function bkLoad(){
+  try{const d=await jf("/api/valheim/backup-settings");
+    if(!editing($("bk-box"))){$("bk-hours").value=d.hours;$("bk-keep").value=d.keep;}}catch(e){toast(e.message,"bad");}
+}
+$("bk-save").onclick=async()=>{
+  try{await jf("/api/valheim/backup-settings",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({hours:+$("bk-hours").value||2,keep:+$("bk-keep").value||30})});
+    clean($("bk-box"));toast(t("Saved"),"ok");bkLoad();}catch(e){toast(e.message,"bad");}
+};
 async function osLoad(){
   try{
     const d=await jf("/api/valheim/offsite");

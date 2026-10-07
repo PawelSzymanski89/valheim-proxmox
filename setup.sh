@@ -153,7 +153,10 @@ fi
 
 ts=$(date +%Y%m%d-%H%M%S)
 tar czf "$DST/world-$ts.tar.gz" -C "$SRC" . 2>/dev/null && echo "backup world-$ts.tar.gz"
-ls -1t "$DST"/world-*.tar.gz 2>/dev/null | tail -n +31 | xargs -r rm -f
+# how many to keep is set in the panel (backup.env, root-owned); 30 when unset or garbled
+KEEP=$(sed -n 's/^KEEP=\([0-9][0-9]*\)$/\1/p' /opt/valheim/backup.env 2>/dev/null)
+[ "${KEEP:-0}" -ge 1 ] 2>/dev/null || KEEP=30
+ls -1t "$DST"/world-*.tar.gz 2>/dev/null | tail -n +$((KEEP + 1)) | xargs -r rm -f
 EOF
 
 cat >"$VH_DIR/update.sh" <<'EOF'
@@ -199,9 +202,10 @@ chmod +x "$VH_DIR"/{start.sh,backup.sh,update.sh}
 # ---------- panel ----------
 say "Installing the admin panel (FastAPI in its own venv)"
 # everything panel-update.sh fetches too - one list, so an install and an update never differ
-PANEL_FILES_="app.py icon_badge.py index.html login.html icon.svg greetings.json jokes.json requirements.txt VERSION panel-update.sh"
+PANEL_FILES_="app.py icon_badge.py index.html login.html icon.svg greetings.json jokes.json requirements.txt VERSION panel-update.sh rcon-utf8/RconUtf8.dll"
 for f in $PANEL_FILES_; do
-  if [ -f "$0" ] && [ -d "$(dirname "$0")/panel" ]; then cp "$(dirname "$0")/panel/$f" "$VH_DIR/panel/"
+  mkdir -p "$VH_DIR/panel/$(dirname "$f")"
+  if [ -f "$0" ] && [ -d "$(dirname "$0")/panel" ]; then cp "$(dirname "$0")/panel/$f" "$VH_DIR/panel/$f"
   else curl -fsSL "$REPO_RAW/panel/$f" -o "$VH_DIR/panel/$f"; fi
 done
 mv "$VH_DIR/panel/panel-update.sh" "$VH_DIR/panel-update.sh"
@@ -340,7 +344,7 @@ EOF
 
 cat >/etc/systemd/system/valheim-backup.timer <<'EOF'
 [Unit]
-Description=Valheim world backup every 2h
+Description=Valheim world backup (interval: panel, Backups)
 [Timer]
 OnBootSec=10min
 OnUnitActiveSec=2h
