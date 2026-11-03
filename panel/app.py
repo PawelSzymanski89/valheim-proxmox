@@ -4782,10 +4782,10 @@ def _load_watch():
             WATCH["hot"][key] = None
             continue
         since = WATCH["hot"].get(key)
-        if since is None:
+        # while held the run starts over, so "for N min" counts from when someone is on
+        if since is None or _held_for_players(cfg, "load_high"):
             WATCH["hot"][key] = now
-        elif (now - since >= need and now - WATCH["hot_warned"].get(key, 0) > 1800
-              and not _held_for_players(cfg, "load_high")):
+        elif now - since >= need and now - WATCH["hot_warned"].get(key, 0) > 1800:
             WATCH["hot_warned"][key] = now
             _notify("load_high", f"{label} at {v}%",
                     f"{label} has stayed at or above {lim}% for {max(1, round((now - since) / 60))} min. "
