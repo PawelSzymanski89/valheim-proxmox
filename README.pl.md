@@ -420,7 +420,8 @@ gdyby wyciekła.
 Każdy alert to osobny przełącznik: **serwer padł / wstał**, **gracz wszedł / wyszedł**, **kopia się
 nie udała**, **kończy się dysk**, **jest aktualizacja na Steamie**, **ktoś zalogował się do
 panelu**, **nie udała się instalacja moda**, **zaplanowany restart**. Własny serwer ntfy też
-działa — podajesz adres i token.
+działa — podajesz adres i token. Wiadomości, które serwer pisze sam, idą w języku ustawionym
+w panelu (PL / EN).
 
 Temat i serwer leżą w `panel.env` (600) obok logowania — ten sam podział, co w reszcie tego
 homelaba: sekrety w pliku env, „co wysyłać" w `alerts.json`.

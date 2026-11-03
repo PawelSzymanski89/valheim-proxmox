@@ -419,7 +419,7 @@ click if it leaks.
 Each alert is a separate switch: **server stopped / came back**, **player joined / left**,
 **backup failed**, **disk almost full**, **game update on Steam**, **someone signed in to the
 panel**, **mod install failed**, **scheduled restart**. A private ntfy server works too — set the
-URL and a token.
+URL and a token. Messages the server writes on its own follow the panel's PL / EN switch.
 
 The topic and server live in `panel.env` (600) next to the login, the same split the rest of this
 homelab uses: secrets in the env file, "what to send" in `alerts.json`.

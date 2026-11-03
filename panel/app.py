@@ -2171,6 +2171,10 @@ def _lang():
         return "en"
 
 
+def _tr(en, pl):
+    return pl if _lang() == "pl" else en
+
+
 @app.get("/api/panel/lang")
 def lang_get():
     return {"lang": _lang()}
@@ -4615,8 +4619,9 @@ def alerts_test():
     cfg = _alerts_cfg()
     if not cfg["ntfy"].get("topic"):
         raise HTTPException(400, "Set a topic first")
-    ok = _notify("__test__", "Valheim — panel serwera",
-                 "Testowe powiadomienie. Jeśli to widzisz, alerty działają. ąćęłńóśżź",
+    ok = _notify("__test__", _tr("Server panel", "Panel serwera"),
+                 _tr("Test notification. If you can see this, alerts work.",
+                     "Testowe powiadomienie. Jeśli to widzisz, alerty działają. ąćęłńóśżź"),
                  tags="white_check_mark")
     if not ok:
         raise HTTPException(502, "ntfy did not accept the message — check the server, topic and token")
@@ -5049,10 +5054,13 @@ def _tick():
             pass
         if up_for > 2 * 3600 and now - last > 3 * 3600:
             _save_json(VH_MEM_GUARD, {"last": now, "mem": LIVE["mem"]})
-            _notify("maintenance", "Restart na pamięci",
-                    f"Pamięć {LIVE['mem']}% przy progu {mem_pct}% "
-                    f"({len((_mods_state().get('mods') or {}))} modów), nikt nie grał, "
-                    f"serwer działał {round(up_for / 3600, 1)} h — restartuję.",
+            mods, hours = len((_mods_state().get('mods') or {})), round(up_for / 3600, 1)
+            _notify("maintenance", _tr("Memory restart", "Restart na pamięci"),
+                    _tr(f"Memory at {LIVE['mem']}% against a {mem_pct}% threshold "
+                        f"({mods} mods), nobody playing, server up {hours} h — restarting.",
+                        f"Pamięć {LIVE['mem']}% przy progu {mem_pct}% "
+                        f"({mods} modów), nikt nie grał, "
+                        f"serwer działał {hours} h — restartuję."),
                     tags="repeat")
             _log("maintenance.restart_mem", mem=LIVE["mem"], limit=mem_pct,
                  up_hours=round(up_for / 3600, 1))
