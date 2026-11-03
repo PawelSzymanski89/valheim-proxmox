@@ -4574,7 +4574,8 @@ def alerts_get():
 def alerts_set(body: dict = Body(...)):
     cfg = json.loads(json.dumps(ALERTS_DEFAULT))
     try:
-        cfg.update({k: v for k, v in json.loads(VH_ALERTS.read_text()).items() if k in cfg})
+        cfg.update({k: v for k, v in json.loads(VH_ALERTS.read_text()).items()
+                    if k in cfg and (isinstance(v, dict) or not isinstance(cfg[k], dict))})
     except Exception:
         pass
     n = body.get("ntfy") or {}
@@ -4596,7 +4597,8 @@ def alerts_set(body: dict = Body(...)):
     for k, v in (body.get("events") or {}).items():
         if k in ALERT_EVENTS:
             cfg["events"][k] = bool(v)
-    for k, v in (body.get("playing_only") or {}).items():
+    po = body.get("playing_only")
+    for k, v in (po if isinstance(po, dict) else {}).items():
         if k in ALERTS_DEFAULT["playing_only"]:
             cfg["playing_only"][k] = bool(v)
     s = body.get("schedule") or {}
