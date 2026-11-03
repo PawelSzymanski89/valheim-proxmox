@@ -420,8 +420,8 @@ gdyby wyciekła.
 Każdy alert to osobny przełącznik: **serwer padł / wstał**, **gracz wszedł / wyszedł**, **kopia się
 nie udała**, **kończy się dysk**, **jest aktualizacja na Steamie**, **ktoś zalogował się do
 panelu**, **nie udała się instalacja moda**, **zaplanowany restart**. Własny serwer ntfy też
-działa — podajesz adres i token. Wiadomości, które serwer pisze sam, idą w języku ustawionym
-w panelu (PL / EN).
+działa — podajesz adres i token. Wiadomość testowa i powiadomienie o restarcie z powodu pamięci
+idą w języku ustawionym w panelu (PL / EN); pozostałe alerty są po angielsku.
 **Procesor lub pamięć na maksimum**, **łącze się pogorszyło** i **kończy się dysk** można
 ograniczyć do **tylko gdy ktoś gra**.
 

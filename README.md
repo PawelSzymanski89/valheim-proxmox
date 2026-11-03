@@ -419,7 +419,8 @@ click if it leaks.
 Each alert is a separate switch: **server stopped / came back**, **player joined / left**,
 **backup failed**, **disk almost full**, **game update on Steam**, **someone signed in to the
 panel**, **mod install failed**, **scheduled restart**. A private ntfy server works too — set the
-URL and a token. Messages the server writes on its own follow the panel's PL / EN switch.
+URL and a token. The test message and the memory-restart notice follow the panel's PL / EN
+switch; every other alert is sent in English.
 **CPU or memory pegged**, **connection degraded** and **disk almost full** can be limited to
 **only while someone is playing**.
 
