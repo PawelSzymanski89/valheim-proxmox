@@ -4305,9 +4305,10 @@ ALERTS_DEFAULT = {
 }
 
 
-def _held_for_players(cfg, event):
+def _held_for_players(cfg, event, online=None):
     # checked before the cooldown is set, so a skipped alert does not use it up
-    return bool((cfg.get("playing_only") or {}).get(event)) and not WATCH["online"]
+    return bool((cfg.get("playing_only") or {}).get(event)) and not (
+        WATCH["online"] if online is None else online)
 
 
 def _ensure_topic():
@@ -4776,6 +4777,8 @@ def _load_watch():
     except Exception:
         return
     lim, need = sch.get("load_pct", 95), max(10, int(float(sch.get("load_minutes", 1)) * 60))
+    # WATCH["online"] is a minute old; the incremental log read is the same source status() uses
+    online = _scan(_vh_log())[0] if (cfg.get("playing_only") or {}).get("load_high") else None
     for key, label in (("cpu", "CPU"), ("mem", "Memory")):
         v, now = LIVE.get(key), LIVE["t"]
         if v is None or v < lim:
@@ -4783,7 +4786,7 @@ def _load_watch():
             continue
         since = WATCH["hot"].get(key)
         # while held the run starts over, so "for N min" counts from when someone is on
-        if since is None or _held_for_players(cfg, "load_high"):
+        if since is None or _held_for_players(cfg, "load_high", online):
             WATCH["hot"][key] = now
         elif now - since >= need and now - WATCH["hot_warned"].get(key, 0) > 1800:
             WATCH["hot_warned"][key] = now
