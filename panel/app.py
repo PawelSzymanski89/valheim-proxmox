@@ -4977,7 +4977,9 @@ def _tick():
     try:
         link = _link_state()
         sch = cfg["schedule"]
-        ping_blocked = bool(now_on) and sch.get("ping_when_empty", False)
+        # an alert that waits for players needs the ping that runs while they play
+        ping_blocked = (bool(now_on) and sch.get("ping_when_empty", False)
+                        and not (cfg.get("playing_only") or {}).get("link_bad"))
         if not ping_blocked and now - link.get("last_ping", 0) >= sch.get("link_minutes", 60) * 60:
             p = _ping()
             link["ping"], link["last_ping"] = p, now
