@@ -645,6 +645,7 @@ const I18N={
  "What to send":"Co wysyłać",
  "Scheduled restart":"Zaplanowany restart",
  "wait for an empty server":"poczekaj aż serwer będzie pusty",
+ "only while someone is playing":"tylko gdy ktoś gra",
  "on":"włączone",
  "open in browser":"otwórz w przeglądarce",
  "New topic":"Nowy temat",
@@ -2002,15 +2003,21 @@ async function vhAlerts(){
                     :"With "+a.mem_mods+" mods that makes <b>"+a.mem_limit+"%</b>.")
       : t("Off.");
     $("al-sub").href=a.subscribe_url||"#";$("al-sub").textContent=a.subscribe_url||"";
+    const po=a.playing_only||{};
     $("al-events").innerHTML=Object.entries(a.labels).map(([k,label])=>
       `<div class="stat"><label style="display:flex;gap:8px;align-items:center">
-        <input type="checkbox" data-ev="${k}" ${a.events[k]?"checked":""}> ${t(label)}</label></div>`).join("");
+        <input type="checkbox" data-ev="${k}" ${a.events[k]?"checked":""}> ${t(label)}</label>${k in po?`
+        <label class="muted" style="display:flex;gap:8px;align-items:center;margin:6px 0 0 24px;font-size:12px">
+        <input type="checkbox" data-po="${k}" ${po[k]?"checked":""} ${a.events[k]?"":"disabled"}> ${t("only while someone is playing")}</label>`:""}</div>`).join("");
+    document.querySelectorAll("[data-po]").forEach(c=>{
+      const ev=document.querySelector(`[data-ev="${c.dataset.po}"]`);ev.onchange=()=>c.disabled=!ev.checked;});
     $("al-err").textContent="";
   }catch(e){$("al-err").textContent=e.message;}
 }
 function alBody(){
   const events={};document.querySelectorAll("[data-ev]").forEach(c=>events[c.dataset.ev]=c.checked);
-  return {enabled:$("al-enabled").checked,events,
+  const playing_only={};document.querySelectorAll("[data-po]").forEach(c=>playing_only[c.dataset.po]=c.checked);
+  return {enabled:$("al-enabled").checked,events,playing_only,
     ntfy:{topic:$("al-topic").value.trim(),server:$("al-server").value.trim()||"https://ntfy.sh",
           token:$("al-token").value},
     schedule:{restart_at:$("al-at").value.trim(),only_when_empty:$("al-empty").checked,

@@ -422,6 +422,8 @@ nie udała**, **kończy się dysk**, **jest aktualizacja na Steamie**, **ktoś z
 panelu**, **nie udała się instalacja moda**, **zaplanowany restart**. Własny serwer ntfy też
 działa — podajesz adres i token. Wiadomości, które serwer pisze sam, idą w języku ustawionym
 w panelu (PL / EN).
+**Procesor lub pamięć na maksimum**, **łącze się pogorszyło** i **kończy się dysk** można
+ograniczyć do **tylko gdy ktoś gra**.
 
 Temat i serwer leżą w `panel.env` (600) obok logowania — ten sam podział, co w reszcie tego
 homelaba: sekrety w pliku env, „co wysyłać" w `alerts.json`.

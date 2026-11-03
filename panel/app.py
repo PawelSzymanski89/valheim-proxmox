@@ -4301,7 +4301,13 @@ ALERTS_DEFAULT = {
                  # slow climb above that counts as memory running away.
                  # A base of 0 turns the whole thing off.
                  "restart_mem_base": 45, "restart_mem_per_mod": 0.5},
+    "playing_only": {"load_high": False, "link_bad": False, "disk_low": False},
 }
+
+
+def _held_for_players(cfg, event):
+    # checked before the cooldown is set, so a skipped alert does not use it up
+    return bool((cfg.get("playing_only") or {}).get(event)) and not WATCH["online"]
 
 
 def _ensure_topic():
@@ -4589,6 +4595,9 @@ def alerts_set(body: dict = Body(...)):
     for k, v in (body.get("events") or {}).items():
         if k in ALERT_EVENTS:
             cfg["events"][k] = bool(v)
+    for k, v in (body.get("playing_only") or {}).items():
+        if k in ALERTS_DEFAULT["playing_only"]:
+            cfg["playing_only"][k] = bool(v)
     s = body.get("schedule") or {}
     if "restart_at" in s:
         if s["restart_at"] and not re.match(r"^([01]\d|2[0-3]):[0-5]\d\Z", s["restart_at"]):
@@ -4762,7 +4771,8 @@ def _load_watch():
     which players feel as rubber-banding long before anything crashes. Ten-second samples
     make the difference visible, so the alert waits for the run rather than the spike."""
     try:
-        sch = _alerts_cfg()["schedule"]
+        cfg = _alerts_cfg()
+        sch = cfg["schedule"]
     except Exception:
         return
     lim, need = sch.get("load_pct", 95), max(10, int(float(sch.get("load_minutes", 1)) * 60))
@@ -4774,7 +4784,8 @@ def _load_watch():
         since = WATCH["hot"].get(key)
         if since is None:
             WATCH["hot"][key] = now
-        elif now - since >= need and now - WATCH["hot_warned"].get(key, 0) > 1800:
+        elif (now - since >= need and now - WATCH["hot_warned"].get(key, 0) > 1800
+              and not _held_for_players(cfg, "load_high")):
             WATCH["hot_warned"][key] = now
             _notify("load_high", f"{label} at {v}%",
                     f"{label} has stayed at or above {lim}% for {max(1, round((now - since) / 60))} min. "
@@ -4970,7 +4981,8 @@ def _tick():
         if not ping_blocked and now - link.get("last_ping", 0) >= sch.get("link_minutes", 60) * 60:
             p = _ping()
             link["ping"], link["last_ping"] = p, now
-            if p and ((p.get("loss") or 0) > 10 or p["avg"] > 150):
+            if (p and ((p.get("loss") or 0) > 10 or p["avg"] > 150)
+                    and not _held_for_players(cfg, "link_bad")):
                 _notify("link_bad", "Connection degraded",
                         f"{p['avg']} ms, {p.get('loss')}% packet loss — players will feel this.",
                         priority="high", tags="signal_strength")
@@ -5008,7 +5020,8 @@ def _tick():
     # disk, warned once a day at most
     d = s.get("disk") or {}
     warn_gb = cfg["schedule"].get("disk_warn_gb", 3)
-    if d and d["avail"] < warn_gb * 2**30 and now - WATCH["disk_warned"] > 86400:
+    if (d and d["avail"] < warn_gb * 2**30 and now - WATCH["disk_warned"] > 86400
+            and not _held_for_players(cfg, "disk_low")):
         WATCH["disk_warned"] = now
         _notify("disk_low", "Disk almost full",
                 f"{round(d['avail'] / 2**30, 1)} GB left. Backups stop being written long before it hits zero.",
